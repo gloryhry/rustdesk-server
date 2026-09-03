@@ -99,6 +99,10 @@ impl AuthService {
         })
     }
 
+    pub fn db(&self) -> Database {
+        self.db.clone()
+    }
+
     pub async fn ensure_bootstrap_admin(
         &self,
         username: &str,
@@ -277,7 +281,33 @@ impl AuthService {
         })
     }
 
-    pub async fn revoke_session(&self, user_id: &str, session_id: &str) -> Result<(), AuthError> {
+    pub async fn change_password(&self, user_id: &str, password: &str) -> Result<(), AuthError> {
+        validate_password(password)?;
+        let permit = self
+            .password_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| AuthError::Busy)?;
+        let password = password.to_owned();
+        let password_hash = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            bcrypt::hash(password, BCRYPT_COST)
+        })
+        .await
+        .map_err(|_| AuthError::Internal)?
+        .map_err(|_| AuthError::Internal)?;
+        self.db
+            .update_api_user_password(user_id, &password_hash)
+            .await
+            .map_err(|_| AuthError::Internal)?;
+        self.revoke_all(user_id).await
+    }
+
+    pub async fn revoke_session(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> Result<(), AuthError> {
         self.db
             .revoke_api_session(session_id, user_id, crate::common::now() as i64)
             .await

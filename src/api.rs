@@ -78,6 +78,12 @@ pub struct UserIdRequest {
     pub id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PasswordChangeRequest {
+    pub id: String,
+    pub password: String,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct AdminUserResponse {
     pub id: String,
@@ -116,6 +122,7 @@ pub fn build_router(
         .route("/api/admin/user/list", get(admin_user_list))
         .route("/api/admin/user/create", post(admin_user_create))
         .route("/api/admin/user/update", post(admin_user_status))
+        .route("/api/admin/user/changePwd", post(admin_user_password))
         .route("/api/admin/user/delete", post(admin_user_delete))
         .route("/api/logout", post(logout))
         .route("/api/admin/logout", post(admin_logout))
@@ -297,6 +304,24 @@ async fn admin_user_create(
     }
 }
 
+async fn admin_user_password(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<PasswordChangeRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    match state.auth.change_password(&request.id, &request.password).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Err(err) => auth_error_response(err, false),
+    }
+}
+
 async fn admin_user_status(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
@@ -450,6 +475,7 @@ async fn logout_authorized(state: &ApiState, principal: Principal) -> Response {
     }
 }
 
+async fn server_config(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
 ) -> Response {

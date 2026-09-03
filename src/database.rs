@@ -153,15 +153,88 @@ impl Database {
         sqlx::query("create index if not exists index_api_session_user on api_session (user_id)")
             .execute(conn.deref_mut())
             .await?;
-        sqlx::query("create index if not exists index_api_session_expiry on api_session (expires_at)")
-            .execute(conn.deref_mut())
-            .await?;
         sqlx::query(
             "
             create table if not exists api_address_book_snapshot (
                 user_id text primary key not null,
                 data text not null,
                 updated_at datetime not null default(current_timestamp),
+                foreign key(user_id) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query(
+            "
+            create table if not exists api_user_group (
+                id text primary key not null,
+                name text not null,
+                created_by text not null,
+                created_at datetime not null default(current_timestamp),
+                unique(created_by, name),
+                foreign key(created_by) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query(
+            "
+            create table if not exists api_user_group_member (
+                group_id text not null,
+                user_id text not null,
+                created_at datetime not null default(current_timestamp),
+                primary key(group_id, user_id),
+                foreign key(group_id) references api_user_group(id) on delete cascade,
+                foreign key(user_id) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query(
+            "
+            create table if not exists api_device_group (
+                id text primary key not null,
+                name text not null,
+                created_by text not null,
+                created_at datetime not null default(current_timestamp),
+                unique(created_by, name),
+                foreign key(created_by) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query(
+            "
+            create table if not exists api_device_group_member (
+                group_id text not null,
+                peer_guid blob not null,
+                created_at datetime not null default(current_timestamp),
+                primary key(group_id, peer_guid),
+                foreign key(group_id) references api_device_group(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query(
+            "
+            create table if not exists api_address_book_entry (
+                id text primary key not null,
+                user_id text not null,
+                peer_id text not null default '',
+                username text not null default '',
+                hostname text not null default '',
+                alias text not null default '',
+                platform text not null default '',
+                tags text not null default '[]',
+                force_always_relay integer not null default 0,
+                created_at datetime not null default(current_timestamp),
+                updated_at datetime not null default(current_timestamp),
+                unique(user_id, peer_id),
                 foreign key(user_id) references api_user(id) on delete cascade
             )
             "
@@ -282,6 +355,15 @@ impl Database {
         )
         .fetch_all(self.pool.get().await?.deref_mut())
         .await?)
+    }
+
+    pub async fn update_api_user_password(&self, id: &str, password_hash: &str) -> ResultType<()> {
+        sqlx::query("update api_user set password_hash = ?, updated_at = current_timestamp where id = ?")
+            .bind(password_hash)
+            .bind(id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
     }
 
     pub async fn set_api_user_status(&self, id: &str, status: i64) -> ResultType<()> {
