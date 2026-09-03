@@ -34,7 +34,8 @@ Four executables will be generated in target/release:
 - rustdesk-api - Optional HTTP API server for user accounts and Personal API compatibility
 - rustdesk-utils - RustDesk CLI utilities
 
-You can find updated binaries on the [Releases](https://github.com/rustdesk/rustdesk-server/releases) page.
+See [`web/README.md`](web/README.md) to build the Web Admin/Web Client. Set `API_WEB_ROOT` to the resulting `web/dist` directory when serving the pages from `rustdesk-api`; container builds package the frontend into the s6 image automatically.
+
 
 ## Configuration
 
