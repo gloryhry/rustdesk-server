@@ -8,6 +8,8 @@ Minimal standalone Vite frontend for the compatible RustDesk HTTP API.
 - Current-user details
 - Personal address-book JSON editor
 - Administrator user list
+- Authenticated device list
+- Authenticated user-group list
 - `zh-CN` and `en-US` locale toggle
 
 The frontend uses these API endpoints:
@@ -17,6 +19,8 @@ The frontend uses these API endpoints:
 - `GET /api/currentUser`
 - `GET` and `POST /api/ab`
 - `GET /api/admin/user/list`
+- `GET /api/devices`
+- `GET /api/groups`
 - `POST /api/logout`
 
 ## Development

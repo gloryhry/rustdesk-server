@@ -17,6 +17,8 @@ const messages = {
     profile: '当前用户',
     addressBook: '地址簿',
     users: '用户管理',
+    devices: '设备',
+    groups: '用户组',
     logout: '退出登录',
     refresh: '刷新',
     save: '保存',
@@ -30,6 +32,10 @@ const messages = {
     disabled: '禁用',
     createdAt: '创建时间',
     noUsers: '暂无用户',
+    noDevices: '暂无设备',
+    noGroups: '暂无用户组',
+    uuid: '设备 UUID',
+    platform: '平台',
     invalidJson: '地址簿必须是有效的 JSON 对象',
     saved: '地址簿已保存',
     registered: '注册成功，请登录',
@@ -66,6 +72,10 @@ const messages = {
     disabled: 'Disabled',
     createdAt: 'Created',
     noUsers: 'No users found',
+    noDevices: 'No devices found',
+    noGroups: 'No groups found',
+    uuid: 'Device UUID',
+    platform: 'Platform',
     invalidJson: 'Address book must be a valid JSON object',
     saved: 'Address book saved',
     registered: 'Registration complete. Sign in to continue.',
@@ -87,6 +97,8 @@ const state = {
   authMode: 'login',
   addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
   users: [],
+  devices: [],
+  groups: [],
   busy: false,
   notice: null
 };
@@ -170,12 +182,16 @@ function workspace() {
   const nav = element('nav', 'nav-list');
   nav.append(navButton('profile', t('profile')));
   nav.append(navButton('addressBook', t('addressBook')));
+  nav.append(navButton('devices', t('devices')));
+  nav.append(navButton('groups', t('groups')));
   if (state.user.is_admin) nav.append(navButton('users', t('users')));
   sidebar.append(nav);
   main.append(sidebar);
 
   const content = element('section', 'content');
   if (state.activeView === 'addressBook') content.append(addressBookView());
+  else if (state.activeView === 'devices') content.append(devicesView());
+  else if (state.activeView === 'groups') content.append(groupsView());
   else if (state.activeView === 'users' && state.user.is_admin) content.append(usersView());
   else content.append(profileView());
   main.append(content);
@@ -240,6 +256,54 @@ function usersView() {
   table.append(body);
   tableWrap.append(table);
   view.append(tableWrap);
+  return view;
+}
+
+function devicesView() {
+  const view = viewHeader(t('devices'), [button('refresh-devices', t('refresh'), 'secondary')]);
+  const tableWrap = element('div', 'table-wrap');
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  [t('account'), t('uuid'), t('platform'), t('status')].forEach(label => {
+    headRow.append(element('th', '', label));
+  });
+  head.append(headRow);
+  table.append(head);
+  const body = document.createElement('tbody');
+  if (!state.devices.length) {
+    const row = document.createElement('tr');
+    const cell = element('td', 'empty-cell', t('noDevices'));
+    cell.colSpan = 4;
+    row.append(cell);
+    body.append(row);
+  } else {
+    state.devices.forEach(device => {
+      const row = document.createElement('tr');
+      row.append(element('td', 'strong-cell', device.name || device.id || '—'));
+      row.append(element('td', '', device.uuid || '—'));
+      row.append(element('td', '', [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
+      row.append(element('td', '', Number(device.status) === 1 ? t('enabled') : t('disabled')));
+      body.append(row);
+    });
+  }
+  table.append(body);
+  tableWrap.append(table);
+  view.append(tableWrap);
+  return view;
+}
+
+function groupsView() {
+  const view = viewHeader(t('groups'), [button('refresh-groups', t('refresh'), 'secondary')]);
+  const list = element('div', 'group-list');
+  if (!state.groups.length) list.append(element('p', 'empty-state', t('noGroups')));
+  state.groups.forEach(group => {
+    const item = element('div', 'group-row');
+    item.append(element('strong', '', group.name || '—'));
+    item.append(element('small', '', group.created_at || ''));
+    list.append(item);
+  });
+  view.append(list);
   return view;
 }
 
@@ -326,11 +390,15 @@ function bindEvents() {
     setNotice(null, null);
     render();
     if (state.activeView === 'addressBook') await loadAddressBook();
+    if (state.activeView === 'devices') await loadDevices();
+    if (state.activeView === 'groups') await loadGroups();
     if (state.activeView === 'users') await loadUsers();
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
+  document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
+  document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
 }
 
 async function submitAuth(event) {
@@ -422,6 +490,38 @@ async function saveAddressBook() {
   }
 }
 
+async function loadDevices() {
+  state.busy = true;
+  render();
+  try {
+    const result = await api('/api/devices');
+    const value = result.data?.list || result.data || result.list || result;
+    state.devices = Array.isArray(value) ? value : [];
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function loadGroups() {
+  state.busy = true;
+  render();
+  try {
+    const result = await api('/api/groups');
+    const value = result.data?.list || result.data || result.list || result;
+    state.groups = Array.isArray(value) ? value : [];
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function loadUsers() {
   state.busy = true;
   render();
@@ -479,6 +579,8 @@ function clearSession() {
   state.token = '';
   state.user = null;
   state.users = [];
+  state.devices = [];
+  state.groups = [];
   state.activeView = 'profile';
   sessionStorage.removeItem(TOKEN_KEY);
 }

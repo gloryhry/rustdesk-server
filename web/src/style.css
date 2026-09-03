@@ -370,6 +370,31 @@ tbody tr:last-child td {
   text-align: center;
 }
 
+.group-list {
+  display: grid;
+  gap: 8px;
+}
+
+.group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #d4dbe1;
+  border-radius: 6px;
+}
+
+.group-row small {
+  color: #74818c;
+}
+
+.empty-state {
+  margin: 0;
+  color: #74818c;
+}
+
 .notice {
   position: fixed;
   z-index: 20;
