@@ -72,6 +72,7 @@ pub struct ApiUserGroup {
     pub created_at: String,
 }
 
+impl Database {
     pub async fn new(url: &str) -> ResultType<Database> {
         let n: usize = crate::common::get_arg_or("MAX_DATABASE_CONNECTIONS", "1".to_owned())
             .parse()
