@@ -51,8 +51,53 @@ in the inherited process environment.
 
 🅴 = set through the inherited process environment.
 
-> `PORT_FOR_API` / `KEY_FOR_API` are only used by RustDesk Server **Pro** and its
-> API; they have no effect in the open‑source server.
+> `PORT_FOR_API` / `KEY_FOR_API` remain reserved legacy/Pro integration names.
+> The optional open-source API added here uses the explicit `API_*` settings below.
+
+---
+
+## `rustdesk-api` — optional HTTP API
+
+`rustdesk-api` is a separate process. It provides compatible account login endpoints without changing `hbbs`/`hbbr` connection authorization. A client that has not logged into the API can still register an ID, rendezvous, punch holes, and use the relay under the existing `KEY` rules.
+
+| Variable | Default | Description |
+|---|---|---|
+| `API_ENABLED` | `0` | Set to `1` to start the HTTP listener. The API is opt-in so upgrades do not change existing server behavior. |
+| `API_BIND` | `127.0.0.1` | Address for the HTTP API listener. Use `0.0.0.0` in a container and publish it through a TLS reverse proxy. |
+| `API_PORT` | `21114` | HTTP API port. |
+| `API_JWT_SECRET` | *(required when enabled)* | Signing secret of at least 32 bytes. Do not reuse the RustDesk private key or commit this value. |
+| `API_TOKEN_TTL` | `3600` | Access-token lifetime in seconds. |
+| `API_REGISTER_ENABLED` | `1` | Set to `0` to disable public registration. The first successfully created account becomes administrator. |
+| `API_PUBLIC_URL` | listener URL | Public URL returned to authenticated Web Clients. Set this explicitly behind a proxy. |
+| `RUSTDESK_ID_SERVER` | *(empty)* | ID server address returned by `/api/server-config`. |
+| `RUSTDESK_RELAY_SERVER` | *(empty)* | Relay server address returned by `/api/server-config`. |
+| `RUSTDESK_KEY_FILE` | `id_ed25519.pub` | File containing the public RustDesk server key returned to clients. |
+| `RUSTDESK_KEY` | *(unset)* | Explicit public key override. Never put the private key here. |
+| `DB_URL` | `./db_v2.sqlite3` | Shared SQLite database used by `hbbs` and `rustdesk-api`. |
+
+Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, registration routes, authenticated `GET`/`POST /api/ab`, and authenticated `/api/server-config`/`server-config-v2`. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
+
+Example:
+
+```bash
+export API_ENABLED=1
+export API_JWT_SECRET='replace-with-at-least-32-random-bytes'
+rustdesk-api
+
+curl -X POST http://127.0.0.1:21114/api/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"correct-horse-battery-staple"}'
+
+TOKEN=$(curl -sS -X POST http://127.0.0.1:21114/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"correct-horse-battery-staple","id":"123456789","uuid":"client-uuid","deviceInfo":{"name":"office","os":"Linux","type":"desktop"}}' \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+curl http://127.0.0.1:21114/api/currentUser \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Bearer tokens and browser cookies must be protected by HTTPS in production. API login is optional and does not gate remote-control connections.
 
 ---
 

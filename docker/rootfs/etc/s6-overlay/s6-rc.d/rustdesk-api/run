@@ -1,0 +1,6 @@
+#!/command/with-contenv sh
+cd /data
+if [ "${API_ENABLED}" != "1" ]; then
+  exec sleep 2147483647
+fi
+exec /usr/bin/rustdesk-api

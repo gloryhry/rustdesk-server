@@ -25,10 +25,11 @@ Self-host your own RustDesk server, it is free and open source.
 cargo build --release
 ```
 
-Three executables will be generated in target/release.
+Four executables will be generated in target/release.
 
 - hbbs - RustDesk ID/Rendezvous server
 - hbbr - RustDesk relay server
+- rustdesk-api - Optional HTTP API server for user accounts and Personal API compatibility
 - rustdesk-utils - RustDesk CLI utilities
 
 You can find updated binaries on the [Releases](https://github.com/rustdesk/rustdesk-server/releases) page.

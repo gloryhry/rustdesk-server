@@ -1,0 +1,17 @@
+[Unit]
+Description=RustDesk optional HTTP API server
+After=network.target rustdesk-hbbs.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/rustdesk-server/
+Environment=API_ENABLED=1
+EnvironmentFile=-/etc/rustdesk-server/api.env
+ExecStart=/usr/bin/rustdesk-api
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

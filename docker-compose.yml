@@ -22,6 +22,25 @@ services:
       - hbbr
     restart: unless-stopped
 
+  rustdesk-api:
+    container_name: rustdesk-api
+    profiles: ["api"]
+    ports:
+      - 127.0.0.1:21114:21114
+    image: rustdesk/rustdesk-server:latest
+    command: rustdesk-api
+    environment:
+      - API_ENABLED=1
+      - API_BIND=0.0.0.0
+      - API_JWT_SECRET=${API_JWT_SECRET:?set API_JWT_SECRET to at least 32 random bytes}
+    volumes:
+      - ./data:/root
+    networks:
+      - rustdesk-net
+    depends_on:
+      - hbbs
+    restart: unless-stopped
+
   hbbr:
     container_name: hbbr
     ports:

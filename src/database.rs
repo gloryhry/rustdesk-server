@@ -3,7 +3,7 @@ use hbb_common::{log, ResultType};
 use sqlx::{
     sqlite::SqliteConnectOptions, ConnectOptions, Connection, Error as SqlxError, SqliteConnection,
 };
-use std::{ops::DerefMut, str::FromStr};
+use std::{ops::DerefMut, str::FromStr, time::Duration};
 //use sqlx::postgres::PgPoolOptions;
 //use sqlx::mysql::MySqlPoolOptions;
 
@@ -18,7 +18,10 @@ impl deadpool::managed::Manager for DbPool {
     type Type = SqliteConnection;
     type Error = SqlxError;
     async fn create(&self) -> Result<SqliteConnection, SqlxError> {
-        let mut opt = SqliteConnectOptions::from_str(&self.url).unwrap();
+        let mut opt = SqliteConnectOptions::from_str(&self.url)?
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
         opt.log_statements(log::LevelFilter::Debug);
         SqliteConnection::connect_with(&opt).await
     }
@@ -46,11 +49,23 @@ pub struct Peer {
     pub status: Option<i64>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ApiUser {
+    pub id: String,
+    pub username: String,
+    pub email: String,
+    pub nickname: String,
+    pub avatar: String,
+    pub password_hash: String,
+    pub is_admin: i64,
+    pub status: i64,
+    pub token_version: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 impl Database {
     pub async fn new(url: &str) -> ResultType<Database> {
-        if !std::path::Path::new(url).exists() {
-            std::fs::File::create(url).ok();
-        }
         let n: usize = crate::common::get_arg_or("MAX_DATABASE_CONNECTIONS", "1".to_owned())
             .parse()
             .unwrap_or(1);
@@ -88,6 +103,70 @@ impl Database {
         "
         )
         .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        let mut conn = self.pool.get().await?;
+        sqlx::query(
+            "
+            create table if not exists api_user (
+                id text primary key not null,
+                username text not null collate nocase unique,
+                email text not null default '',
+                nickname text not null default '',
+                avatar text not null default '',
+                password_hash text not null,
+                is_admin integer not null default 0,
+                status integer not null default 1,
+                token_version integer not null default 0,
+                created_at datetime not null default(current_timestamp),
+                updated_at datetime not null default(current_timestamp)
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query("create index if not exists index_api_user_status on api_user (status)")
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query("create index if not exists index_api_user_created_at on api_user (created_at)")
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query(
+            "
+            create table if not exists api_session (
+                id text primary key not null,
+                user_id text not null,
+                device_id text not null default '',
+                device_uuid text not null default '',
+                device_name text not null default '',
+                device_os text not null default '',
+                device_type text not null default '',
+                expires_at integer not null,
+                revoked_at integer,
+                created_at datetime not null default(current_timestamp),
+                last_used_at datetime not null default(current_timestamp),
+                foreign key(user_id) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query("create index if not exists index_api_session_user on api_session (user_id)")
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query("create index if not exists index_api_session_expiry on api_session (expires_at)")
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query(
+            "
+            create table if not exists api_address_book_snapshot (
+                user_id text primary key not null,
+                data text not null,
+                updated_at datetime not null default(current_timestamp),
+                foreign key(user_id) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
         .await?;
         Ok(())
     }
@@ -139,6 +218,144 @@ impl Database {
         )
         .execute(self.pool.get().await?.deref_mut())
         .await?;
+        Ok(())
+    }
+
+    pub async fn get_api_user_by_username(&self, username: &str) -> ResultType<Option<ApiUser>> {
+        Ok(sqlx::query_as::<_, ApiUser>(
+            "select id, username, email, nickname, avatar, password_hash, is_admin, status, token_version, created_at, updated_at from api_user where username = ? collate nocase",
+        )
+        .bind(username)
+        .fetch_optional(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn get_api_user_by_id(&self, id: &str) -> ResultType<Option<ApiUser>> {
+        Ok(sqlx::query_as::<_, ApiUser>(
+            "select id, username, email, nickname, avatar, password_hash, is_admin, status, token_version, created_at, updated_at from api_user where id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn create_api_user(
+        &self,
+        id: &str,
+        username: &str,
+        email: &str,
+        password_hash: &str,
+        make_first_user_admin: bool,
+    ) -> ResultType<()> {
+        sqlx::query(
+            "insert into api_user(id, username, email, password_hash, is_admin) values(?, ?, ?, ?, case when ? = 1 and not exists(select 1 from api_user) then 1 else 0 end)",
+        )
+        .bind(id)
+        .bind(username)
+        .bind(email)
+        .bind(password_hash)
+        .bind(if make_first_user_admin { 1 } else { 0 })
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn api_user_count(&self) -> ResultType<i64> {
+        let row = sqlx::query("select count(*) as count from api_user")
+            .fetch_one(self.pool.get().await?.deref_mut())
+            .await?;
+        use sqlx::Row as _;
+        Ok(row.try_get::<i64, _>("count")?)
+    }
+
+    pub async fn create_api_session(
+        &self,
+        id: &str,
+        user_id: &str,
+        device_id: &str,
+        device_uuid: &str,
+        device_name: &str,
+        device_os: &str,
+        device_type: &str,
+        expires_at: i64,
+    ) -> ResultType<()> {
+        sqlx::query(
+            "insert into api_session(id, user_id, device_id, device_uuid, device_name, device_os, device_type, expires_at) values(?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(device_id)
+        .bind(device_uuid)
+        .bind(device_name)
+        .bind(device_os)
+        .bind(device_type)
+        .bind(expires_at)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn is_api_session_active(
+        &self,
+        id: &str,
+        user_id: &str,
+        now: i64,
+    ) -> ResultType<bool> {
+        let row = sqlx::query(
+            "select 1 as active from api_session where id = ? and user_id = ? and revoked_at is null and expires_at > ?",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(now)
+        .fetch_optional(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(row.is_some())
+    }
+
+    pub async fn revoke_api_session(&self, id: &str, user_id: &str, now: i64) -> ResultType<()> {
+        sqlx::query(
+            "update api_session set revoked_at = ?, last_used_at = current_timestamp where id = ? and user_id = ? and revoked_at is null",
+        )
+        .bind(now)
+        .bind(id)
+        .bind(user_id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_api_address_book(&self, user_id: &str) -> ResultType<Option<String>> {
+        let row = sqlx::query("select data from api_address_book_snapshot where user_id = ?")
+            .bind(user_id)
+            .fetch_optional(self.pool.get().await?.deref_mut())
+            .await?;
+        use sqlx::Row as _;
+        Ok(row
+            .map(|row| row.try_get::<String, _>("data"))
+            .transpose()?)
+    }
+
+    pub async fn upsert_api_address_book(&self, user_id: &str, data: &str) -> ResultType<()> {
+        sqlx::query(
+            "insert into api_address_book_snapshot(user_id, data) values(?, ?) on conflict(user_id) do update set data = excluded.data, updated_at = current_timestamp",
+        )
+        .bind(user_id)
+        .bind(data)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn increment_api_user_token_version(&self, id: &str) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        sqlx::query("update api_user set token_version = token_version + 1, updated_at = current_timestamp where id = ?")
+            .bind(id)
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query("update api_session set revoked_at = coalesce(revoked_at, strftime('%s','now')) where user_id = ?")
+            .bind(id)
+            .execute(conn.deref_mut())
+            .await?;
         Ok(())
     }
 }
