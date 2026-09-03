@@ -15,6 +15,7 @@ COPY rootfs /
 ENV RELAY=relay.example.com
 ENV ENCRYPTED_ONLY=0
 ENV API_ENABLED=0
+ENV API_WEB_ROOT=/usr/share/rustdesk-api-web
 
 EXPOSE 21114 21115 21116 21116/udp 21117 21118 21119
 

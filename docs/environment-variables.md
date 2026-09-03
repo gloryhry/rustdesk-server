@@ -71,6 +71,7 @@ in the inherited process environment.
 | `API_BOOTSTRAP_ADMIN_USERNAME` | *(unset)* | Optional administrator username used only when the database has no users. Set together with the password. |
 | `API_BOOTSTRAP_ADMIN_PASSWORD` | *(unset)* | Optional bootstrap administrator password. Never log or commit this value. |
 | `API_PUBLIC_URL` | listener URL | Public URL returned to authenticated Web Clients. Set this explicitly behind a proxy. |
+| `API_WEB_ROOT` | `./web/dist` | Directory containing built Web Admin/Web Client assets served by `rustdesk-api`. |
 | `RUSTDESK_ID_SERVER` | *(empty)* | ID server address returned by `/api/server-config`. |
 | `RUSTDESK_RELAY_SERVER` | *(empty)* | Relay server address returned by `/api/server-config`. |
 | `RUSTDESK_KEY_FILE` | `id_ed25519.pub` | File containing the public RustDesk server key returned to clients. |

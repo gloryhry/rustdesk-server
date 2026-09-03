@@ -11,6 +11,7 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::{
+    services::ServeDir,
     limit::RequestBodyLimitLayer,
     timeout::RequestTimeoutLayer,
 };
@@ -99,6 +100,7 @@ pub fn build_router(
     auth: AuthService,
     registration_enabled: bool,
     server_config: PublicServerConfig,
+    web_root: String,
 ) -> Router {
     let state = Arc::new(ApiState {
         auth,
@@ -132,6 +134,7 @@ pub fn build_router(
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(RequestTimeoutLayer::new(Duration::from_secs(15)))
         .layer(Extension(state))
+        .fallback_service(ServeDir::new(web_root))
 }
 
 pub async fn build_service(
@@ -140,13 +143,14 @@ pub async fn build_service(
     token_ttl: Duration,
     registration_enabled: bool,
     server_config: PublicServerConfig,
+    web_root: String,
     bootstrap_admin: Option<(String, String)>,
 ) -> Result<Router, AuthError> {
     let auth = AuthService::new(db, secret, token_ttl)?;
     if let Some((username, password)) = bootstrap_admin {
         auth.ensure_bootstrap_admin(&username, &password).await?;
     }
-    Ok(build_router(auth, registration_enabled, server_config))
+    Ok(build_router(auth, registration_enabled, server_config, web_root))
 }
 
 async fn health_live() -> impl IntoResponse {

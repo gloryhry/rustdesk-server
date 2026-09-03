@@ -28,6 +28,28 @@ env:
   
 jobs:
 
+  web-build:
+    name: Build web frontend
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web assets
+        run: npm ci && npm run build
+        working-directory: ./web
+      - name: Publish web assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-api-web
+          path: web/dist
+          if-no-files-found: error
+
   # binary build
   build:
 
@@ -219,7 +241,9 @@ jobs:
   docker:
 
     name: Docker push - ${{ matrix.job.name }}
-    needs: build
+    needs:
+      - build
+      - web-build
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -242,6 +266,12 @@ jobs:
         with:
           name: binaries-linux-${{ matrix.job.name }}
           path: docker/rootfs/usr/bin
+
+      - name: Download web assets
+        uses: actions/download-artifact@v4
+        with:
+          name: rustdesk-api-web
+          path: docker/rootfs/usr/share/rustdesk-api-web
 
       - name: Make binaries executable
         run: chmod -v a+x docker/rootfs/usr/bin/*

@@ -47,6 +47,7 @@ fn main() -> ResultType<()> {
     } else {
         Some((bootstrap_username, bootstrap_password))
     };
+    let web_root = common::get_arg_or("API_WEB_ROOT", "./web/dist".to_owned());
     let server_config = api::PublicServerConfig {
         api_server: common::get_arg_or(
             "API_PUBLIC_URL",
@@ -62,8 +63,9 @@ fn main() -> ResultType<()> {
         secret,
         Duration::from_secs(token_ttl),
         registration_enabled,
-        bootstrap_admin,
         server_config,
+        web_root,
+        bootstrap_admin,
     )
 }
 
@@ -74,8 +76,9 @@ async fn start(
     secret: String,
     token_ttl: Duration,
     registration_enabled: bool,
-    bootstrap_admin: Option<(String, String)>,
     server_config: api::PublicServerConfig,
+    web_root: String,
+    bootstrap_admin: Option<(String, String)>,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
     let router = api::build_service(
@@ -83,8 +86,9 @@ async fn start(
         secret,
         token_ttl,
         registration_enabled,
-        bootstrap_admin,
         server_config,
+        web_root,
+        bootstrap_admin,
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;
