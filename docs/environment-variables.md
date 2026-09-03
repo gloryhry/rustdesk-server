@@ -78,7 +78,7 @@ in the inherited process environment.
 | `RUSTDESK_KEY` | *(unset)* | Explicit public key override. Never put the private key here. |
 | `DB_URL` | `./db_v2.sqlite3` | Shared SQLite database used by `hbbs` and `rustdesk-api`. |
 
-Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, registration routes, authenticated `GET`/`POST /api/ab`, and authenticated `/api/server-config`/`server-config-v2`. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
+Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, registration routes, authenticated `GET`/`POST /api/ab`, authenticated `/api/groups` and `/api/groups/delete`, and authenticated `/api/server-config`/`server-config-v2`. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
 
 Example:
 

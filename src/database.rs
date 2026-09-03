@@ -64,7 +64,14 @@ pub struct ApiUser {
     pub updated_at: String,
 }
 
-impl Database {
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ApiUserGroup {
+    pub id: String,
+    pub name: String,
+    pub created_by: String,
+    pub created_at: String,
+}
+
     pub async fn new(url: &str) -> ResultType<Database> {
         let n: usize = crate::common::get_arg_or("MAX_DATABASE_CONNECTIONS", "1".to_owned())
             .parse()
@@ -361,6 +368,40 @@ impl Database {
         sqlx::query("update api_user set password_hash = ?, updated_at = current_timestamp where id = ?")
             .bind(password_hash)
             .bind(id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_api_user_groups(&self, user_id: &str) -> ResultType<Vec<ApiUserGroup>> {
+        Ok(sqlx::query_as::<_, ApiUserGroup>(
+            "select id, name, created_by, created_at from api_user_group where created_by = ? or id in (select group_id from api_user_group_member where user_id = ?) order by name",
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn create_api_user_group(
+        &self,
+        id: &str,
+        name: &str,
+        created_by: &str,
+    ) -> ResultType<()> {
+        sqlx::query("insert into api_user_group(id, name, created_by) values(?, ?, ?)")
+            .bind(id)
+            .bind(name)
+            .bind(created_by)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_api_user_group(&self, id: &str, created_by: &str) -> ResultType<()> {
+        sqlx::query("delete from api_user_group where id = ? and created_by = ?")
+            .bind(id)
+            .bind(created_by)
             .execute(self.pool.get().await?.deref_mut())
             .await?;
         Ok(())
