@@ -268,6 +268,39 @@ impl Database {
         Ok(row.try_get::<i64, _>("count")?)
     }
 
+    pub async fn api_admin_count(&self) -> ResultType<i64> {
+        let row = sqlx::query("select count(*) as count from api_user where is_admin = 1 and status = 1")
+            .fetch_one(self.pool.get().await?.deref_mut())
+            .await?;
+        use sqlx::Row as _;
+        Ok(row.try_get::<i64, _>("count")?)
+    }
+
+    pub async fn list_api_users(&self) -> ResultType<Vec<ApiUser>> {
+        Ok(sqlx::query_as::<_, ApiUser>(
+            "select id, username, email, nickname, avatar, password_hash, is_admin, status, token_version, created_at, updated_at from api_user order by created_at desc",
+        )
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn set_api_user_status(&self, id: &str, status: i64) -> ResultType<()> {
+        sqlx::query("update api_user set status = ?, updated_at = current_timestamp where id = ?")
+            .bind(status)
+            .bind(id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_api_user(&self, id: &str) -> ResultType<()> {
+        sqlx::query("delete from api_user where id = ?")
+            .bind(id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
     pub async fn create_api_session(
         &self,
         id: &str,
@@ -348,14 +381,16 @@ impl Database {
 
     pub async fn increment_api_user_token_version(&self, id: &str) -> ResultType<()> {
         let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
         sqlx::query("update api_user set token_version = token_version + 1, updated_at = current_timestamp where id = ?")
             .bind(id)
-            .execute(conn.deref_mut())
+            .execute(&mut *tx)
             .await?;
         sqlx::query("update api_session set revoked_at = coalesce(revoked_at, strftime('%s','now')) where user_id = ?")
             .bind(id)
-            .execute(conn.deref_mut())
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 }

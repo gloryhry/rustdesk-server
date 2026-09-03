@@ -13,6 +13,7 @@ pub enum AuthError {
     InvalidInput(&'static str),
     InvalidCredentials,
     UsernameUnavailable,
+    Busy,
     Internal,
 }
 
@@ -98,8 +99,23 @@ impl AuthService {
         })
     }
 
-    pub fn db(&self) -> Database {
-        self.db.clone()
+    pub async fn ensure_bootstrap_admin(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), AuthError> {
+        if username.is_empty() && password.is_empty() {
+            return Ok(());
+        }
+        if username.is_empty() || password.is_empty() {
+            return Err(AuthError::InvalidInput(
+                "bootstrap administrator username and password must both be set",
+            ));
+        }
+        if self.db.api_user_count().await.map_err(|_| AuthError::Internal)? != 0 {
+            return Ok(());
+        }
+        self.register(username, "", password, true).await.map(|_| ())
     }
 
     pub async fn register(
@@ -115,9 +131,8 @@ impl AuthService {
         let permit = self
             .password_slots
             .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| AuthError::Internal)?;
+            .try_acquire_owned()
+            .map_err(|_| AuthError::Busy)?;
         let password = password.to_owned();
         let password_hash = tokio::task::spawn_blocking(move || {
             let _permit = permit;
@@ -164,6 +179,35 @@ impl AuthService {
         password: &str,
         device: LoginDevice,
     ) -> Result<LoginResult, AuthError> {
+        self.login_with_requirement(username, password, device, false)
+            .await
+    }
+
+    pub async fn login_admin(
+        &self,
+        username: &str,
+        password: &str,
+        device: LoginDevice,
+    ) -> Result<LoginResult, AuthError> {
+        self.login_with_requirement(username, password, device, true)
+            .await
+    }
+
+    async fn login_with_requirement(
+        &self,
+        username: &str,
+        password: &str,
+        device: LoginDevice,
+        require_admin: bool,
+    ) -> Result<LoginResult, AuthError> {
+        if device.id.len() > 128
+            || device.uuid.len() > 128
+            || device.name.len() > 256
+            || device.os.len() > 128
+            || device.device_type.len() > 64
+        {
+            return Err(AuthError::InvalidCredentials);
+        }
         let username = normalize_username(username).map_err(|_| AuthError::InvalidCredentials)?;
         if password.as_bytes().len() > MAX_PASSWORD_BYTES {
             return Err(AuthError::InvalidCredentials);
@@ -180,9 +224,8 @@ impl AuthService {
         let permit = self
             .password_slots
             .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| AuthError::Internal)?;
+            .try_acquire_owned()
+            .map_err(|_| AuthError::Busy)?;
         let password = password.to_owned();
         let valid = tokio::task::spawn_blocking(move || {
             let _permit = permit;
@@ -191,7 +234,10 @@ impl AuthService {
         .await
         .map_err(|_| AuthError::Internal)?
         .map_err(|_| AuthError::InvalidCredentials)?;
-        let user = user.filter(|_| valid).filter(|user| user.status == 1);
+        let user = user
+            .filter(|_| valid)
+            .filter(|user| user.status == 1)
+            .filter(|user| !require_admin || user.is_admin != 0);
         let user = user.ok_or(AuthError::InvalidCredentials)?;
         self.issue_login(user, device).await
     }

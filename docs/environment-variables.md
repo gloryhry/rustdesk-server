@@ -67,7 +67,9 @@ in the inherited process environment.
 | `API_PORT` | `21114` | HTTP API port. |
 | `API_JWT_SECRET` | *(required when enabled)* | Signing secret of at least 32 bytes. Do not reuse the RustDesk private key or commit this value. |
 | `API_TOKEN_TTL` | `3600` | Access-token lifetime in seconds. |
-| `API_REGISTER_ENABLED` | `1` | Set to `0` to disable public registration. The first successfully created account becomes administrator. |
+| `API_REGISTER_ENABLED` | `0` | Set to `1` to enable public registration. Publicly registered accounts are ordinary users. |
+| `API_BOOTSTRAP_ADMIN_USERNAME` | *(unset)* | Optional administrator username used only when the database has no users. Set together with the password. |
+| `API_BOOTSTRAP_ADMIN_PASSWORD` | *(unset)* | Optional bootstrap administrator password. Never log or commit this value. |
 | `API_PUBLIC_URL` | listener URL | Public URL returned to authenticated Web Clients. Set this explicitly behind a proxy. |
 | `RUSTDESK_ID_SERVER` | *(empty)* | ID server address returned by `/api/server-config`. |
 | `RUSTDESK_RELAY_SERVER` | *(empty)* | Relay server address returned by `/api/server-config`. |
@@ -82,6 +84,7 @@ Example:
 ```bash
 export API_ENABLED=1
 export API_JWT_SECRET='replace-with-at-least-32-random-bytes'
+export API_REGISTER_ENABLED=1
 rustdesk-api
 
 curl -X POST http://127.0.0.1:21114/api/register \

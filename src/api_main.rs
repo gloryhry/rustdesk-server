@@ -1,7 +1,15 @@
+mod api_config;
+
+use api_config::{load_public_key, parse_bool_arg};
 use flexi_logger::*;
 use hbb_common::{bail, log, tokio, ResultType};
 use hbbs::{api, common, database::Database};
-use std::{net::{IpAddr, SocketAddr}, time::Duration};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
+
+const MAX_TOKEN_TTL_SECONDS: u64 = 7 * 24 * 60 * 60;
 
 fn main() -> ResultType<()> {
     let _logger = Logger::try_with_env_or_str("info")?
@@ -26,18 +34,19 @@ fn main() -> ResultType<()> {
         bail!("API_JWT_SECRET must be configured when the API server is enabled");
     }
     let token_ttl = common::get_arg_or("API_TOKEN_TTL", "3600".to_owned()).parse::<u64>()?;
-    if token_ttl == 0 {
-        bail!("API_TOKEN_TTL must be greater than zero");
+    if !(60..=MAX_TOKEN_TTL_SECONDS).contains(&token_ttl) {
+        bail!("API_TOKEN_TTL must be between 60 seconds and 7 days");
     }
-    let registration_enabled = common::get_arg_or("API_REGISTER_ENABLED", "1".to_owned())
-        .to_lowercase()
-        != "0";
+    let registration_enabled = parse_bool_arg("API_REGISTER_ENABLED", false)?;
     let db_url = common::get_arg_or("DB_URL", "./db_v2.sqlite3".to_owned());
-    let key_file = common::get_arg_or("RUSTDESK_KEY_FILE", "id_ed25519.pub".to_owned());
-    let key = common::get_arg_opt("RUSTDESK_KEY")
-        .unwrap_or_else(|| std::fs::read_to_string(key_file).unwrap_or_default())
-        .trim()
-        .to_owned();
+    let key = load_public_key()?;
+    let bootstrap_username = common::get_arg("API_BOOTSTRAP_ADMIN_USERNAME");
+    let bootstrap_password = common::get_arg("API_BOOTSTRAP_ADMIN_PASSWORD");
+    let bootstrap_admin = if bootstrap_username.is_empty() && bootstrap_password.is_empty() {
+        None
+    } else {
+        Some((bootstrap_username, bootstrap_password))
+    };
     let server_config = api::PublicServerConfig {
         api_server: common::get_arg_or(
             "API_PUBLIC_URL",
@@ -53,6 +62,7 @@ fn main() -> ResultType<()> {
         secret,
         Duration::from_secs(token_ttl),
         registration_enabled,
+        bootstrap_admin,
         server_config,
     )
 }
@@ -64,6 +74,7 @@ async fn start(
     secret: String,
     token_ttl: Duration,
     registration_enabled: bool,
+    bootstrap_admin: Option<(String, String)>,
     server_config: api::PublicServerConfig,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
@@ -72,6 +83,7 @@ async fn start(
         secret,
         token_ttl,
         registration_enabled,
+        bootstrap_admin,
         server_config,
     )
         .await

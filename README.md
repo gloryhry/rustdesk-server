@@ -25,7 +25,9 @@ Self-host your own RustDesk server, it is free and open source.
 cargo build --release
 ```
 
-Four executables will be generated in target/release.
+The optional API is disabled by default. Set `API_ENABLED=1`, provide a 32-byte `API_JWT_SECRET`, and configure `API_BOOTSTRAP_ADMIN_USERNAME`/`API_BOOTSTRAP_ADMIN_PASSWORD` for the first administrator. Public registration, when enabled, creates ordinary users only.
+
+Four executables will be generated in target/release:
 
 - hbbs - RustDesk ID/Rendezvous server
 - hbbr - RustDesk relay server

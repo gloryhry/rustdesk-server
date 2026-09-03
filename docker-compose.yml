@@ -32,7 +32,7 @@ services:
     environment:
       - API_ENABLED=1
       - API_BIND=0.0.0.0
-      - API_JWT_SECRET=${API_JWT_SECRET:?set API_JWT_SECRET to at least 32 random bytes}
+      - API_JWT_SECRET=${API_JWT_SECRET:-}
     volumes:
       - ./data:/root
     networks:
