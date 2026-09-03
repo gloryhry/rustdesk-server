@@ -95,6 +95,22 @@ pub struct GroupIdRequest {
     pub id: String,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct DeviceReportRequest {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub uuid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub os: String,
+    #[serde(default, rename = "type")]
+    pub device_type: String,
+    #[serde(default)]
+    pub info: String,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct AdminUserResponse {
     pub id: String,
@@ -141,6 +157,7 @@ pub fn build_router(
         .route("/api/ab", get(get_address_book).post(update_address_book))
         .route("/api/groups", get(list_groups).post(create_group))
         .route("/api/groups/delete", post(delete_group))
+        .route("/api/devices", get(list_devices))
         .route("/api/server-config", post(server_config))
         .route("/api/server-config-v2", post(server_config))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
@@ -181,8 +198,48 @@ async fn heartbeat() -> impl IntoResponse {
     Json(json!({}))
 }
 
-async fn sysinfo() -> impl IntoResponse {
-    (StatusCode::OK, "SYSINFO_UPDATED")
+async fn sysinfo(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    payload: Option<Json<DeviceReportRequest>>,
+) -> Response {
+    if let (Ok(principal), Some(Json(report))) = (authorize(&state, &headers).await, payload) {
+        if report.id.len() > 128
+            || report.uuid.len() > 128
+            || report.name.len() > 256
+            || report.os.len() > 128
+            || report.device_type.len() > 64
+            || report.info.len() > 64 * 1024
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "device_info_too_large" })),
+            )
+                .into_response();
+        }
+        let device_id = if report.id.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            format!("{}:{}", principal.user_id, report.id)
+        };
+        if let Err(_) = state
+            .auth
+            .db()
+            .upsert_api_device(
+                &device_id,
+                &principal.user_id,
+                &report.uuid,
+                &report.name,
+                &report.os,
+                &report.device_type,
+                &report.info,
+            )
+            .await
+        {
+            return auth_error_response(AuthError::Internal, false);
+        }
+    }
+    (StatusCode::OK, Json(json!({ "code": 0 }))).into_response()
 }
 
 async fn sysinfo_version() -> impl IntoResponse {
@@ -488,6 +545,20 @@ async fn logout_authorized(state: &ApiState, principal: Principal) -> Response {
     {
         Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Err(err) => auth_error_response(err, false),
+    }
+}
+
+async fn list_devices(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state.auth.db().list_api_devices(&principal.user_id).await {
+        Ok(devices) => (StatusCode::OK, Json(json!({ "code": 0, "data": devices }))).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
 

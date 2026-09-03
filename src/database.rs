@@ -72,6 +72,21 @@ pub struct ApiUserGroup {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct ApiDevice {
+    pub id: String,
+    pub user_id: String,
+    pub uuid: String,
+    pub name: String,
+    pub os: String,
+    pub device_type: String,
+    pub info: String,
+    pub status: i64,
+    pub last_seen_at: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 impl Database {
     pub async fn new(url: &str) -> ResultType<Database> {
         let n: usize = crate::common::get_arg_or("MAX_DATABASE_CONNECTIONS", "1".to_owned())
@@ -159,6 +174,30 @@ impl Database {
         .execute(conn.deref_mut())
         .await?;
         sqlx::query("create index if not exists index_api_session_user on api_session (user_id)")
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query(
+            "
+            create table if not exists api_device (
+                id text primary key not null,
+                user_id text not null,
+                uuid text not null default '',
+                name text not null default '',
+                os text not null default '',
+                device_type text not null default '',
+                info text not null default '',
+                status integer not null default 1,
+                last_seen_at datetime not null default(current_timestamp),
+                created_at datetime not null default(current_timestamp),
+                updated_at datetime not null default(current_timestamp),
+                unique(user_id, uuid),
+                foreign key(user_id) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query("create index if not exists index_api_device_user on api_device (user_id)")
             .execute(conn.deref_mut())
             .await?;
         sqlx::query(
@@ -361,6 +400,49 @@ impl Database {
         Ok(sqlx::query_as::<_, ApiUser>(
             "select id, username, email, nickname, avatar, password_hash, is_admin, status, token_version, created_at, updated_at from api_user order by created_at desc",
         )
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn upsert_api_device(
+        &self,
+        id: &str,
+        user_id: &str,
+        uuid: &str,
+        name: &str,
+        os: &str,
+        device_type: &str,
+        info: &str,
+    ) -> ResultType<()> {
+        sqlx::query(
+            "insert into api_device(id, user_id, uuid, name, os, device_type, info) values(?, ?, ?, ?, ?, ?, ?) on conflict(user_id, uuid) do update set id = excluded.id, name = excluded.name, os = excluded.os, device_type = excluded.device_type, info = excluded.info, status = 1, last_seen_at = current_timestamp, updated_at = current_timestamp",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(uuid)
+        .bind(name)
+        .bind(os)
+        .bind(device_type)
+        .bind(info)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn touch_api_device(&self, user_id: &str, id: &str) -> ResultType<()> {
+        sqlx::query("update api_device set last_seen_at = current_timestamp, updated_at = current_timestamp where user_id = ? and id = ?")
+            .bind(user_id)
+            .bind(id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_api_devices(&self, user_id: &str) -> ResultType<Vec<ApiDevice>> {
+        Ok(sqlx::query_as::<_, ApiDevice>(
+            "select id, user_id, uuid, name, os, device_type, info, status, last_seen_at, created_at, updated_at from api_device where user_id = ? order by last_seen_at desc",
+        )
+        .bind(user_id)
         .fetch_all(self.pool.get().await?.deref_mut())
         .await?)
     }
