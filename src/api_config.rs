@@ -1,5 +1,6 @@
 use hbb_common::{bail, ResultType};
 use hbbs::common;
+use hbbs::oauth::{OAuthProviderConfig, OAuthRuntime};
 use sodiumoxide::crypto::sign;
 
 pub(crate) fn parse_bool_arg(name: &str, default: bool) -> ResultType<bool> {
@@ -11,6 +12,73 @@ pub(crate) fn parse_bool_arg(name: &str, default: bool) -> ResultType<bool> {
     }
 }
 
+pub(crate) fn load_oauth_runtime() -> OAuthRuntime {
+    let mut configs = Vec::new();
+    add_provider(
+        &mut configs,
+        "github",
+        "API_GITHUB_CLIENT_ID",
+        "API_GITHUB_CLIENT_SECRET",
+        "https://github.com/login/oauth/authorize",
+        "https://github.com/login/oauth/access_token",
+        "https://api.github.com/user",
+        "read:user user:email",
+    );
+    add_provider(
+        &mut configs,
+        "google",
+        "API_GOOGLE_CLIENT_ID",
+        "API_GOOGLE_CLIENT_SECRET",
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        "openid email profile",
+    );
+    let oidc_auth = common::get_arg("API_OIDC_AUTH_URL");
+    let oidc_token = common::get_arg("API_OIDC_TOKEN_URL");
+    let oidc_userinfo = common::get_arg("API_OIDC_USERINFO_URL");
+    if !oidc_auth.is_empty() && !oidc_token.is_empty() && !oidc_userinfo.is_empty() {
+        configs.push(OAuthProviderConfig {
+            name: "oidc".to_owned(),
+            client_id: common::get_arg("API_OIDC_CLIENT_ID"),
+            client_secret: common::get_arg("API_OIDC_CLIENT_SECRET"),
+            authorization_url: oidc_auth,
+            token_url: oidc_token,
+            userinfo_url: oidc_userinfo,
+            scopes: common::get_arg_or("API_OIDC_SCOPE", "openid email profile".to_owned()),
+        });
+    }
+    OAuthRuntime::new(configs)
+}
+
+pub(crate) fn load_oauth_redirect_url() -> String {
+    common::get_arg("API_OAUTH_REDIRECT_URL")
+}
+
+fn add_provider(
+    configs: &mut Vec<OAuthProviderConfig>,
+    name: &str,
+    client_id_name: &str,
+    client_secret_name: &str,
+    authorization_url: &str,
+    token_url: &str,
+    userinfo_url: &str,
+    scopes: &str,
+) {
+    let client_id = common::get_arg(client_id_name);
+    let client_secret = common::get_arg(client_secret_name);
+    if !client_id.is_empty() && !client_secret.is_empty() {
+        configs.push(OAuthProviderConfig {
+            name: name.to_owned(),
+            client_id,
+            client_secret,
+            authorization_url: authorization_url.to_owned(),
+            token_url: token_url.to_owned(),
+            userinfo_url: userinfo_url.to_owned(),
+            scopes: scopes.to_owned(),
+        });
+    }
+}
 pub(crate) fn load_public_key() -> ResultType<String> {
     let value = match common::get_arg_opt("RUSTDESK_KEY") {
         Some(value) => value,

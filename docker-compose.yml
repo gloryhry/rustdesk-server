@@ -33,6 +33,8 @@ services:
       - API_ENABLED=1
       - API_BIND=0.0.0.0
       - API_JWT_SECRET=${API_JWT_SECRET:-}
+      - DB_URL=/root/db_v2.sqlite3
+      - RUSTDESK_KEY_FILE=/root/id_ed25519.pub
     volumes:
       - ./data:/root
     networks:

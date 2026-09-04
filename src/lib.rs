@@ -4,5 +4,6 @@ pub mod common;
 pub mod database;
 pub mod auth;
 pub mod api;
+pub mod oauth;
 mod peer;
 mod version;

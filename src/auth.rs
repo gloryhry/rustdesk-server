@@ -281,6 +281,64 @@ impl AuthService {
         })
     }
 
+    pub async fn login_external(
+        &self,
+        provider: &str,
+        subject: &str,
+        username_hint: &str,
+        email: &str,
+        device: LoginDevice,
+    ) -> Result<LoginResult, AuthError> {
+        if provider.is_empty() || provider.len() > 64 || subject.is_empty() || subject.len() > 256 {
+            return Err(AuthError::InvalidCredentials);
+        }
+        if let Some(user) = self
+            .db
+            .get_api_user_by_identity(provider, subject)
+            .await
+            .map_err(|_| AuthError::Internal)?
+        {
+            if user.status != 1 {
+                return Err(AuthError::InvalidCredentials);
+            }
+            return self.issue_login(user, device).await;
+        }
+        let username = match normalize_username(username_hint) {
+            Ok(username) => username,
+            Err(_) => format!("oauth-{}", &uuid::Uuid::new_v4().to_string()[..12]),
+        };
+        let username = if self
+            .db
+            .get_api_user_by_username(&username)
+            .await
+            .map_err(|_| AuthError::Internal)?
+            .is_some()
+        {
+            format!("{}-{}", &username[..username.len().min(50)], &uuid::Uuid::new_v4().to_string()[..8])
+        } else {
+            username
+        };
+        let user_id = uuid::Uuid::new_v4().to_string();
+        self.db
+            .create_api_user_with_identity(
+                &user_id,
+                &username,
+                &normalize_email(email)?,
+                "",
+                provider,
+                subject,
+            )
+            .await
+            .map_err(|_| AuthError::Internal)?;
+        let user = self
+            .db
+            .get_api_user_by_id(&user_id)
+            .await
+            .map_err(|_| AuthError::Internal)?
+            .ok_or(AuthError::Internal)?;
+        self.issue_login(user, device).await
+    }
+
     pub async fn change_password(&self, user_id: &str, password: &str) -> Result<(), AuthError> {
         validate_password(password)?;
         let permit = self

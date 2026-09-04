@@ -87,6 +87,13 @@ pub struct ApiDevice {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ApiIdentity {
+    pub provider: String,
+    pub subject: String,
+    pub user_id: String,
+}
+
 impl Database {
     pub async fn new(url: &str) -> ResultType<Database> {
         let n: usize = crate::common::get_arg_or("MAX_DATABASE_CONNECTIONS", "1".to_owned())
@@ -151,6 +158,23 @@ impl Database {
             .execute(conn.deref_mut())
             .await?;
         sqlx::query("create index if not exists index_api_user_created_at on api_user (created_at)")
+            .execute(conn.deref_mut())
+            .await?;
+        sqlx::query(
+            "
+            create table if not exists api_identity (
+                provider text not null,
+                subject text not null,
+                user_id text not null,
+                created_at datetime not null default(current_timestamp),
+                primary key(provider, subject),
+                foreign key(user_id) references api_user(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query("create index if not exists index_api_identity_user on api_identity (user_id)")
             .execute(conn.deref_mut())
             .await?;
         sqlx::query(
@@ -338,6 +362,48 @@ impl Database {
         )
         .execute(self.pool.get().await?.deref_mut())
         .await?;
+        Ok(())
+    }
+
+    pub async fn get_api_user_by_identity(
+        &self,
+        provider: &str,
+        subject: &str,
+    ) -> ResultType<Option<ApiUser>> {
+        Ok(sqlx::query_as::<_, ApiUser>(
+            "select u.id, u.username, u.email, u.nickname, u.avatar, u.password_hash, u.is_admin, u.status, u.token_version, u.created_at, u.updated_at from api_user u inner join api_identity i on i.user_id = u.id where i.provider = ? and i.subject = ?",
+        )
+        .bind(provider)
+        .bind(subject)
+        .fetch_optional(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn create_api_user_with_identity(
+        &self,
+        id: &str,
+        username: &str,
+        email: &str,
+        password_hash: &str,
+        provider: &str,
+        subject: &str,
+    ) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        sqlx::query("insert into api_user(id, username, email, password_hash, is_admin) values(?, ?, ?, ?, 0)")
+            .bind(id)
+            .bind(username)
+            .bind(email)
+            .bind(password_hash)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("insert into api_identity(provider, subject, user_id) values(?, ?, ?)")
+            .bind(provider)
+            .bind(subject)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(())
     }
 

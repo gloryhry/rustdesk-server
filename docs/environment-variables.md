@@ -72,15 +72,24 @@ in the inherited process environment.
 | `API_BOOTSTRAP_ADMIN_PASSWORD` | *(unset)* | Optional bootstrap administrator password. Never log or commit this value. |
 | `API_PUBLIC_URL` | listener URL | Public URL returned to authenticated Web Clients. Set this explicitly behind a proxy. |
 | `API_WEB_ROOT` | `./web/dist` | Directory containing built Web Admin/Web Client assets served by `rustdesk-api`. |
+| `API_OAUTH_REDIRECT_URL` | *(unset)* | Exact HTTPS callback URL registered with the OAuth provider, for example `https://api.example.com/api/oidc/callback`. OAuth login remains unavailable until this is set. |
+| `API_GITHUB_CLIENT_ID` / `API_GITHUB_CLIENT_SECRET` | *(unset)* | Optional GitHub OAuth application credentials. The secret must remain server-side. |
+| `API_GOOGLE_CLIENT_ID` / `API_GOOGLE_CLIENT_SECRET` | *(unset)* | Optional Google OAuth application credentials. The secret must remain server-side. |
+| `API_OIDC_CLIENT_ID` / `API_OIDC_CLIENT_SECRET` | *(unset)* | Optional generic OIDC client credentials. |
+| `API_OIDC_AUTH_URL` | *(unset)* | Generic OIDC authorization endpoint. |
+| `API_OIDC_TOKEN_URL` | *(unset)* | Generic OIDC token endpoint. |
+| `API_OIDC_USERINFO_URL` | *(unset)* | Generic OIDC userinfo endpoint. |
+| `API_OIDC_SCOPE` | `openid email profile` | Generic OIDC scopes requested during authorization. |
 | `RUSTDESK_ID_SERVER` | *(empty)* | ID server address returned by `/api/server-config`. |
 | `RUSTDESK_RELAY_SERVER` | *(empty)* | Relay server address returned by `/api/server-config`. |
 | `RUSTDESK_KEY_FILE` | `id_ed25519.pub` | File containing the public RustDesk server key returned to clients. |
 | `RUSTDESK_KEY` | *(unset)* | Explicit public key override. Never put the private key here. |
 | `DB_URL` | `./db_v2.sqlite3` | Shared SQLite database used by `hbbs` and `rustdesk-api`. |
 
-Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, registration routes, public `POST /api/sysinfo`/`sysinfo_ver`, authenticated `GET /api/devices`, authenticated `GET`/`POST /api/ab`, authenticated `/api/groups` and `/api/groups/delete`, and authenticated `/api/server-config`/`server-config-v2`. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
+Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, `GET /api/oidc/login`, `GET /api/oidc/callback`, `GET /api/oauth/login`, `GET /api/oauth/callback`, registration routes, public `POST /api/sysinfo`/`sysinfo_ver`, authenticated `GET /api/devices`, authenticated `GET`/`POST /api/ab`, authenticated `/api/groups` and `/api/groups/delete`, and authenticated `/api/server-config`/`server-config-v2`. OAuth callbacks use a one-time five-minute state value and create or reuse an API account linked to the provider subject. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
 
-Example:
+For the included Docker Compose profile, keep `DB_URL=/root/db_v2.sqlite3` and `RUSTDESK_KEY_FILE=/root/id_ed25519.pub` so `rustdesk-api` shares hbbs's database and generated public key through the mounted `/root` volume.
+
 
 ```bash
 export API_ENABLED=1

@@ -1,6 +1,8 @@
 mod api_config;
 
-use api_config::{load_public_key, parse_bool_arg};
+use api_config::{
+    load_oauth_redirect_url, load_oauth_runtime, load_public_key, parse_bool_arg,
+};
 use flexi_logger::*;
 use hbb_common::{bail, log, tokio, ResultType};
 use hbbs::{api, common, database::Database};
@@ -48,6 +50,8 @@ fn main() -> ResultType<()> {
         Some((bootstrap_username, bootstrap_password))
     };
     let web_root = common::get_arg_or("API_WEB_ROOT", "./web/dist".to_owned());
+    let oauth = load_oauth_runtime();
+    let oauth_redirect_url = load_oauth_redirect_url();
     let server_config = api::PublicServerConfig {
         api_server: common::get_arg_or(
             "API_PUBLIC_URL",
@@ -66,6 +70,8 @@ fn main() -> ResultType<()> {
         server_config,
         web_root,
         bootstrap_admin,
+        oauth,
+        oauth_redirect_url,
     )
 }
 
@@ -79,6 +85,8 @@ async fn start(
     server_config: api::PublicServerConfig,
     web_root: String,
     bootstrap_admin: Option<(String, String)>,
+    oauth: hbbs::oauth::OAuthRuntime,
+    oauth_redirect_url: String,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
     let router = api::build_service(
@@ -89,6 +97,8 @@ async fn start(
         server_config,
         web_root,
         bootstrap_admin,
+        oauth,
+        oauth_redirect_url,
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;

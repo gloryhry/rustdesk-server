@@ -1,8 +1,9 @@
 use crate::auth::{AuthError, AuthService, LoginDevice, Principal};
+use crate::oauth::{OAuthError, OAuthRuntime};
 use axum::{
-    extract::{Extension, Json},
+    extract::{Extension, Json, Query},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
 };
@@ -21,6 +22,8 @@ pub struct ApiState {
     pub auth: AuthService,
     pub registration_enabled: bool,
     pub server_config: PublicServerConfig,
+    pub oauth: OAuthRuntime,
+    pub oauth_redirect_url: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -43,6 +46,18 @@ pub struct LoginRequest {
     pub auto_login: bool,
     #[serde(default, rename = "deviceInfo")]
     pub device_info: Option<DeviceInfoRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OAuthQuery {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub code: String,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub error: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -127,11 +142,15 @@ pub fn build_router(
     registration_enabled: bool,
     server_config: PublicServerConfig,
     web_root: String,
+    oauth: OAuthRuntime,
+    oauth_redirect_url: String,
 ) -> Router {
     let state = Arc::new(ApiState {
         auth,
         registration_enabled,
         server_config,
+        oauth,
+        oauth_redirect_url,
     });
     Router::new()
         .route("/health/live", get(health_live))
@@ -143,6 +162,10 @@ pub fn build_router(
         .route("/api/login", post(login))
         .route("/api/admin/login", post(admin_login))
         .route("/api/login-options", get(login_options))
+        .route("/api/oidc/login", get(oauth_login))
+        .route("/api/oidc/callback", get(oauth_callback))
+        .route("/api/oauth/login", get(oauth_login))
+        .route("/api/oauth/callback", get(oauth_callback))
         .route("/api/register", post(register))
         .route("/api/admin/user/register", post(register))
         .route("/api/currentUser", get(current_user).post(current_user))
@@ -174,12 +197,21 @@ pub async fn build_service(
     server_config: PublicServerConfig,
     web_root: String,
     bootstrap_admin: Option<(String, String)>,
+    oauth: OAuthRuntime,
+    oauth_redirect_url: String,
 ) -> Result<Router, AuthError> {
     let auth = AuthService::new(db, secret, token_ttl)?;
     if let Some((username, password)) = bootstrap_admin {
         auth.ensure_bootstrap_admin(&username, &password).await?;
     }
-    Ok(build_router(auth, registration_enabled, server_config, web_root))
+    Ok(build_router(
+        auth,
+        registration_enabled,
+        server_config,
+        web_root,
+        oauth,
+        oauth_redirect_url,
+    ))
 }
 
 async fn health_live() -> impl IntoResponse {
@@ -719,8 +751,91 @@ async fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<Principal, A
     state.auth.authorize(token).await
 }
 
-async fn login_options() -> impl IntoResponse {
-    Json(Vec::<String>::new())
+async fn oauth_login(
+    Extension(state): Extension<Arc<ApiState>>,
+    Query(query): Query<OAuthQuery>,
+) -> Response {
+    if state.oauth_redirect_url.is_empty() {
+        return oauth_error_response(OAuthError::NotConfigured);
+    }
+    match state
+        .oauth
+        .begin(&query.provider, &state.oauth_redirect_url)
+        .await
+    {
+        Ok(url) => Redirect::temporary(url.as_str()).into_response(),
+        Err(err) => oauth_error_response(err),
+    }
+}
+
+async fn oauth_callback(
+    Extension(state): Extension<Arc<ApiState>>,
+    Query(query): Query<OAuthQuery>,
+) -> Response {
+    if !query.error.is_empty() {
+        return oauth_error_response(OAuthError::InvalidState);
+    }
+    if state.oauth_redirect_url.is_empty() {
+        return oauth_error_response(OAuthError::NotConfigured);
+    }
+    let identity = match state
+        .oauth
+        .complete(
+            &query.code,
+            &query.state,
+            &state.oauth_redirect_url,
+        )
+        .await
+    {
+        Ok(identity) => identity,
+        Err(err) => return oauth_error_response(err),
+    };
+    if !query.provider.is_empty() && query.provider != identity.provider {
+        return oauth_error_response(OAuthError::InvalidState);
+    }
+    match state
+        .auth
+        .login_external(
+            &identity.provider,
+            &identity.subject,
+            &identity.username,
+            &identity.email,
+            LoginDevice::default(),
+        )
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(err) => auth_error_response(err, false),
+    }
+}
+
+fn oauth_error_response(error: OAuthError) -> Response {
+    let (status, code) = match error {
+        OAuthError::InvalidState => (StatusCode::BAD_REQUEST, "invalid_oauth_state"),
+        OAuthError::NotConfigured => (StatusCode::NOT_FOUND, "oauth_not_configured"),
+        OAuthError::InvalidResponse => (StatusCode::BAD_GATEWAY, "invalid_oauth_response"),
+        OAuthError::Remote => (StatusCode::BAD_GATEWAY, "oauth_provider_unavailable"),
+    };
+    (status, Json(json!({ "error": code }))).into_response()
+}
+
+
+async fn login_options(Extension(state): Extension<Arc<ApiState>>) -> impl IntoResponse {
+    let providers = if state.oauth_redirect_url.is_empty() {
+        Vec::new()
+    } else {
+        state.oauth.provider_names()
+    };
+    let provider_json = providers
+        .iter()
+        .map(|provider| json!({ "name": provider }))
+        .collect::<Vec<_>>();
+    let mut options = vec![format!(
+        "common-oidc/{}",
+        serde_json::to_string(&provider_json).unwrap_or_else(|_| "[]".to_owned())
+    )];
+    options.extend(providers.into_iter().map(|provider| format!("oidc/{provider}")));
+    Json(options)
 }
 
 fn auth_error_response(error: AuthError, unauthorized: bool) -> Response {
