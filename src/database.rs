@@ -101,6 +101,21 @@ pub struct ApiDevice {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct ApiAddressBookEntry {
+    pub id: String,
+    pub user_id: String,
+    pub peer_id: String,
+    pub username: String,
+    pub hostname: String,
+    pub alias: String,
+    pub platform: String,
+    pub tags: String,
+    pub force_always_relay: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ApiIdentity {
     pub provider: String,
@@ -621,11 +636,13 @@ impl Database {
     pub async fn list_api_device_group_members(
         &self,
         user_id: &str,
+        allow_all_devices: bool,
     ) -> ResultType<Vec<ApiDeviceGroupMember>> {
         Ok(sqlx::query_as::<_, ApiDeviceGroupMember>(
-            "select m.group_id, m.device_id from api_device_group_device m inner join api_device_group g on g.id = m.group_id inner join api_device d on d.id = m.device_id where g.created_by = ? and d.user_id = ? order by m.group_id, m.device_id",
+            "select m.group_id, m.device_id from api_device_group_device m inner join api_device_group g on g.id = m.group_id inner join api_device d on d.id = m.device_id where g.created_by = ? and (? = 1 or d.user_id = ?) order by m.group_id, m.device_id",
         )
         .bind(user_id)
+        .bind(if allow_all_devices { 1 } else { 0 })
         .bind(user_id)
         .fetch_all(self.pool.get().await?.deref_mut())
         .await?)
@@ -636,13 +653,15 @@ impl Database {
         group_id: &str,
         device_id: &str,
         user_id: &str,
+        allow_all_devices: bool,
     ) -> ResultType<bool> {
         let result = sqlx::query(
-            "insert into api_device_group_device(group_id, device_id) select g.id, d.id from api_device_group g inner join api_device d on d.id = ? where g.id = ? and g.created_by = ? and d.user_id = ? on conflict(group_id, device_id) do update set device_id = excluded.device_id",
+            "insert into api_device_group_device(group_id, device_id) select g.id, d.id from api_device_group g inner join api_device d on d.id = ? where g.id = ? and g.created_by = ? and (? = 1 or d.user_id = ?) on conflict(group_id, device_id) do update set device_id = excluded.device_id",
         )
         .bind(device_id)
         .bind(group_id)
         .bind(user_id)
+        .bind(if allow_all_devices { 1 } else { 0 })
         .bind(user_id)
         .execute(self.pool.get().await?.deref_mut())
         .await?;
@@ -654,13 +673,15 @@ impl Database {
         group_id: &str,
         device_id: &str,
         user_id: &str,
+        allow_all_devices: bool,
     ) -> ResultType<bool> {
         let result = sqlx::query(
-            "delete from api_device_group_device where group_id = ? and device_id = ? and group_id in (select id from api_device_group where created_by = ?) and device_id in (select id from api_device where user_id = ?)",
+            "delete from api_device_group_device where group_id = ? and device_id = ? and group_id in (select id from api_device_group where created_by = ?) and device_id in (select id from api_device where ? = 1 or user_id = ?)",
         )
         .bind(group_id)
         .bind(device_id)
         .bind(user_id)
+        .bind(if allow_all_devices { 1 } else { 0 })
         .bind(user_id)
         .execute(self.pool.get().await?.deref_mut())
         .await?;

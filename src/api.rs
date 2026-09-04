@@ -26,6 +26,7 @@ pub struct ApiState {
     pub oauth: OAuthRuntime,
     pub oauth_redirect_url: String,
     pub ldap: Arc<hbb_common::tokio::sync::RwLock<LdapConfig>>,
+    pub tag_lock: Arc<hbb_common::tokio::sync::Mutex<()>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -182,6 +183,7 @@ pub fn build_router(
         oauth,
         oauth_redirect_url,
         ldap: Arc::new(hbb_common::tokio::sync::RwLock::new(ldap)),
+        tag_lock: Arc::new(hbb_common::tokio::sync::Mutex::new(())),
     });
     Router::new()
         .route("/health/live", get(health_live))
@@ -398,9 +400,19 @@ async fn list_users(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
 ) -> Response {
-    match authorize(&state, &headers).await {
-        Ok(principal) => (StatusCode::OK, Json(json!({ "code": 0, "data": [principal.user] }))).into_response(),
-        Err(err) => auth_error_response(err, true),
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return (StatusCode::OK, Json(json!({ "code": 0, "data": [principal.user] }))).into_response();
+    }
+    match state.auth.db().list_api_users().await {
+        Ok(users) => {
+            let users = users.into_iter().map(admin_user_response).collect::<Vec<_>>();
+            (StatusCode::OK, Json(json!({ "code": 0, "data": users }))).into_response()
+        }
+        Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
 
@@ -797,7 +809,7 @@ async fn list_device_groups(
     match state
         .auth
         .db()
-        .list_api_device_group_members(&principal.user_id)
+        .list_api_device_group_members(&principal.user_id, principal.user.is_admin)
         .await
     {
         Ok(memberships) => (
@@ -859,6 +871,7 @@ async fn add_device_group_member(
             &request.group_id,
             &request.device_id,
             &principal.user_id,
+            principal.user.is_admin,
         )
         .await
     {
@@ -888,6 +901,7 @@ async fn remove_device_group_member(
             &request.group_id,
             &request.device_id,
             &principal.user_id,
+            principal.user.is_admin,
         )
         .await
     {
@@ -968,6 +982,7 @@ async fn update_address_book(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
+    let _tag_guard = state.tag_lock.lock().await;
     if request.data.len() > 2 * 1024 * 1024 {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -1008,10 +1023,24 @@ async fn list_tags(
         Ok(document) => document,
         Err(_) => return auth_error_response(AuthError::Internal, false),
     };
+    let colors = document.get("tag_colors").and_then(serde_json::Value::as_object);
     let tags = document
         .get("tags")
-        .cloned()
-        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+        .and_then(serde_json::Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(tag_name)
+                .map(|name| {
+                    let color = colors
+                        .and_then(|colors| colors.get(name))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    json!({ "name": name, "color": color })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     (StatusCode::OK, Json(json!({ "code": 0, "data": tags }))).into_response()
 }
 
@@ -1024,6 +1053,7 @@ async fn upsert_tag(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
+    let _tag_guard = state.tag_lock.lock().await;
     let name = request.name.trim();
     let color = request.color.trim();
     if name.is_empty() || name.chars().count() > 64 || !valid_tag_color(color) {
@@ -1044,6 +1074,13 @@ async fn upsert_tag(
     {
         document["tags"] = serde_json::Value::Array(Vec::new());
     }
+    if !document
+        .get("tag_colors")
+        .map(serde_json::Value::is_object)
+        .unwrap_or(false)
+    {
+        document["tag_colors"] = serde_json::Value::Object(serde_json::Map::new());
+    }
     let tags = match document
         .get_mut("tags")
         .and_then(serde_json::Value::as_array_mut)
@@ -1051,16 +1088,27 @@ async fn upsert_tag(
         Some(tags) => tags,
         None => return auth_error_response(AuthError::Internal, false),
     };
-    let tag = json!({ "name": name, "color": color });
     if let Some(existing) = tags.iter_mut().find(|tag| {
-        tag.get("name")
-            .and_then(serde_json::Value::as_str)
+        tag_name(tag)
             .map(|value| value.eq_ignore_ascii_case(name))
             .unwrap_or(false)
     }) {
-        *existing = tag;
+        *existing = serde_json::Value::String(name.to_owned());
     } else {
-        tags.push(tag);
+        tags.push(serde_json::Value::String(name.to_owned()));
+    }
+    let colors = match document
+        .get_mut("tag_colors")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        Some(colors) => colors,
+        None => return auth_error_response(AuthError::Internal, false),
+    };
+    colors.retain(|key, _| !key.eq_ignore_ascii_case(name) || key == name);
+    if color.is_empty() {
+        colors.remove(name);
+    } else {
+        colors.insert(name.to_owned(), serde_json::Value::String(color.to_owned()));
     }
     let data = match serde_json::to_string(&document) {
         Ok(data) => data,
@@ -1086,6 +1134,7 @@ async fn delete_tag(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
+    let _tag_guard = state.tag_lock.lock().await;
     let name = request.name.trim();
     if name.is_empty() || name.chars().count() > 64 {
         return (
@@ -1098,16 +1147,21 @@ async fn delete_tag(
         Ok(document) => document,
         Err(_) => return auth_error_response(AuthError::Internal, false),
     };
-    let tags = document
+    if let Some(tags) = document
         .get_mut("tags")
-        .and_then(serde_json::Value::as_array_mut);
-    if let Some(tags) = tags {
+        .and_then(serde_json::Value::as_array_mut)
+    {
         tags.retain(|tag| {
-            !tag.get("name")
-                .and_then(serde_json::Value::as_str)
+            !tag_name(tag)
                 .map(|value| value.eq_ignore_ascii_case(name))
                 .unwrap_or(false)
         });
+    }
+    if let Some(colors) = document
+        .get_mut("tag_colors")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        colors.retain(|key, _| !key.eq_ignore_ascii_case(name));
     }
     let data = match serde_json::to_string(&document) {
         Ok(data) => data,
@@ -1122,6 +1176,12 @@ async fn delete_tag(
         Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
+}
+
+fn tag_name(value: &serde_json::Value) -> Option<&str> {
+    value
+        .as_str()
+        .or_else(|| value.get("name").and_then(serde_json::Value::as_str))
 }
 
 async fn address_book_document(
