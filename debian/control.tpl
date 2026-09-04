@@ -25,3 +25,9 @@ Depends: ${misc:Depends}
 Description: RustDesk server
  Self-host your own RustDesk server, it is free and open source.
  This package contains the rustdesk-utils binary.
+
+Package: rustdesk-server-api
+Architecture: {{ ARCH }}
+Depends: systemd ${misc:Depends}
+Description: RustDesk HTTP API server
+ Self-host the optional RustDesk-compatible HTTP API and Web Admin backend.
