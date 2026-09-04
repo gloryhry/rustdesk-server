@@ -17,6 +17,9 @@ const messages = {
     profile: '当前用户',
     addressBook: '地址簿',
     users: '用户管理',
+    sessions: '会话管理',
+    sessionId: '会话 ID',
+    noSessions: '暂无会话',
     devices: '设备',
     groups: '用户组',
     deviceGroups: '设备组',
@@ -86,6 +89,9 @@ const messages = {
     profile: 'Current user',
     addressBook: 'Address book',
     users: 'User management',
+    sessions: 'Session management',
+    sessionId: 'Session ID',
+    noSessions: 'No sessions found',
     devices: 'Devices',
     groups: 'User groups',
     deviceGroups: 'Device groups',
@@ -156,6 +162,7 @@ const state = {
   tagDraft: { name: '', color: '' },
   serverConfig: null,
   users: [],
+  sessions: [],
   devices: [],
   groups: [],
   deviceGroups: [],
@@ -254,6 +261,7 @@ function workspace() {
   nav.append(navButton('deviceGroups', t('deviceGroups')));
   if (state.user.is_admin) {
     nav.append(navButton('users', t('users')));
+    nav.append(navButton('sessions', t('sessions')));
     nav.append(navButton('ldap', t('ldap')));
   }
   sidebar.append(nav);
@@ -265,6 +273,7 @@ function workspace() {
   else if (state.activeView === 'groups') content.append(groupsView());
   else if (state.activeView === 'deviceGroups') content.append(deviceGroupsView());
   else if (state.activeView === 'users' && state.user.is_admin) content.append(usersView());
+  else if (state.activeView === 'sessions' && state.user.is_admin) content.append(sessionsView());
   else if (state.activeView === 'ldap' && state.user.is_admin) content.append(ldapView());
   else content.append(profileView());
   main.append(content);
@@ -377,6 +386,42 @@ function usersView() {
       row.append(element('td', '', user.created_at || user.createdAt || '—'));
       body.append(row);
     });
+  }
+  table.append(body);
+  tableWrap.append(table);
+  view.append(tableWrap);
+  return view;
+}
+
+function sessionsView() {
+  const view = viewHeader(t('sessions'), [button('refresh-sessions', t('refresh'), 'secondary')]);
+  const tableWrap = element('div', 'table-wrap');
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const row = document.createElement('tr');
+  [t('sessionId'), t('account'), t('platform'), t('status')].forEach(label => row.append(element('th', '', label)));
+  head.append(row);
+  table.append(head);
+  const body = document.createElement('tbody');
+  state.sessions.forEach(session => {
+    const item = document.createElement('tr');
+    item.append(element('td', 'strong-cell', session.id || '—'));
+    item.append(element('td', '', session.username || session.user_id || '—'));
+    item.append(element('td', '', [session.device_os, session.device_type].filter(Boolean).join(' / ') || '—'));
+    const revoke = button('', t('logout'), 'secondary');
+    revoke.dataset.revokeSession = session.id;
+    revoke.disabled = Boolean(session.revoked_at) || state.busy;
+    const actionCell = document.createElement('td');
+    actionCell.append(revoke);
+    item.append(actionCell);
+    body.append(item);
+  });
+  if (!state.sessions.length) {
+    const emptyRow = document.createElement('tr');
+    const emptyCell = element('td', 'empty-cell', t('noSessions'));
+    emptyCell.colSpan = 4;
+    emptyRow.append(emptyCell);
+    body.append(emptyRow);
   }
   table.append(body);
   tableWrap.append(table);
@@ -669,6 +714,7 @@ function bindEvents() {
     if (state.activeView === 'groups') await loadGroups();
     if (state.activeView === 'deviceGroups') await loadDeviceGroups();
     if (state.activeView === 'users') await loadUsers();
+    if (state.activeView === 'sessions') await loadSessions();
     if (state.activeView === 'ldap' && !state.ldap) await loadLdap();
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
@@ -686,6 +732,10 @@ function bindEvents() {
     node.addEventListener('click', () => deleteTag(node.dataset.deleteTag));
   });
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
+  document.querySelector('#refresh-sessions')?.addEventListener('click', loadSessions);
+  document.querySelectorAll('[data-revoke-session]').forEach(node => {
+    node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
+  });
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
   document.querySelector('#refresh-device-groups')?.addEventListener('click', loadDeviceGroups);
@@ -1024,6 +1074,39 @@ async function removeDeviceGroupMember(groupId, deviceId) {
   }
 }
 
+async function loadSessions() {
+  state.busy = true;
+  render();
+  try {
+    const result = await api('/api/admin/session/list');
+    const value = result.data?.list || result.data || result.list || result;
+    state.sessions = Array.isArray(value) ? value : [];
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function revokeSession(id) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/admin/session/revoke', {
+      method: 'POST',
+      body: JSON.stringify({ id })
+    });
+    await loadSessions();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function loadUsers() {
   state.busy = true;
   render();
@@ -1139,6 +1222,7 @@ function clearSession() {
   state.token = '';
   state.user = null;
   state.users = [];
+  state.sessions = [];
   state.devices = [];
   state.groups = [];
   state.tags = [];

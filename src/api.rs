@@ -208,6 +208,8 @@ pub fn build_router(
         .route("/api/device-group/accessible", get(list_device_groups))
         .route("/api/admin/user/current", get(admin_current_user))
         .route("/api/admin/user/list", get(admin_user_list))
+        .route("/api/admin/session/list", get(admin_session_list))
+        .route("/api/admin/session/revoke", post(admin_session_revoke))
         .route("/api/admin/user/create", post(admin_user_create))
         .route("/api/admin/user/update", post(admin_user_status))
         .route("/api/admin/user/changePwd", post(admin_user_password))
@@ -487,6 +489,46 @@ async fn admin_ldap_update(
     *current = config;
     let view = current.view();
     (StatusCode::OK, Json(view)).into_response()
+}
+
+async fn admin_session_list(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    match state.auth.db().list_api_sessions().await {
+        Ok(sessions) => (StatusCode::OK, Json(json!({ "code": 0, "data": sessions }))).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn admin_session_revoke(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<GroupIdRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    match state
+        .auth
+        .db()
+        .revoke_api_session_by_id(&request.id, crate::common::now() as i64)
+        .await
+    {
+        Ok(_) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
 }
 
 async fn admin_user_list(

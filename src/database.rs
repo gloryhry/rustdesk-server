@@ -116,6 +116,22 @@ pub struct ApiAddressBookEntry {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct ApiSessionView {
+    pub id: String,
+    pub user_id: String,
+    pub username: String,
+    pub device_id: String,
+    pub device_uuid: String,
+    pub device_name: String,
+    pub device_os: String,
+    pub device_type: String,
+    pub expires_at: i64,
+    pub revoked_at: Option<i64>,
+    pub created_at: String,
+    pub last_used_at: String,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ApiIdentity {
     pub provider: String,
@@ -739,6 +755,25 @@ impl Database {
         .execute(self.pool.get().await?.deref_mut())
         .await?;
         Ok(())
+    }
+
+    pub async fn list_api_sessions(&self) -> ResultType<Vec<ApiSessionView>> {
+        Ok(sqlx::query_as::<_, ApiSessionView>(
+            "select s.id, s.user_id, u.username, s.device_id, s.device_uuid, s.device_name, s.device_os, s.device_type, s.expires_at, s.revoked_at, s.created_at, s.last_used_at from api_session s inner join api_user u on u.id = s.user_id order by s.created_at desc",
+        )
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn revoke_api_session_by_id(&self, id: &str, now: i64) -> ResultType<bool> {
+        let result = sqlx::query(
+            "update api_session set revoked_at = coalesce(revoked_at, ?) where id = ?",
+        )
+        .bind(now)
+        .bind(id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn is_api_session_active(

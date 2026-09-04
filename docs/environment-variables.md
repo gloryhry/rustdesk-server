@@ -98,7 +98,8 @@ in the inherited process environment.
 
 Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, authenticated `GET /api/users`, `/api/peers`, and `/api/device-group/accessible`, `GET /api/login-options`, `GET`/`POST /api/oidc/auth`, `GET /api/oidc/login`, `GET /api/oidc/callback`, `GET /api/oauth/login`, `GET /api/oauth/callback`, registration routes, public `POST /api/sysinfo`/`sysinfo_ver`, authenticated `GET /api/devices`, authenticated `GET`/`POST /api/ab`, authenticated `/api/ab/tags` and `/api/ab/tags/delete`, authenticated `/api/groups` and `/api/groups/delete`, authenticated `/api/device-groups`, `/api/device-groups/delete`, `/api/device-groups/members`, and `/api/device-groups/members/delete` routes, and authenticated `/api/server-config`/`server-config-v2`. OAuth callbacks use a one-time five-minute state value and create or reuse an API account linked to the provider subject. Administrators can inspect or validate runtime LDAP settings through `GET`/`POST /api/admin/ldap/config`; responses never contain the bind password, and runtime updates are not persisted to disk. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
 
-For the included Docker Compose profile, keep `DB_URL=/root/db_v2.sqlite3` and `RUSTDESK_KEY_FILE=/root/id_ed25519.pub` so `rustdesk-api` shares hbbs's database and generated public key through the mounted `/root` volume.
+Administrators can list and revoke API sessions through `GET /api/admin/session/list` and `POST /api/admin/session/revoke`; session responses include device metadata and expiry but never access tokens.
+
 
 
 ```bash
