@@ -1,5 +1,4 @@
 use crate::database::{ApiUser, Database};
-use crate::ldap::{LdapAuthError, LdapConfig, LdapIdentity};
 use hbb_common::tokio;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -184,29 +183,7 @@ impl AuthService {
         password: &str,
         device: LoginDevice,
     ) -> Result<LoginResult, AuthError> {
-        self.login_with_requirement(username, password, device, false, None)
-            .await
-    }
-
-    pub async fn login_with_ldap(
-        &self,
-        username: &str,
-        password: &str,
-        device: LoginDevice,
-        ldap: &LdapConfig,
-    ) -> Result<LoginResult, AuthError> {
-        self.login_with_requirement(username, password, device, false, Some(ldap))
-            .await
-    }
-
-    pub async fn login_admin_with_ldap(
-        &self,
-        username: &str,
-        password: &str,
-        device: LoginDevice,
-        ldap: &LdapConfig,
-    ) -> Result<LoginResult, AuthError> {
-        self.login_with_requirement(username, password, device, true, Some(ldap))
+        self.login_with_requirement(username, password, device, false)
             .await
     }
 
@@ -216,7 +193,7 @@ impl AuthService {
         password: &str,
         device: LoginDevice,
     ) -> Result<LoginResult, AuthError> {
-        self.login_with_requirement(username, password, device, true, None)
+        self.login_with_requirement(username, password, device, true)
             .await
     }
 
@@ -226,7 +203,6 @@ impl AuthService {
         password: &str,
         device: LoginDevice,
         require_admin: bool,
-        ldap: Option<&LdapConfig>,
     ) -> Result<LoginResult, AuthError> {
         if device.id.len() > 128
             || device.uuid.len() > 128
@@ -239,19 +215,6 @@ impl AuthService {
         let username = normalize_username(username).map_err(|_| AuthError::InvalidCredentials)?;
         if password.as_bytes().len() > MAX_PASSWORD_BYTES {
             return Err(AuthError::InvalidCredentials);
-        }
-        if let Some(ldap) = ldap {
-            if ldap.enabled {
-                match ldap.authenticate(&username, password).await {
-                    Ok(Some(identity)) => {
-                        return self.issue_ldap_login(identity, device, require_admin).await;
-                    }
-                    Ok(None)
-                    | Err(LdapAuthError::InvalidCredentials)
-                    | Err(LdapAuthError::InvalidConfiguration)
-                    | Err(LdapAuthError::Unavailable) => {}
-                }
-            }
         }
         let user = self
             .db
@@ -418,53 +381,6 @@ impl AuthService {
             .increment_api_user_token_version(user_id)
             .await
             .map_err(|_| AuthError::Internal)
-    }
-
-    async fn issue_ldap_login(
-        &self,
-        identity: LdapIdentity,
-        device: LoginDevice,
-        require_admin: bool,
-    ) -> Result<LoginResult, AuthError> {
-        if require_admin {
-            return Err(AuthError::InvalidCredentials);
-        }
-        let username = normalize_username(&identity.username)
-            .map_err(|_| AuthError::InvalidCredentials)?;
-        let email = normalize_email(&identity.email).map_err(|_| AuthError::InvalidCredentials)?;
-        let user = match self
-            .db
-            .get_api_user_by_username(&username)
-            .await
-            .map_err(|_| AuthError::Internal)?
-        {
-            Some(user) => user,
-            None => {
-                let shadow_password = format!("ldap-{}", uuid::Uuid::new_v4());
-                match self
-                    .register(&username, &email, &shadow_password, false)
-                    .await
-                {
-                    Ok(registered) => self
-                        .db
-                        .get_api_user_by_id(&registered.id)
-                        .await
-                        .map_err(|_| AuthError::Internal)?
-                        .ok_or(AuthError::Internal)?,
-                    Err(AuthError::UsernameUnavailable) => self
-                        .db
-                        .get_api_user_by_username(&username)
-                        .await
-                        .map_err(|_| AuthError::Internal)?
-                        .ok_or(AuthError::Internal)?,
-                    Err(_) => return Err(AuthError::Internal),
-                }
-            }
-        };
-        if user.status != 1 {
-            return Err(AuthError::InvalidCredentials);
-        }
-        self.issue_login(user, device).await
     }
 
     async fn issue_login(&self, user: ApiUser, device: LoginDevice) -> Result<LoginResult, AuthError> {
