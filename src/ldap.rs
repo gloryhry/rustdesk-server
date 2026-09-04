@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LdapConfigView {
@@ -31,6 +32,19 @@ pub struct LdapConfig {
 #[derive(Debug)]
 pub enum LdapConfigError {
     Invalid(&'static str),
+}
+
+#[derive(Debug, Clone)]
+pub struct LdapIdentity {
+    pub username: String,
+    pub email: String,
+}
+
+#[derive(Debug)]
+pub enum LdapAuthError {
+    InvalidConfiguration,
+    InvalidCredentials,
+    Unavailable,
 }
 
 impl LdapConfig {
@@ -71,6 +85,88 @@ impl LdapConfig {
             return Err(LdapConfigError::Invalid("LDAP timeout must be between 1 and 60 seconds"));
         }
         Ok(())
+    }
+
+    pub async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<LdapIdentity>, LdapAuthError> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        self.validate()
+            .map_err(|_| LdapAuthError::InvalidConfiguration)?;
+        if username.is_empty() || password.is_empty() {
+            return Ok(None);
+        }
+        let timeout = Duration::from_secs(self.timeout_seconds);
+        let settings = ldap3::LdapConnSettings::new()
+            .set_conn_timeout(timeout)
+            .set_starttls(self.use_tls && self.url.starts_with("ldap://"));
+        let (connection, mut ldap) = ldap3::LdapConnAsync::with_settings(settings, &self.url)
+            .await
+            .map_err(|_| LdapAuthError::Unavailable)?;
+        ldap3::drive!(connection);
+        if !self.bind_dn.is_empty() {
+            ldap.simple_bind(&self.bind_dn, &self.bind_password)
+                .await
+                .map_err(|_| LdapAuthError::Unavailable)?
+                .success()
+                .map_err(|_| LdapAuthError::Unavailable)?;
+        }
+        let escaped_username = ldap3::ldap_escape(username);
+        let filter = self.user_filter.replace("{username}", escaped_username.as_ref());
+        let attrs = vec![self.username_attribute.as_str(), self.email_attribute.as_str()];
+        let (entries, _) = ldap
+            .with_timeout(timeout)
+            .search(&self.user_base_dn, ldap3::Scope::Subtree, &filter, attrs)
+            .await
+            .map_err(|_| LdapAuthError::Unavailable)?
+            .success()
+            .map_err(|_| LdapAuthError::Unavailable)?;
+        let entry = match entries.into_iter().next() {
+            Some(entry) => ldap3::SearchEntry::construct(entry),
+            None => return Ok(None),
+        };
+        let resolved_username = entry
+            .attrs
+            .get(&self.username_attribute)
+            .and_then(|values| values.first())
+            .cloned()
+            .unwrap_or_else(|| username.to_owned());
+        let email = entry
+            .attrs
+            .get(&self.email_attribute)
+            .and_then(|values| values.first())
+            .cloned()
+            .unwrap_or_default();
+        if entry.dn.is_empty() {
+            return Err(LdapAuthError::Unavailable);
+        }
+        let user_settings = ldap3::LdapConnSettings::new()
+            .set_conn_timeout(timeout)
+            .set_starttls(self.use_tls && self.url.starts_with("ldap://"));
+        let (user_connection, mut user_ldap) =
+            ldap3::LdapConnAsync::with_settings(user_settings, &self.url)
+                .await
+                .map_err(|_| LdapAuthError::Unavailable)?;
+        ldap3::drive!(user_connection);
+        let bind = user_ldap
+            .with_timeout(timeout)
+            .simple_bind(&entry.dn, password)
+            .await
+            .map_err(|_| LdapAuthError::Unavailable)?;
+        match bind.success() {
+            Ok(_) => Ok(Some(LdapIdentity {
+                username: resolved_username,
+                email,
+            })),
+            Err(ldap3::LdapError::LdapResult { result }) if result.rc == 49 => {
+                Err(LdapAuthError::InvalidCredentials)
+            }
+            Err(_) => Err(LdapAuthError::Unavailable),
+        }
     }
 
     pub fn view(&self) -> LdapConfigView {

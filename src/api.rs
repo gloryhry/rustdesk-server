@@ -417,7 +417,8 @@ async fn login(
     Json(request): Json<LoginRequest>,
 ) -> Response {
     let (username, password, device) = login_parts(request);
-    match state.auth.login(&username, &password, device).await {
+    let ldap = state.ldap.read().await.clone();
+    match state.auth.login_with_ldap(&username, &password, device, &ldap).await {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(err) => auth_error_response(err, true),
     }
@@ -428,7 +429,12 @@ async fn admin_login(
     Json(request): Json<LoginRequest>,
 ) -> Response {
     let (username, password, device) = login_parts(request);
-    match state.auth.login_admin(&username, &password, device).await {
+    let ldap = state.ldap.read().await.clone();
+    match state
+        .auth
+        .login_admin_with_ldap(&username, &password, device, &ldap)
+        .await
+    {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(err) => auth_error_response(err, true),
     }
