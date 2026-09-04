@@ -81,6 +81,12 @@ pub struct ApiDeviceGroup {
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct ApiDeviceGroupMember {
+    pub group_id: String,
+    pub device_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct ApiDevice {
     pub id: String,
     pub user_id: String,
@@ -286,6 +292,8 @@ impl Database {
         )
         .execute(conn.deref_mut())
         .await?;
+        // Legacy peer-GUID grouping storage. API-account device memberships use
+        // api_device_group_device because api_device identifiers are text IDs.
         sqlx::query(
             "
             create table if not exists api_device_group_member (
@@ -294,6 +302,20 @@ impl Database {
                 created_at datetime not null default(current_timestamp),
                 primary key(group_id, peer_guid),
                 foreign key(group_id) references api_device_group(id) on delete cascade
+            )
+            "
+        )
+        .execute(conn.deref_mut())
+        .await?;
+        sqlx::query(
+            "
+            create table if not exists api_device_group_device (
+                group_id text not null,
+                device_id text not null,
+                created_at datetime not null default(current_timestamp),
+                primary key(group_id, device_id),
+                foreign key(group_id) references api_device_group(id) on delete cascade,
+                foreign key(device_id) references api_device(id) on update cascade on delete cascade
             )
             "
         )
@@ -521,6 +543,14 @@ impl Database {
         .await?)
     }
 
+    pub async fn list_all_api_devices(&self) -> ResultType<Vec<ApiDevice>> {
+        Ok(sqlx::query_as::<_, ApiDevice>(
+            "select id, user_id, uuid, name, os, device_type, info, status, last_seen_at, created_at, updated_at from api_device order by last_seen_at desc",
+        )
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
     pub async fn update_api_user_password(&self, id: &str, password_hash: &str) -> ResultType<()> {
         sqlx::query("update api_user set password_hash = ?, updated_at = current_timestamp where id = ?")
             .bind(password_hash)
@@ -588,13 +618,62 @@ impl Database {
         Ok(())
     }
 
-    pub async fn delete_api_device_group(&self, id: &str, created_by: &str) -> ResultType<()> {
-        sqlx::query("delete from api_device_group where id = ? and created_by = ?")
+    pub async fn list_api_device_group_members(
+        &self,
+        user_id: &str,
+    ) -> ResultType<Vec<ApiDeviceGroupMember>> {
+        Ok(sqlx::query_as::<_, ApiDeviceGroupMember>(
+            "select m.group_id, m.device_id from api_device_group_device m inner join api_device_group g on g.id = m.group_id inner join api_device d on d.id = m.device_id where g.created_by = ? and d.user_id = ? order by m.group_id, m.device_id",
+        )
+        .bind(user_id)
+        .bind(user_id)
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn add_api_device_group_member(
+        &self,
+        group_id: &str,
+        device_id: &str,
+        user_id: &str,
+    ) -> ResultType<bool> {
+        let result = sqlx::query(
+            "insert into api_device_group_device(group_id, device_id) select g.id, d.id from api_device_group g inner join api_device d on d.id = ? where g.id = ? and g.created_by = ? and d.user_id = ? on conflict(group_id, device_id) do update set device_id = excluded.device_id",
+        )
+        .bind(device_id)
+        .bind(group_id)
+        .bind(user_id)
+        .bind(user_id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn remove_api_device_group_member(
+        &self,
+        group_id: &str,
+        device_id: &str,
+        user_id: &str,
+    ) -> ResultType<bool> {
+        let result = sqlx::query(
+            "delete from api_device_group_device where group_id = ? and device_id = ? and group_id in (select id from api_device_group where created_by = ?) and device_id in (select id from api_device where user_id = ?)",
+        )
+        .bind(group_id)
+        .bind(device_id)
+        .bind(user_id)
+        .bind(user_id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn delete_api_device_group(&self, id: &str, created_by: &str) -> ResultType<bool> {
+        let result = sqlx::query("delete from api_device_group where id = ? and created_by = ?")
             .bind(id)
             .bind(created_by)
             .execute(self.pool.get().await?.deref_mut())
             .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn set_api_user_status(&self, id: &str, status: i64) -> ResultType<()> {

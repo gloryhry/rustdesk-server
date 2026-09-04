@@ -113,6 +113,18 @@ pub struct GroupIdRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TagRequest {
+    pub name: String,
+    #[serde(default)]
+    pub color: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TagDeleteRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct LdapConfigRequest {
     pub enabled: bool,
     pub url: String,
@@ -181,6 +193,7 @@ pub fn build_router(
         .route("/api/login", post(login))
         .route("/api/admin/login", post(admin_login))
         .route("/api/login-options", get(login_options))
+        .route("/api/oidc/auth", get(oauth_login).post(oauth_login))
         .route("/api/oidc/login", get(oauth_login))
         .route("/api/oidc/callback", get(oauth_callback))
         .route("/api/oauth/login", get(oauth_login))
@@ -188,6 +201,9 @@ pub fn build_router(
         .route("/api/register", post(register))
         .route("/api/admin/user/register", post(register))
         .route("/api/currentUser", get(current_user).post(current_user))
+        .route("/api/users", get(list_users))
+        .route("/api/peers", get(list_devices))
+        .route("/api/device-group/accessible", get(list_device_groups))
         .route("/api/admin/user/current", get(admin_current_user))
         .route("/api/admin/user/list", get(admin_user_list))
         .route("/api/admin/user/create", post(admin_user_create))
@@ -198,10 +214,14 @@ pub fn build_router(
         .route("/api/logout", post(logout))
         .route("/api/admin/logout", post(admin_logout))
         .route("/api/ab", get(get_address_book).post(update_address_book))
+        .route("/api/ab/tags", get(list_tags).post(upsert_tag))
+        .route("/api/ab/tags/delete", post(delete_tag))
         .route("/api/groups", get(list_groups).post(create_group))
         .route("/api/groups/delete", post(delete_group))
         .route("/api/device-groups", get(list_device_groups).post(create_device_group))
         .route("/api/device-groups/delete", post(delete_device_group))
+        .route("/api/device-groups/members", post(add_device_group_member))
+        .route("/api/device-groups/members/delete", post(remove_device_group_member))
         .route("/api/devices", get(list_devices))
         .route("/api/server-config", post(server_config))
         .route("/api/server-config-v2", post(server_config))
@@ -370,6 +390,16 @@ async fn current_user(
 ) -> Response {
     match authorize(&state, &headers).await {
         Ok(principal) => (StatusCode::OK, Json(principal.user)).into_response(),
+        Err(err) => auth_error_response(err, true),
+    }
+}
+
+async fn list_users(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    match authorize(&state, &headers).await {
+        Ok(principal) => (StatusCode::OK, Json(json!({ "code": 0, "data": [principal.user] }))).into_response(),
         Err(err) => auth_error_response(err, true),
     }
 }
@@ -668,7 +698,12 @@ async fn list_devices(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    match state.auth.db().list_api_devices(&principal.user_id).await {
+    let devices = if principal.user.is_admin {
+        state.auth.db().list_all_api_devices().await
+    } else {
+        state.auth.db().list_api_devices(&principal.user_id).await
+    };
+    match devices {
         Ok(devices) => (StatusCode::OK, Json(json!({ "code": 0, "data": devices }))).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
@@ -698,7 +733,7 @@ async fn create_group(
         Err(err) => return auth_error_response(err, true),
     };
     let name = request.name.trim();
-    if name.is_empty() || name.len() > 128 {
+    if name.is_empty() || name.chars().count() > 128 {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "invalid_group_name" })),
@@ -750,13 +785,26 @@ async fn list_device_groups(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    match state
+    let groups = match state
         .auth
         .db()
         .list_api_device_groups(&principal.user_id)
         .await
     {
-        Ok(groups) => (StatusCode::OK, Json(json!({ "code": 0, "data": groups }))).into_response(),
+        Ok(groups) => groups,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    match state
+        .auth
+        .db()
+        .list_api_device_group_members(&principal.user_id)
+        .await
+    {
+        Ok(memberships) => (
+            StatusCode::OK,
+            Json(json!({ "code": 0, "data": groups, "memberships": memberships })),
+        )
+            .into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
@@ -771,7 +819,7 @@ async fn create_device_group(
         Err(err) => return auth_error_response(err, true),
     };
     let name = request.name.trim();
-    if name.is_empty() || name.len() > 128 {
+    if name.is_empty() || name.chars().count() > 128 {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "error": "invalid_group_name" })),
@@ -795,6 +843,64 @@ async fn create_device_group(
     }
 }
 
+async fn add_device_group_member(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<DeviceGroupMemberRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state
+        .auth
+        .db()
+        .add_api_device_group_member(
+            &request.group_id,
+            &request.device_id,
+            &principal.user_id,
+        )
+        .await
+    {
+        Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "device_or_group_not_found" })),
+        )
+            .into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn remove_device_group_member(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<DeviceGroupMemberRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state
+        .auth
+        .db()
+        .remove_api_device_group_member(
+            &request.group_id,
+            &request.device_id,
+            &principal.user_id,
+        )
+        .await
+    {
+        Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "device_group_membership_not_found" })),
+        )
+            .into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
 async fn delete_device_group(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
@@ -810,7 +916,7 @@ async fn delete_device_group(
         .delete_api_device_group(&request.id, &principal.user_id)
         .await
     {
-        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(_) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
@@ -888,6 +994,158 @@ async fn update_address_book(
         Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
+}
+
+async fn list_tags(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    let document = match address_book_document(&state, &principal.user_id).await {
+        Ok(document) => document,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    let tags = document
+        .get("tags")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+    (StatusCode::OK, Json(json!({ "code": 0, "data": tags }))).into_response()
+}
+
+async fn upsert_tag(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<TagRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    let name = request.name.trim();
+    let color = request.color.trim();
+    if name.is_empty() || name.chars().count() > 64 || !valid_tag_color(color) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_tag" })),
+        )
+            .into_response();
+    }
+    let mut document = match address_book_document(&state, &principal.user_id).await {
+        Ok(document) => document,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    if !document
+        .get("tags")
+        .map(serde_json::Value::is_array)
+        .unwrap_or(false)
+    {
+        document["tags"] = serde_json::Value::Array(Vec::new());
+    }
+    let tags = match document
+        .get_mut("tags")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        Some(tags) => tags,
+        None => return auth_error_response(AuthError::Internal, false),
+    };
+    let tag = json!({ "name": name, "color": color });
+    if let Some(existing) = tags.iter_mut().find(|tag| {
+        tag.get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(|value| value.eq_ignore_ascii_case(name))
+            .unwrap_or(false)
+    }) {
+        *existing = tag;
+    } else {
+        tags.push(tag);
+    }
+    let data = match serde_json::to_string(&document) {
+        Ok(data) => data,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    match state
+        .auth
+        .db()
+        .upsert_api_address_book(&principal.user_id, &data)
+        .await
+    {
+        Ok(()) => (StatusCode::OK, Json(json!({ "name": name, "color": color }))).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn delete_tag(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<TagDeleteRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    let name = request.name.trim();
+    if name.is_empty() || name.chars().count() > 64 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_tag" })),
+        )
+            .into_response();
+    }
+    let mut document = match address_book_document(&state, &principal.user_id).await {
+        Ok(document) => document,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    let tags = document
+        .get_mut("tags")
+        .and_then(serde_json::Value::as_array_mut);
+    if let Some(tags) = tags {
+        tags.retain(|tag| {
+            !tag.get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(|value| value.eq_ignore_ascii_case(name))
+                .unwrap_or(false)
+        });
+    }
+    let data = match serde_json::to_string(&document) {
+        Ok(data) => data,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    match state
+        .auth
+        .db()
+        .upsert_api_address_book(&principal.user_id, &data)
+        .await
+    {
+        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn address_book_document(
+    state: &ApiState,
+    user_id: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, AuthError> {
+    let data = state
+        .auth
+        .db()
+        .get_api_address_book(user_id)
+        .await
+        .map_err(|_| AuthError::Internal)?
+        .unwrap_or_else(|| "{}".to_owned());
+    match serde_json::from_str::<serde_json::Value>(&data).map_err(|_| AuthError::Internal)? {
+        serde_json::Value::Object(document) => Ok(document),
+        _ => Err(AuthError::Internal),
+    }
+}
+
+fn valid_tag_color(value: &str) -> bool {
+    value.is_empty()
+        || ((value.len() == 4 || value.len() == 7)
+            && value.starts_with('#')
+            && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
 async fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<Principal, AuthError> {

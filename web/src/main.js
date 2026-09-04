@@ -24,6 +24,8 @@ const messages = {
     create: '创建',
     delete: '删除',
     noDeviceGroups: '暂无设备组',
+    addDevice: '添加设备',
+    noAssignedDevices: '尚未分配设备',
     ldap: 'LDAP 配置',
     ldapUrl: 'LDAP URL',
     bindDn: '绑定 DN',
@@ -59,6 +61,10 @@ const messages = {
     requestFailed: '请求失败',
     sessionExpired: '登录已失效，请重新登录',
     emptyAddressBook: '地址簿为空',
+    tags: '标签',
+    tagName: '标签名称',
+    tagColor: '颜色（可选）',
+    noTags: '暂无标签',
     language: 'English',
     loading: '加载中...',
     signedInAs: '已登录账户',
@@ -83,6 +89,8 @@ const messages = {
     create: 'Create',
     delete: 'Delete',
     noDeviceGroups: 'No device groups found',
+    addDevice: 'Add device',
+    noAssignedDevices: 'No assigned devices',
     ldap: 'LDAP configuration',
     ldapUrl: 'LDAP URL',
     bindDn: 'Bind DN',
@@ -118,6 +126,10 @@ const messages = {
     requestFailed: 'Request failed',
     sessionExpired: 'Your session expired. Sign in again.',
     emptyAddressBook: 'Address book is empty',
+    tags: 'Tags',
+    tagName: 'Tag name',
+    tagColor: 'Color (optional)',
+    noTags: 'No tags found',
     language: '简体中文',
     loading: 'Loading...',
     signedInAs: 'Signed in as',
@@ -132,11 +144,17 @@ const state = {
   activeView: 'profile',
   authMode: 'login',
   addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
+  tags: [],
+  tagDraft: { name: '', color: '' },
   users: [],
   devices: [],
   groups: [],
   deviceGroups: [],
+  deviceGroupMemberships: [],
+  deviceGroupDevices: [],
   deviceGroupDraft: '',
+  deviceGroupsRequest: 0,
+  devicesRequest: 0,
   ldap: null,
   ldapDraft: null,
   busy: false,
@@ -267,7 +285,53 @@ function addressBookView() {
   editor.value = state.addressBook;
   editor.disabled = state.busy;
   view.append(editor);
+  view.append(tagsPanel());
   return view;
+}
+
+function tagsPanel() {
+  const panel = element('section', 'tags-panel');
+  panel.append(element('h2', '', t('tags')));
+  const form = element('form', 'inline-form');
+  form.id = 'tag-form';
+  const name = document.createElement('input');
+  name.name = 'name';
+  name.placeholder = t('tagName');
+  name.maxLength = 64;
+  name.required = true;
+  name.value = state.tagDraft.name;
+  name.disabled = state.busy;
+  const color = document.createElement('input');
+  color.name = 'color';
+  color.placeholder = t('tagColor');
+  color.maxLength = 7;
+  color.value = state.tagDraft.color;
+  color.disabled = state.busy;
+  form.append(name, color);
+  const submit = button('save-tag', t('save'), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy;
+  form.append(submit);
+  panel.append(form);
+  const list = element('div', 'tag-list');
+  if (!state.tags.length) list.append(element('p', 'empty-state', t('noTags')));
+  state.tags.forEach(tag => {
+    const row = element('div', 'tag-row');
+    row.append(element('span', '', tag.name || '—'));
+    if (tag.color) {
+      const swatch = element('span', 'tag-swatch');
+      swatch.style.backgroundColor = tag.color;
+      swatch.title = tag.color;
+      row.append(swatch);
+    }
+    const remove = button('', t('delete'), 'secondary');
+    remove.dataset.deleteTag = tag.name || '';
+    remove.disabled = state.busy;
+    row.append(remove);
+    list.append(row);
+  });
+  panel.append(list);
+  return panel;
 }
 
 function usersView() {
@@ -306,7 +370,9 @@ function usersView() {
 }
 
 function devicesView() {
-  const view = viewHeader(t('devices'), [button('refresh-devices', t('refresh'), 'secondary')]);
+  const refresh = button('refresh-devices', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  const view = viewHeader(t('devices'), [refresh]);
   const tableWrap = element('div', 'table-wrap');
   const table = document.createElement('table');
   const head = document.createElement('thead');
@@ -354,7 +420,9 @@ function groupsView() {
 }
 
 function deviceGroupsView() {
-  const view = viewHeader(t('deviceGroups'), [button('refresh-device-groups', t('refresh'), 'secondary')]);
+  const refresh = button('refresh-device-groups', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  const view = viewHeader(t('deviceGroups'), [refresh]);
   const form = element('form', 'inline-form');
   form.id = 'device-group-form';
   const input = document.createElement('input');
@@ -374,12 +442,48 @@ function deviceGroupsView() {
   const list = element('div', 'group-list');
   if (!state.deviceGroups.length) list.append(element('p', 'empty-state', t('noDeviceGroups')));
   state.deviceGroups.forEach(group => {
-    const item = element('div', 'group-row');
-    item.append(element('strong', '', group.name || '—'));
+    const item = element('div', 'device-group-card');
+    const heading = element('div', 'group-row');
+    heading.append(element('strong', '', group.name || '—'));
     const remove = button('', t('delete'), 'secondary');
     remove.dataset.deleteDeviceGroup = group.id;
     remove.disabled = state.busy;
-    item.append(remove);
+    heading.append(remove);
+    item.append(heading);
+    const members = state.deviceGroupMemberships.filter(member => member.group_id === group.id);
+    const assigned = element('div', 'membership-list');
+    if (!members.length) assigned.append(element('small', 'empty-state', t('noAssignedDevices')));
+    members.forEach(member => {
+      const device = state.deviceGroupDevices.find(value => value.id === member.device_id);
+      const row = element('div', 'membership-row');
+      row.append(element('span', '', device?.name || device?.uuid || member.device_id));
+      const detach = button('', t('delete'), 'secondary');
+      detach.dataset.removeDeviceGroup = group.id;
+      detach.dataset.deviceId = member.device_id;
+      detach.disabled = state.busy;
+      row.append(detach);
+      assigned.append(row);
+    });
+    item.append(assigned);
+    const available = state.deviceGroupDevices.filter(device => !members.some(member => member.device_id === device.id));
+    if (available.length) {
+      const assign = element('div', 'inline-form');
+      const select = document.createElement('select');
+      select.id = `device-group-select-${group.id}`;
+      available.forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.id;
+        option.textContent = device.name || device.uuid || device.id;
+        select.append(option);
+      });
+      select.disabled = state.busy;
+      assign.append(select);
+      const add = button('', t('addDevice'), 'primary');
+      add.dataset.addDeviceGroup = group.id;
+      add.disabled = state.busy;
+      assign.append(add);
+      item.append(assign);
+    }
     list.append(item);
   });
   view.append(list);
@@ -530,10 +634,22 @@ function bindEvents() {
   document.querySelector('#auth-form')?.addEventListener('submit', submitAuth);
   document.querySelector('#logout')?.addEventListener('click', logout);
   document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click', async () => {
-    state.activeView = node.dataset.view;
+    const nextView = node.dataset.view;
+    if (state.activeView === 'deviceGroups' && nextView !== 'deviceGroups') {
+      state.deviceGroupsRequest += 1;
+      state.busy = false;
+    }
+    if (state.activeView === 'devices' && nextView !== 'devices') {
+      state.devicesRequest += 1;
+      state.busy = false;
+    }
+    state.activeView = nextView;
     setNotice(null, null);
     render();
-    if (state.activeView === 'addressBook') await loadAddressBook();
+    if (state.activeView === 'addressBook') {
+      await loadAddressBook();
+      await loadTags();
+    }
     if (state.activeView === 'devices') await loadDevices();
     if (state.activeView === 'groups') await loadGroups();
     if (state.activeView === 'deviceGroups') await loadDeviceGroups();
@@ -542,6 +658,18 @@ function bindEvents() {
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
+  const tagForm = document.querySelector('#tag-form');
+  tagForm?.addEventListener('submit', saveTag);
+  tagForm?.addEventListener('input', event => {
+    const data = new FormData(event.currentTarget);
+    state.tagDraft = {
+      name: String(data.get('name') || ''),
+      color: String(data.get('color') || '')
+    };
+  });
+  document.querySelectorAll('[data-delete-tag]').forEach(node => {
+    node.addEventListener('click', () => deleteTag(node.dataset.deleteTag));
+  });
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
@@ -553,6 +681,15 @@ function bindEvents() {
   });
   document.querySelectorAll('[data-delete-device-group]').forEach(node => {
     node.addEventListener('click', () => deleteDeviceGroup(node.dataset.deleteDeviceGroup));
+  });
+  document.querySelectorAll('[data-add-device-group]').forEach(node => {
+    node.addEventListener('click', () => addDeviceGroupMember(node.dataset.addDeviceGroup));
+  });
+  document.querySelectorAll('[data-remove-device-group]').forEach(node => {
+    node.addEventListener('click', () => removeDeviceGroupMember(
+      node.dataset.removeDeviceGroup,
+      node.dataset.deviceId
+    ));
   });
   document.querySelector('#refresh-ldap')?.addEventListener('click', () => loadLdap(true));
   const ldapForm = document.querySelector('#ldap-form');
@@ -650,19 +787,78 @@ async function saveAddressBook() {
   }
 }
 
-async function loadDevices() {
+async function loadTags() {
+  try {
+    const result = await api('/api/ab/tags');
+    const value = result.data || result;
+    state.tags = Array.isArray(value) ? value.filter(tag => tag && typeof tag === 'object') : [];
+  } catch (error) {
+    setNotice('error', error.message);
+  }
+  render();
+}
+
+async function saveTag(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const payload = {
+    name: String(data.get('name') || '').trim(),
+    color: String(data.get('color') || '').trim()
+  };
+  if (!payload.name) return;
+  state.tagDraft = payload;
   state.busy = true;
   render();
   try {
-    const result = await api('/api/devices');
-    const value = result.data?.list || result.data || result.list || result;
-    state.devices = Array.isArray(value) ? value : [];
-    setNotice(null, null);
+    await api('/api/ab/tags', { method: 'POST', body: JSON.stringify(payload) });
+    state.tagDraft = { name: '', color: '' };
+    await loadTags();
+    setNotice('success', t('saved'));
   } catch (error) {
     setNotice('error', error.message);
   } finally {
     state.busy = false;
     render();
+  }
+}
+
+async function deleteTag(name) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/ab/tags/delete', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+    await loadTags();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function loadDevices() {
+  const request = ++state.devicesRequest;
+  state.busy = true;
+  render();
+  try {
+    const result = await api('/api/devices');
+    if (request !== state.devicesRequest || state.activeView !== 'devices') return;
+    const value = result.data?.list || result.data || result.list || result;
+    state.devices = Array.isArray(value) ? value : [];
+    setNotice(null, null);
+  } catch (error) {
+    if (request === state.devicesRequest && state.user) setNotice('error', error.message);
+  } finally {
+    if (request === state.devicesRequest && state.activeView === 'devices') {
+      state.busy = false;
+      render();
+    } else if (!state.user) {
+      state.busy = false;
+      render();
+    }
   }
 }
 
@@ -683,18 +879,28 @@ async function loadGroups() {
 }
 
 async function loadDeviceGroups() {
+  const request = ++state.deviceGroupsRequest;
   state.busy = true;
   render();
   try {
-    const result = await api('/api/device-groups');
+    const [result, deviceResult] = await Promise.all([
+      api('/api/device-groups'),
+      api('/api/devices')
+    ]);
+    if (request !== state.deviceGroupsRequest) return;
     const value = result.data?.list || result.data || result.list || result;
+    const devices = deviceResult.data?.list || deviceResult.data || deviceResult.list || deviceResult;
     state.deviceGroups = Array.isArray(value) ? value : [];
+    state.deviceGroupMemberships = Array.isArray(result.memberships) ? result.memberships : [];
+    state.deviceGroupDevices = Array.isArray(devices) ? devices : [];
     setNotice(null, null);
   } catch (error) {
-    setNotice('error', error.message);
+    if (request === state.deviceGroupsRequest) setNotice('error', error.message);
   } finally {
-    state.busy = false;
-    render();
+    if (request === state.deviceGroupsRequest || !state.user) {
+      state.busy = false;
+      render();
+    }
   }
 }
 
@@ -712,12 +918,14 @@ async function createDeviceGroup(event) {
       body: JSON.stringify({ name })
     });
     state.deviceGroupDraft = '';
-    await loadDeviceGroups();
+    if (state.activeView === 'deviceGroups') await loadDeviceGroups();
   } catch (error) {
-    setNotice('error', error.message);
+    if (state.activeView === 'deviceGroups') setNotice('error', error.message);
   } finally {
-    state.busy = false;
-    render();
+    if (state.activeView === 'deviceGroups' || !state.user) {
+      state.busy = false;
+      render();
+    }
   }
 }
 
@@ -729,12 +937,55 @@ async function deleteDeviceGroup(id) {
       method: 'POST',
       body: JSON.stringify({ id })
     });
-    await loadDeviceGroups();
+    if (state.activeView === 'deviceGroups') await loadDeviceGroups();
   } catch (error) {
-    setNotice('error', error.message);
+    if (state.activeView === 'deviceGroups') setNotice('error', error.message);
   } finally {
-    state.busy = false;
-    render();
+    if (state.activeView === 'deviceGroups' || !state.user) {
+      state.busy = false;
+      render();
+    }
+  }
+}
+
+async function addDeviceGroupMember(groupId) {
+  const select = document.querySelector(`#device-group-select-${groupId}`);
+  const deviceId = select?.value || '';
+  if (!deviceId) return;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/device-groups/members', {
+      method: 'POST',
+      body: JSON.stringify({ group_id: groupId, device_id: deviceId })
+    });
+    if (state.activeView === 'deviceGroups') await loadDeviceGroups();
+  } catch (error) {
+    if (state.activeView === 'deviceGroups') setNotice('error', error.message);
+  } finally {
+    if (state.activeView === 'deviceGroups' || !state.user) {
+      state.busy = false;
+      render();
+    }
+  }
+}
+
+async function removeDeviceGroupMember(groupId, deviceId) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/device-groups/members/delete', {
+      method: 'POST',
+      body: JSON.stringify({ group_id: groupId, device_id: deviceId })
+    });
+    if (state.activeView === 'deviceGroups') await loadDeviceGroups();
+  } catch (error) {
+    if (state.activeView === 'deviceGroups') setNotice('error', error.message);
+  } finally {
+    if (state.activeView === 'deviceGroups' || !state.user) {
+      state.busy = false;
+      render();
+    }
   }
 }
 
@@ -855,8 +1106,14 @@ function clearSession() {
   state.users = [];
   state.devices = [];
   state.groups = [];
+  state.tags = [];
+  state.tagDraft = { name: '', color: '' };
   state.deviceGroups = [];
+  state.deviceGroupMemberships = [];
+  state.deviceGroupDevices = [];
   state.deviceGroupDraft = '';
+  state.deviceGroupsRequest += 1;
+  state.devicesRequest += 1;
   state.ldap = null;
   state.ldapDraft = null;
   state.activeView = 'profile';

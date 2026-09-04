@@ -7,11 +7,12 @@ Minimal standalone Vite frontend for the compatible RustDesk HTTP API.
 - Account login and optional public registration
 - Current-user details
 - Personal address-book JSON editor
+- Address-book tag list, creation/update, and deletion
 - Administrator user list
 - Administrator LDAP configuration editor with bind-password redaction
 - Authenticated device list
 - Authenticated user-group list
-- Authenticated device-group list, creation, and deletion
+- Authenticated device-group list, creation, deletion, and device assignment
 - `zh-CN` and `en-US` locale toggle
 
 The frontend uses these API endpoints:
@@ -20,12 +21,16 @@ The frontend uses these API endpoints:
 - `POST /api/register`
 - `GET /api/currentUser`
 - `GET` and `POST /api/ab`
+- `GET` and `POST /api/ab/tags`
+- `POST /api/ab/tags/delete`
 - `GET /api/admin/user/list`
 - `GET` and `POST /api/admin/ldap/config`
 - `GET /api/devices`
 - `GET /api/groups`
-- `GET` and `POST /api/device-groups`
+- `GET` and `POST /api/device-groups` (the GET response includes `memberships`)
 - `POST /api/device-groups/delete`
+- `POST /api/device-groups/members`
+- `POST /api/device-groups/members/delete`
 - `POST /api/logout`
 
 ## Development

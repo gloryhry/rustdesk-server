@@ -163,13 +163,70 @@ textarea:disabled {
   margin-bottom: 18px;
 }
 
-.inline-form input {
+.inline-form input,
+.inline-form select {
   flex: 1;
   min-width: 0;
   height: 40px;
   padding: 0 11px;
+  background: #fff;
   border: 1px solid #bcc6ce;
   border-radius: 4px;
+}
+
+.device-group-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #d4dbe1;
+  border-radius: 5px;
+}
+
+.membership-list {
+  display: grid;
+  gap: 8px;
+}
+
+.membership-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tags-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.tags-panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: #fff;
+  border: 1px solid #d4dbe1;
+  border-radius: 4px;
+}
+
+.tag-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid #8e9aa3;
+  border-radius: 50%;
 }
 
 .panel-form {
