@@ -1464,14 +1464,33 @@ async fn shared_address_book_profiles(
         Err(err) => return auth_error_response(err, true),
     };
     match state.auth.db().list_api_address_book_entries(&principal.user_id).await {
-        Ok(entries) => (
-            StatusCode::OK,
-            Json(json!({
-                "code": 0,
-                "data": entries.iter().map(address_book_entry_response).collect::<Vec<_>>()
-            })),
-        )
-            .into_response(),
+        Ok(entries) => {
+            let entries = if entries.is_empty() {
+                match address_book_document(&state, &principal.user_id).await {
+                    Ok(document) => document
+                        .get("peers")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|peers| {
+                            peers
+                                .iter()
+                                .filter_map(|peer| address_book_entry_from_snapshot(&principal.user_id, peer))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default(),
+                    Err(_) => return auth_error_response(AuthError::Internal, false),
+                }
+            } else {
+                entries
+            };
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "code": 0,
+                    "data": entries.iter().map(address_book_entry_response).collect::<Vec<_>>()
+                })),
+            )
+                .into_response()
+        }
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
