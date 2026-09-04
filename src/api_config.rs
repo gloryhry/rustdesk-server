@@ -1,5 +1,6 @@
 use hbb_common::{bail, ResultType};
 use hbbs::common;
+use hbbs::ldap::LdapConfig;
 use hbbs::oauth::{OAuthProviderConfig, OAuthRuntime};
 use sodiumoxide::crypto::sign;
 
@@ -10,6 +11,36 @@ pub(crate) fn parse_bool_arg(name: &str, default: bool) -> ResultType<bool> {
         Some("0" | "false" | "FALSE" | "no" | "NO") => Ok(false),
         Some(value) => bail!("{name} must be a boolean, got {value}"),
     }
+}
+
+pub(crate) fn load_ldap_config() -> ResultType<LdapConfig> {
+    let config = LdapConfig {
+        enabled: parse_bool_arg("API_LDAP_ENABLED", false)?,
+        url: common::get_arg("API_LDAP_URL"),
+        bind_dn: common::get_arg("API_LDAP_BIND_DN"),
+        bind_password: common::get_arg("API_LDAP_BIND_PASSWORD"),
+        user_base_dn: common::get_arg("API_LDAP_USER_BASE_DN"),
+        user_filter: common::get_arg_or(
+            "API_LDAP_USER_FILTER",
+            "(&(objectClass=person)(uid={username}))".to_owned(),
+        ),
+        username_attribute: common::get_arg_or(
+            "API_LDAP_USERNAME_ATTRIBUTE",
+            "uid".to_owned(),
+        ),
+        email_attribute: common::get_arg_or(
+            "API_LDAP_EMAIL_ATTRIBUTE",
+            "mail".to_owned(),
+        ),
+        use_tls: parse_bool_arg("API_LDAP_USE_TLS", false)?,
+        timeout_seconds: common::get_arg_or("API_LDAP_TIMEOUT", "5".to_owned()).parse()?,
+    };
+    config
+        .validate()
+        .map_err(|error| match error {
+            hbbs::ldap::LdapConfigError::Invalid(message) => hbb_common::anyhow::anyhow!(message),
+        })?;
+    Ok(config)
 }
 
 pub(crate) fn load_oauth_runtime() -> OAuthRuntime {

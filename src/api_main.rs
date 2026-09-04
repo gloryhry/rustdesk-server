@@ -1,7 +1,8 @@
 mod api_config;
 
 use api_config::{
-    load_oauth_redirect_url, load_oauth_runtime, load_public_key, parse_bool_arg,
+    load_ldap_config, load_oauth_redirect_url, load_oauth_runtime, load_public_key,
+    parse_bool_arg,
 };
 use flexi_logger::*;
 use hbb_common::{bail, log, tokio, ResultType};
@@ -52,6 +53,7 @@ fn main() -> ResultType<()> {
     let web_root = common::get_arg_or("API_WEB_ROOT", "./web/dist".to_owned());
     let oauth = load_oauth_runtime();
     let oauth_redirect_url = load_oauth_redirect_url();
+    let ldap = load_ldap_config()?;
     let server_config = api::PublicServerConfig {
         api_server: common::get_arg_or(
             "API_PUBLIC_URL",
@@ -72,6 +74,7 @@ fn main() -> ResultType<()> {
         bootstrap_admin,
         oauth,
         oauth_redirect_url,
+        ldap,
     )
 }
 
@@ -87,6 +90,7 @@ async fn start(
     bootstrap_admin: Option<(String, String)>,
     oauth: hbbs::oauth::OAuthRuntime,
     oauth_redirect_url: String,
+    ldap: hbbs::ldap::LdapConfig,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
     let router = api::build_service(
@@ -99,6 +103,7 @@ async fn start(
         bootstrap_admin,
         oauth,
         oauth_redirect_url,
+        ldap,
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;

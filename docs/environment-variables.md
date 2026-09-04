@@ -80,13 +80,23 @@ in the inherited process environment.
 | `API_OIDC_TOKEN_URL` | *(unset)* | Generic OIDC token endpoint. |
 | `API_OIDC_USERINFO_URL` | *(unset)* | Generic OIDC userinfo endpoint. |
 | `API_OIDC_SCOPE` | `openid email profile` | Generic OIDC scopes requested during authorization. |
+| `API_LDAP_ENABLED` | `0` | Enables validation and exposure of LDAP configuration to administrators. Directory bind authentication requires the LDAP protocol adapter and is not enabled by this setting alone. |
+| `API_LDAP_URL` | *(unset)* | LDAP endpoint using `ldap://` or `ldaps://`. |
+| `API_LDAP_BIND_DN` | *(unset)* | Service account bind DN. |
+| `API_LDAP_BIND_PASSWORD` | *(unset)* | Service account password. It is never returned by the administrator API. |
+| `API_LDAP_USER_BASE_DN` | *(unset)* | Base DN for user searches. |
+| `API_LDAP_USER_FILTER` | `(&(objectClass=person)(uid={username}))` | User search filter; must contain `{username}`. |
+| `API_LDAP_USERNAME_ATTRIBUTE` | `uid` | Directory attribute mapped to API username. |
+| `API_LDAP_EMAIL_ATTRIBUTE` | `mail` | Directory attribute mapped to API email. |
+| `API_LDAP_USE_TLS` | `0` | Marks StartTLS use for the future LDAP adapter; prefer `ldaps://` where supported. |
+| `API_LDAP_TIMEOUT` | `5` | LDAP operation timeout in seconds, constrained to `1..=60`. |
 | `RUSTDESK_ID_SERVER` | *(empty)* | ID server address returned by `/api/server-config`. |
 | `RUSTDESK_RELAY_SERVER` | *(empty)* | Relay server address returned by `/api/server-config`. |
 | `RUSTDESK_KEY_FILE` | `id_ed25519.pub` | File containing the public RustDesk server key returned to clients. |
 | `RUSTDESK_KEY` | *(unset)* | Explicit public key override. Never put the private key here. |
 | `DB_URL` | `./db_v2.sqlite3` | Shared SQLite database used by `hbbs` and `rustdesk-api`. |
 
-Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, `GET /api/oidc/login`, `GET /api/oidc/callback`, `GET /api/oauth/login`, `GET /api/oauth/callback`, registration routes, public `POST /api/sysinfo`/`sysinfo_ver`, authenticated `GET /api/devices`, authenticated `GET`/`POST /api/ab`, authenticated `/api/groups` and `/api/groups/delete`, and authenticated `/api/server-config`/`server-config-v2`. OAuth callbacks use a one-time five-minute state value and create or reuse an API account linked to the provider subject. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
+Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET`/`POST /api/currentUser`, `GET /api/login-options`, `GET /api/oidc/login`, `GET /api/oidc/callback`, `GET /api/oauth/login`, `GET /api/oauth/callback`, registration routes, public `POST /api/sysinfo`/`sysinfo_ver`, authenticated `GET /api/devices`, authenticated `GET`/`POST /api/ab`, authenticated `/api/groups` and `/api/groups/delete`, and authenticated `/api/server-config`/`server-config-v2`. OAuth callbacks use a one-time five-minute state value and create or reuse an API account linked to the provider subject. Administrators can inspect or validate runtime LDAP settings through `GET`/`POST /api/admin/ldap/config`; responses never contain the bind password, and runtime updates are not persisted to disk. Login accepts RustDesk device fields such as `id`, `uuid`, `autoLogin`, and `deviceInfo`, and returns `type`, `access_token`, `user`, and `expires_in`.
 
 For the included Docker Compose profile, keep `DB_URL=/root/db_v2.sqlite3` and `RUSTDESK_KEY_FILE=/root/id_ed25519.pub` so `rustdesk-api` shares hbbs's database and generated public key through the mounted `/root` volume.
 

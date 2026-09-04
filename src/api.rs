@@ -1,4 +1,5 @@
 use crate::auth::{AuthError, AuthService, LoginDevice, Principal};
+use crate::ldap::LdapConfig;
 use crate::oauth::{OAuthError, OAuthRuntime};
 use axum::{
     extract::{Extension, Json, Query},
@@ -24,6 +25,7 @@ pub struct ApiState {
     pub server_config: PublicServerConfig,
     pub oauth: OAuthRuntime,
     pub oauth_redirect_url: String,
+    pub ldap: Arc<hbb_common::tokio::sync::RwLock<LdapConfig>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -110,6 +112,21 @@ pub struct GroupIdRequest {
     pub id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LdapConfigRequest {
+    pub enabled: bool,
+    pub url: String,
+    pub bind_dn: String,
+    #[serde(default)]
+    pub bind_password: String,
+    pub user_base_dn: String,
+    pub user_filter: String,
+    pub username_attribute: String,
+    pub email_attribute: String,
+    pub use_tls: bool,
+    pub timeout_seconds: u64,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct DeviceReportRequest {
     #[serde(default)]
@@ -144,6 +161,7 @@ pub fn build_router(
     web_root: String,
     oauth: OAuthRuntime,
     oauth_redirect_url: String,
+    ldap: LdapConfig,
 ) -> Router {
     let state = Arc::new(ApiState {
         auth,
@@ -151,6 +169,7 @@ pub fn build_router(
         server_config,
         oauth,
         oauth_redirect_url,
+        ldap: Arc::new(hbb_common::tokio::sync::RwLock::new(ldap)),
     });
     Router::new()
         .route("/health/live", get(health_live))
@@ -175,6 +194,7 @@ pub fn build_router(
         .route("/api/admin/user/update", post(admin_user_status))
         .route("/api/admin/user/changePwd", post(admin_user_password))
         .route("/api/admin/user/delete", post(admin_user_delete))
+        .route("/api/admin/ldap/config", get(admin_ldap_config).post(admin_ldap_update))
         .route("/api/logout", post(logout))
         .route("/api/admin/logout", post(admin_logout))
         .route("/api/ab", get(get_address_book).post(update_address_book))
@@ -199,6 +219,7 @@ pub async fn build_service(
     bootstrap_admin: Option<(String, String)>,
     oauth: OAuthRuntime,
     oauth_redirect_url: String,
+    ldap: LdapConfig,
 ) -> Result<Router, AuthError> {
     let auth = AuthService::new(db, secret, token_ttl)?;
     if let Some((username, password)) = bootstrap_admin {
@@ -211,6 +232,7 @@ pub async fn build_service(
         web_root,
         oauth,
         oauth_redirect_url,
+        ldap,
     ))
 }
 
@@ -365,6 +387,61 @@ async fn admin_current_user(
             .into_response(),
         Err(err) => auth_error_response(err, true),
     }
+}
+
+async fn admin_ldap_config(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    let config = state.ldap.read().await;
+    (StatusCode::OK, Json(config.view())).into_response()
+}
+
+async fn admin_ldap_update(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<LdapConfigRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    let current_password = state.ldap.read().await.bind_password.clone();
+    let config = LdapConfig {
+        enabled: request.enabled,
+        url: request.url.trim().to_owned(),
+        bind_dn: request.bind_dn.trim().to_owned(),
+        bind_password: if request.bind_password.is_empty() {
+            current_password
+        } else {
+            request.bind_password
+        },
+        user_base_dn: request.user_base_dn.trim().to_owned(),
+        user_filter: request.user_filter.trim().to_owned(),
+        username_attribute: request.username_attribute.trim().to_owned(),
+        email_attribute: request.email_attribute.trim().to_owned(),
+        use_tls: request.use_tls,
+        timeout_seconds: request.timeout_seconds,
+    };
+    if let Err(crate::ldap::LdapConfigError::Invalid(message)) = config.validate() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": message })),
+        )
+            .into_response();
+    }
+    *state.ldap.write().await = config;
+    (StatusCode::OK, Json(state.ldap.read().await.view())).into_response()
 }
 
 async fn admin_user_list(

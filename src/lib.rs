@@ -5,5 +5,6 @@ pub mod database;
 pub mod auth;
 pub mod api;
 pub mod oauth;
+pub mod ldap;
 mod peer;
 mod version;
