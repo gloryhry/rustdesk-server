@@ -23,6 +23,7 @@ pub struct OAuthRuntime {
 struct PendingState {
     provider: String,
     redirect_uri: String,
+    code_verifier: String,
     expires_at: u64,
 }
 
@@ -102,6 +103,18 @@ impl OAuthRuntime {
             .get(provider)
             .ok_or(OAuthError::NotConfigured)?;
         let state = uuid::Uuid::new_v4().to_string();
+        let code_verifier = format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
+        let challenge = base64::encode_config(
+            sodiumoxide::crypto::hash::sha256::hash(
+                code_verifier.as_bytes(),
+            )
+            .as_ref(),
+            base64::URL_SAFE_NO_PAD,
+        );
         let now = crate::common::now();
         let mut pending = self.pending.lock().await;
         pending.retain(|_, value| value.expires_at >= now);
@@ -113,6 +126,7 @@ impl OAuthRuntime {
             PendingState {
                 provider: provider.to_owned(),
                 redirect_uri: redirect_uri.to_owned(),
+                code_verifier,
                 expires_at: now.saturating_add(300),
             },
         );
@@ -122,6 +136,8 @@ impl OAuthRuntime {
             .append_pair("redirect_uri", redirect_uri)
             .append_pair("response_type", "code")
             .append_pair("scope", &config.scopes)
+            .append_pair("code_challenge", &challenge)
+            .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state);
         Ok(url)
     }
@@ -145,11 +161,15 @@ impl OAuthRuntime {
             return Err(OAuthError::InvalidState);
         }
         let provider = pending.provider;
+        let code_verifier = pending.code_verifier;
         let config = self
             .providers
             .get(&provider)
             .ok_or(OAuthError::NotConfigured)?;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|_| OAuthError::Remote)?;
         let token = client
             .post(&config.token_url)
             .header("Accept", "application/json")
@@ -159,6 +179,7 @@ impl OAuthRuntime {
                 ("code", code),
                 ("redirect_uri", redirect_uri),
                 ("grant_type", "authorization_code"),
+                ("code_verifier", code_verifier.as_str()),
             ])
             .send()
             .await

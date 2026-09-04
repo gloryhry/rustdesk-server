@@ -616,13 +616,13 @@ impl Database {
         Ok(())
     }
 
-    pub async fn delete_api_user_group(&self, id: &str, created_by: &str) -> ResultType<()> {
-        sqlx::query("delete from api_user_group where id = ? and created_by = ?")
+    pub async fn delete_api_user_group(&self, id: &str, created_by: &str) -> ResultType<bool> {
+        let result = sqlx::query("delete from api_user_group where id = ? and created_by = ?")
             .bind(id)
             .bind(created_by)
             .execute(self.pool.get().await?.deref_mut())
             .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn list_api_device_groups(&self, user_id: &str) -> ResultType<Vec<ApiDeviceGroup>> {
@@ -713,21 +713,26 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn set_api_user_status(&self, id: &str, status: i64) -> ResultType<()> {
-        sqlx::query("update api_user set status = ?, updated_at = current_timestamp where id = ?")
-            .bind(status)
-            .bind(id)
-            .execute(self.pool.get().await?.deref_mut())
-            .await?;
-        Ok(())
+    pub async fn set_api_user_status(&self, id: &str, status: i64) -> ResultType<bool> {
+        let result = sqlx::query(
+            "update api_user set status = ?, updated_at = current_timestamp where id = ? and not (is_admin = 1 and ? = 0 and (select count(*) from api_user where is_admin = 1 and status = 1) <= 1)",
+        )
+        .bind(status)
+        .bind(id)
+        .bind(status)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
-    pub async fn delete_api_user(&self, id: &str) -> ResultType<()> {
-        sqlx::query("delete from api_user where id = ?")
-            .bind(id)
-            .execute(self.pool.get().await?.deref_mut())
-            .await?;
-        Ok(())
+    pub async fn delete_api_user(&self, id: &str) -> ResultType<bool> {
+        let result = sqlx::query(
+            "delete from api_user where id = ? and not (is_admin = 1 and (select count(*) from api_user where is_admin = 1 and status = 1) <= 1)",
+        )
+        .bind(id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn create_api_session(
@@ -803,6 +808,77 @@ impl Database {
         .execute(self.pool.get().await?.deref_mut())
         .await?;
         Ok(())
+    }
+
+    pub async fn list_api_address_book_entries(
+        &self,
+        user_id: &str,
+    ) -> ResultType<Vec<ApiAddressBookEntry>> {
+        Ok(sqlx::query_as::<_, ApiAddressBookEntry>(
+            "select id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay, created_at, updated_at from api_address_book_entry where user_id = ? order by updated_at desc, id",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn get_api_address_book_entry(
+        &self,
+        user_id: &str,
+        peer_id: &str,
+    ) -> ResultType<Option<ApiAddressBookEntry>> {
+        Ok(sqlx::query_as::<_, ApiAddressBookEntry>(
+            "select id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay, created_at, updated_at from api_address_book_entry where user_id = ? and peer_id = ?",
+        )
+        .bind(user_id)
+        .bind(peer_id)
+        .fetch_optional(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn delete_api_address_book_entry_by_key(
+        &self,
+        key: &str,
+        user_id: &str,
+    ) -> ResultType<bool> {
+        let result = sqlx::query(
+            "delete from api_address_book_entry where user_id = ? and (id = ? or peer_id = ?)",
+        )
+        .bind(user_id)
+        .bind(key)
+        .bind(key)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+        &self,
+        entry: &ApiAddressBookEntry,
+    ) -> ResultType<()> {
+        sqlx::query(
+            "insert into api_address_book_entry(id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay) values(?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(user_id, peer_id) do update set id = excluded.id, username = excluded.username, hostname = excluded.hostname, alias = excluded.alias, platform = excluded.platform, tags = excluded.tags, force_always_relay = excluded.force_always_relay, updated_at = current_timestamp",
+        )
+        .bind(&entry.id)
+        .bind(&entry.user_id)
+        .bind(&entry.peer_id)
+        .bind(&entry.username)
+        .bind(&entry.hostname)
+        .bind(&entry.alias)
+        .bind(&entry.platform)
+        .bind(&entry.tags)
+        .bind(entry.force_always_relay)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_api_address_book_entry(&self, id: &str, user_id: &str) -> ResultType<bool> {
+        let result = sqlx::query("delete from api_address_book_entry where id = ? and user_id = ?")
+            .bind(id)
+            .bind(user_id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn get_api_address_book(&self, user_id: &str) -> ResultType<Option<String>> {

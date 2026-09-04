@@ -100,6 +100,9 @@ Current compatible endpoints include `POST /api/login`, `POST /api/logout`, `GET
 
 Administrators can list and revoke API sessions through `GET /api/admin/session/list` and `POST /api/admin/session/revoke`; session responses include device metadata and expiry but never access tokens. Administrators can inspect non-sensitive configured OAuth providers through `GET /api/admin/oauth/providers`; client secrets are never returned.
 
+Address-book entries can also be managed individually with authenticated `GET /api/ab/peers`, `POST /api/ab/peer`, and `POST /api/ab/peer/delete`; these operations are owner-scoped and do not grant remote-control authorization.
+
+
 
 
 ```bash
