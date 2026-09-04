@@ -19,6 +19,18 @@ const messages = {
     users: '用户管理',
     devices: '设备',
     groups: '用户组',
+    ldap: 'LDAP 配置',
+    ldapUrl: 'LDAP URL',
+    bindDn: '绑定 DN',
+    bindPassword: '绑定密码（留空则保持不变）',
+    userBaseDn: '用户 Base DN',
+    userFilter: '用户过滤器',
+    usernameAttribute: '用户名属性',
+    emailAttribute: '邮箱属性',
+    useTls: '使用 StartTLS',
+    timeoutSeconds: '超时（秒）',
+    runtimeOnly: '配置仅应用于当前 API 进程，重启后从环境变量重新加载。',
+    ldapSaved: 'LDAP 配置已应用',
     logout: '退出登录',
     refresh: '刷新',
     save: '保存',
@@ -59,6 +71,20 @@ const messages = {
     profile: 'Current user',
     addressBook: 'Address book',
     users: 'User management',
+    devices: 'Devices',
+    groups: 'User groups',
+    ldap: 'LDAP configuration',
+    ldapUrl: 'LDAP URL',
+    bindDn: 'Bind DN',
+    bindPassword: 'Bind password (leave blank to keep)',
+    userBaseDn: 'User base DN',
+    userFilter: 'User filter',
+    usernameAttribute: 'Username attribute',
+    emailAttribute: 'Email attribute',
+    useTls: 'Use StartTLS',
+    timeoutSeconds: 'Timeout (seconds)',
+    runtimeOnly: 'Changes apply to the current API process only; restart reloads environment settings.',
+    ldapSaved: 'LDAP configuration applied',
     logout: 'Sign out',
     refresh: 'Refresh',
     save: 'Save',
@@ -99,6 +125,8 @@ const state = {
   users: [],
   devices: [],
   groups: [],
+  ldap: null,
+  ldapDraft: null,
   busy: false,
   notice: null
 };
@@ -184,7 +212,10 @@ function workspace() {
   nav.append(navButton('addressBook', t('addressBook')));
   nav.append(navButton('devices', t('devices')));
   nav.append(navButton('groups', t('groups')));
-  if (state.user.is_admin) nav.append(navButton('users', t('users')));
+  if (state.user.is_admin) {
+    nav.append(navButton('users', t('users')));
+    nav.append(navButton('ldap', t('ldap')));
+  }
   sidebar.append(nav);
   main.append(sidebar);
 
@@ -193,6 +224,7 @@ function workspace() {
   else if (state.activeView === 'devices') content.append(devicesView());
   else if (state.activeView === 'groups') content.append(groupsView());
   else if (state.activeView === 'users' && state.user.is_admin) content.append(usersView());
+  else if (state.activeView === 'ldap' && state.user.is_admin) content.append(ldapView());
   else content.append(profileView());
   main.append(content);
   return main;
@@ -307,6 +339,71 @@ function groupsView() {
   return view;
 }
 
+function ldapView() {
+  const config = state.ldapDraft || state.ldap || {
+    enabled: false,
+    url: '',
+    bind_dn: '',
+    user_base_dn: '',
+    user_filter: '(&(objectClass=person)(uid={username}))',
+    username_attribute: 'uid',
+    email_attribute: 'mail',
+    use_tls: false,
+    timeout_seconds: 5
+  };
+  const view = viewHeader(t('ldap'), [button('refresh-ldap', t('refresh'), 'secondary')]);
+  const form = element('form', 'panel-form');
+  form.id = 'ldap-form';
+  form.append(checkboxField('ldap-enabled', t('enabled'), config.enabled));
+  form.append(configField('ldap-url', t('ldapUrl'), config.url));
+  form.append(configField('ldap-bind-dn', t('bindDn'), config.bind_dn));
+  form.append(configField('ldap-bind-password', t('bindPassword'), config.bind_password || '', 'password'));
+  form.append(configField('ldap-user-base-dn', t('userBaseDn'), config.user_base_dn));
+  form.append(configField('ldap-user-filter', t('userFilter'), config.user_filter));
+  form.append(configField('ldap-username-attribute', t('usernameAttribute'), config.username_attribute));
+  form.append(configField('ldap-email-attribute', t('emailAttribute'), config.email_attribute));
+  form.append(checkboxField('ldap-use-tls', t('useTls'), config.use_tls));
+  form.append(configField('ldap-timeout', t('timeoutSeconds'), String(config.timeout_seconds), 'number'));
+  form.append(element('p', 'empty-state', t('runtimeOnly')));
+  const submit = button('save-ldap', state.busy ? t('saving') : t('save'), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy;
+  form.append(submit);
+  view.append(form);
+  return view;
+}
+
+function configField(id, label, value, type = 'text') {
+  const wrapper = element('label', 'field');
+  wrapper.htmlFor = id;
+  wrapper.append(element('span', '', label));
+  const input = document.createElement('input');
+  input.id = id;
+  input.name = id;
+  input.type = type;
+  input.value = value || '';
+  input.disabled = state.busy;
+  if (type === 'number') {
+    input.min = '1';
+    input.max = '60';
+  }
+  wrapper.append(input);
+  return wrapper;
+}
+
+function checkboxField(id, label, checked) {
+  const wrapper = element('label', 'field checkbox-field');
+  const input = document.createElement('input');
+  input.id = id;
+  input.name = id;
+  input.type = 'checkbox';
+  input.checked = Boolean(checked);
+  input.disabled = state.busy;
+  wrapper.append(input);
+  wrapper.append(element('span', '', label));
+  return wrapper;
+}
+
 function viewHeader(title, actions = []) {
   const view = element('div', 'view');
   const heading = element('div', 'view-heading');
@@ -393,12 +490,18 @@ function bindEvents() {
     if (state.activeView === 'devices') await loadDevices();
     if (state.activeView === 'groups') await loadGroups();
     if (state.activeView === 'users') await loadUsers();
+    if (state.activeView === 'ldap' && !state.ldap) await loadLdap();
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
+  document.querySelector('#refresh-ldap')?.addEventListener('click', () => loadLdap(true));
+  const ldapForm = document.querySelector('#ldap-form');
+  ldapForm?.addEventListener('submit', saveLdap);
+  ldapForm?.addEventListener('input', preserveLdapDraft);
+  ldapForm?.addEventListener('change', preserveLdapDraft);
 }
 
 async function submitAuth(event) {
@@ -538,6 +641,64 @@ async function loadUsers() {
   }
 }
 
+function ldapPayload(form) {
+  const data = new FormData(form);
+  return {
+    enabled: data.has('ldap-enabled'),
+    url: String(data.get('ldap-url') || ''),
+    bind_dn: String(data.get('ldap-bind-dn') || ''),
+    bind_password: String(data.get('ldap-bind-password') || ''),
+    user_base_dn: String(data.get('ldap-user-base-dn') || ''),
+    user_filter: String(data.get('ldap-user-filter') || ''),
+    username_attribute: String(data.get('ldap-username-attribute') || ''),
+    email_attribute: String(data.get('ldap-email-attribute') || ''),
+    use_tls: data.has('ldap-use-tls'),
+    timeout_seconds: Number(data.get('ldap-timeout') || 5)
+  };
+}
+
+function preserveLdapDraft(event) {
+  state.ldapDraft = ldapPayload(event.currentTarget);
+}
+
+async function loadLdap(discardDraft = false) {
+  state.busy = true;
+  render();
+  try {
+    state.ldap = await api('/api/admin/ldap/config');
+    if (discardDraft || !state.ldapDraft) {
+      state.ldapDraft = { ...state.ldap, bind_password: '' };
+    }
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function saveLdap(event) {
+  event.preventDefault();
+  const payload = ldapPayload(event.currentTarget);
+  state.ldapDraft = payload;
+  state.busy = true;
+  render();
+  try {
+    state.ldap = await api('/api/admin/ldap/config', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    state.ldapDraft = { ...state.ldap, bind_password: '' };
+    setNotice('success', t('ldapSaved'));
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function logout() {
   try {
     await api('/api/logout', { method: 'POST' });
@@ -581,6 +742,8 @@ function clearSession() {
   state.users = [];
   state.devices = [];
   state.groups = [];
+  state.ldap = null;
+  state.ldapDraft = null;
   state.activeView = 'profile';
   sessionStorage.removeItem(TOKEN_KEY);
 }

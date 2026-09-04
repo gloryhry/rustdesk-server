@@ -8,6 +8,7 @@ Minimal standalone Vite frontend for the compatible RustDesk HTTP API.
 - Current-user details
 - Personal address-book JSON editor
 - Administrator user list
+- Administrator LDAP configuration editor with bind-password redaction
 - Authenticated device list
 - Authenticated user-group list
 - `zh-CN` and `en-US` locale toggle
@@ -19,6 +20,7 @@ The frontend uses these API endpoints:
 - `GET /api/currentUser`
 - `GET` and `POST /api/ab`
 - `GET /api/admin/user/list`
+- `GET` and `POST /api/admin/ldap/config`
 - `GET /api/devices`
 - `GET /api/groups`
 - `POST /api/logout`
@@ -58,3 +60,5 @@ VITE_API_BASE=https://rustdesk.example.com npm run build
 When `VITE_API_BASE` is empty, requests use same-origin `/api` paths. Production deployments must use HTTPS because the browser sends the Bearer access token with protected API requests.
 
 The access token is stored in browser `sessionStorage`, so closing the tab ends the local browser session. Server-side logout also calls `POST /api/logout` to revoke the current API session.
+
+LDAP updates are applied only to the running API process and are reloaded from environment variables after restart. The stored bind password is never returned to the browser; leave the password field empty to preserve the current runtime value.

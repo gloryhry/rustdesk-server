@@ -156,6 +156,27 @@ textarea:disabled {
   gap: 17px;
 }
 
+.panel-form {
+  display: grid;
+  max-width: 720px;
+  gap: 17px;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid #d4dbe1;
+  border-radius: 5px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+}
+
+.checkbox-field input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
 .field {
   display: grid;
   gap: 7px;

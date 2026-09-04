@@ -416,13 +416,13 @@ async fn admin_ldap_update(
     if !principal.user.is_admin {
         return admin_required_response();
     }
-    let current_password = state.ldap.read().await.bind_password.clone();
+    let mut current = state.ldap.write().await;
     let config = LdapConfig {
         enabled: request.enabled,
         url: request.url.trim().to_owned(),
         bind_dn: request.bind_dn.trim().to_owned(),
         bind_password: if request.bind_password.is_empty() {
-            current_password
+            current.bind_password.clone()
         } else {
             request.bind_password
         },
@@ -440,8 +440,9 @@ async fn admin_ldap_update(
         )
             .into_response();
     }
-    *state.ldap.write().await = config;
-    (StatusCode::OK, Json(state.ldap.read().await.view())).into_response()
+    *current = config;
+    let view = current.view();
+    (StatusCode::OK, Json(view)).into_response()
 }
 
 async fn admin_user_list(
