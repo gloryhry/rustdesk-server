@@ -33,7 +33,8 @@ The frontend uses these API endpoints:
 - `POST /api/device-groups/members/delete`
 - `POST /api/logout`
 
-## Development
+After successful login, the frontend automatically requests the public server configuration and the account's personal address book; the profile view displays the public server values without exposing private server or provider secrets.
+
 
 Requirements: Node.js 18 or newer and a RustDesk API server listening on `127.0.0.1:21114`.
 

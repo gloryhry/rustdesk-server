@@ -61,6 +61,10 @@ const messages = {
     requestFailed: '请求失败',
     sessionExpired: '登录已失效，请重新登录',
     emptyAddressBook: '地址簿为空',
+    apiServer: 'API Server',
+    idServer: 'ID Server',
+    relayServer: 'Relay Server',
+    publicKey: '公开 KEY',
     tags: '标签',
     tagName: '标签名称',
     tagColor: '颜色（可选）',
@@ -126,6 +130,10 @@ const messages = {
     requestFailed: 'Request failed',
     sessionExpired: 'Your session expired. Sign in again.',
     emptyAddressBook: 'Address book is empty',
+    apiServer: 'API Server',
+    idServer: 'ID Server',
+    relayServer: 'Relay Server',
+    publicKey: 'Public key',
     tags: 'Tags',
     tagName: 'Tag name',
     tagColor: 'Color (optional)',
@@ -146,6 +154,7 @@ const state = {
   addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
   tags: [],
   tagDraft: { name: '', color: '' },
+  serverConfig: null,
   users: [],
   devices: [],
   groups: [],
@@ -269,6 +278,12 @@ function profileView() {
   detail(grid, t('email'), state.user.email || '—');
   detail(grid, t('role'), state.user.is_admin ? t('administrator') : t('member'));
   detail(grid, t('status'), Number(state.user.status) === 1 ? t('enabled') : t('disabled'));
+  if (state.serverConfig) {
+    detail(grid, t('apiServer'), state.serverConfig.api_server || '—');
+    detail(grid, t('idServer'), state.serverConfig.id_server || '—');
+    detail(grid, t('relayServer'), state.serverConfig.relay_server || '—');
+    detail(grid, t('publicKey'), state.serverConfig.key || '—');
+  }
   view.append(grid);
   return view;
 }
@@ -737,11 +752,31 @@ async function loadCurrentUser(renderAfter = true) {
     const result = await api('/api/currentUser');
     state.user = safeUser(result);
     if (!state.user || typeof state.user !== 'object') throw new Error(t('requestFailed'));
+    await loadBootstrapData();
   } catch (error) {
     clearSession();
     setNotice('error', error.message);
   }
   if (renderAfter) render();
+}
+
+async function loadBootstrapData() {
+  const [serverResult, addressResult] = await Promise.allSettled([
+    api('/api/server-config', { method: 'POST', body: '{}' }),
+    api('/api/ab')
+  ]);
+  if (serverResult.status === 'fulfilled') {
+    state.serverConfig = serverResult.value.data || serverResult.value;
+  }
+  if (addressResult.status === 'fulfilled') {
+    const raw = addressResult.value.data ?? addressResult.value;
+    try {
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      state.addressBook = JSON.stringify(parsed, null, 2);
+    } catch {
+      setNotice('error', t('requestFailed'));
+    }
+  }
 }
 
 async function loadAddressBook() {
@@ -1116,6 +1151,7 @@ function clearSession() {
   state.devicesRequest += 1;
   state.ldap = null;
   state.ldapDraft = null;
+  state.serverConfig = null;
   state.activeView = 'profile';
   sessionStorage.removeItem(TOKEN_KEY);
 }
