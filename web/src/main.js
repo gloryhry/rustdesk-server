@@ -18,6 +18,12 @@ const messages = {
     addressBook: '地址簿',
     users: '用户管理',
     sessions: '会话管理',
+    oauth: 'OAuth 配置',
+    provider: '提供商',
+    authorizationEndpoint: '授权端点',
+    userInfoEndpoint: '用户信息端点',
+    redirectConfigured: '回调地址已配置',
+    noProviders: '暂无已启用 provider',
     sessionId: '会话 ID',
     noSessions: '暂无会话',
     devices: '设备',
@@ -90,6 +96,12 @@ const messages = {
     addressBook: 'Address book',
     users: 'User management',
     sessions: 'Session management',
+    oauth: 'OAuth configuration',
+    provider: 'Provider',
+    authorizationEndpoint: 'Authorization endpoint',
+    userInfoEndpoint: 'Userinfo endpoint',
+    redirectConfigured: 'Callback configured',
+    noProviders: 'No enabled providers',
     sessionId: 'Session ID',
     noSessions: 'No sessions found',
     devices: 'Devices',
@@ -163,6 +175,8 @@ const state = {
   serverConfig: null,
   users: [],
   sessions: [],
+  oauthProviders: [],
+  oauthRedirectConfigured: false,
   devices: [],
   groups: [],
   deviceGroups: [],
@@ -262,6 +276,7 @@ function workspace() {
   if (state.user.is_admin) {
     nav.append(navButton('users', t('users')));
     nav.append(navButton('sessions', t('sessions')));
+    nav.append(navButton('oauth', t('oauth')));
     nav.append(navButton('ldap', t('ldap')));
   }
   sidebar.append(nav);
@@ -274,6 +289,7 @@ function workspace() {
   else if (state.activeView === 'deviceGroups') content.append(deviceGroupsView());
   else if (state.activeView === 'users' && state.user.is_admin) content.append(usersView());
   else if (state.activeView === 'sessions' && state.user.is_admin) content.append(sessionsView());
+  else if (state.activeView === 'oauth' && state.user.is_admin) content.append(oauthView());
   else if (state.activeView === 'ldap' && state.user.is_admin) content.append(ldapView());
   else content.append(profileView());
   main.append(content);
@@ -420,6 +436,41 @@ function sessionsView() {
     const emptyRow = document.createElement('tr');
     const emptyCell = element('td', 'empty-cell', t('noSessions'));
     emptyCell.colSpan = 4;
+    emptyRow.append(emptyCell);
+    body.append(emptyRow);
+  }
+  table.append(body);
+  tableWrap.append(table);
+  view.append(tableWrap);
+  return view;
+}
+
+function oauthView() {
+  const view = viewHeader(t('oauth'), [button('refresh-oauth', t('refresh'), 'secondary')]);
+  view.append(element(
+    'p',
+    'empty-state',
+    `${t('redirectConfigured')}: ${state.oauthRedirectConfigured ? t('enabled') : t('disabled')}`
+  ));
+  const tableWrap = element('div', 'table-wrap');
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const row = document.createElement('tr');
+  [t('provider'), t('authorizationEndpoint'), t('userInfoEndpoint')].forEach(label => row.append(element('th', '', label)));
+  head.append(row);
+  table.append(head);
+  const body = document.createElement('tbody');
+  state.oauthProviders.forEach(provider => {
+    const item = document.createElement('tr');
+    item.append(element('td', 'strong-cell', provider.name || '—'));
+    item.append(element('td', '', provider.authorization_url || '—'));
+    item.append(element('td', '', provider.userinfo_url || '—'));
+    body.append(item);
+  });
+  if (!state.oauthProviders.length) {
+    const emptyRow = document.createElement('tr');
+    const emptyCell = element('td', 'empty-cell', t('noProviders'));
+    emptyCell.colSpan = 3;
     emptyRow.append(emptyCell);
     body.append(emptyRow);
   }
@@ -715,6 +766,7 @@ function bindEvents() {
     if (state.activeView === 'deviceGroups') await loadDeviceGroups();
     if (state.activeView === 'users') await loadUsers();
     if (state.activeView === 'sessions') await loadSessions();
+    if (state.activeView === 'oauth') await loadOauthProviders();
     if (state.activeView === 'ldap' && !state.ldap) await loadLdap();
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
@@ -733,6 +785,7 @@ function bindEvents() {
   });
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
   document.querySelector('#refresh-sessions')?.addEventListener('click', loadSessions);
+  document.querySelector('#refresh-oauth')?.addEventListener('click', loadOauthProviders);
   document.querySelectorAll('[data-revoke-session]').forEach(node => {
     node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
   });
@@ -1074,6 +1127,22 @@ async function removeDeviceGroupMember(groupId, deviceId) {
   }
 }
 
+async function loadOauthProviders() {
+  state.busy = true;
+  render();
+  try {
+    const result = await api('/api/admin/oauth/providers');
+    state.oauthProviders = result.data || [];
+    state.oauthRedirectConfigured = Boolean(result.redirect_url_configured);
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function loadSessions() {
   state.busy = true;
   render();
@@ -1223,6 +1292,8 @@ function clearSession() {
   state.user = null;
   state.users = [];
   state.sessions = [];
+  state.oauthProviders = [];
+  state.oauthRedirectConfigured = false;
   state.devices = [];
   state.groups = [];
   state.tags = [];

@@ -34,6 +34,14 @@ pub enum OAuthError {
     Remote,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OAuthProviderView {
+    pub name: String,
+    pub authorization_url: String,
+    pub userinfo_url: String,
+    pub scopes: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExternalIdentity {
     pub provider: String,
@@ -71,6 +79,21 @@ impl OAuthRuntime {
         let mut names = self.providers.keys().cloned().collect::<Vec<_>>();
         names.sort();
         names
+    }
+
+    pub fn provider_views(&self) -> Vec<OAuthProviderView> {
+        let mut providers = self
+            .providers
+            .values()
+            .map(|config| OAuthProviderView {
+                name: config.name.clone(),
+                authorization_url: config.authorization_url.clone(),
+                userinfo_url: config.userinfo_url.clone(),
+                scopes: config.scopes.clone(),
+            })
+            .collect::<Vec<_>>();
+        providers.sort_by(|left, right| left.name.cmp(&right.name));
+        providers
     }
 
     pub async fn begin(&self, provider: &str, redirect_uri: &str) -> Result<Url, OAuthError> {

@@ -210,6 +210,7 @@ pub fn build_router(
         .route("/api/admin/user/list", get(admin_user_list))
         .route("/api/admin/session/list", get(admin_session_list))
         .route("/api/admin/session/revoke", post(admin_session_revoke))
+        .route("/api/admin/oauth/providers", get(admin_oauth_providers))
         .route("/api/admin/user/create", post(admin_user_create))
         .route("/api/admin/user/update", post(admin_user_status))
         .route("/api/admin/user/changePwd", post(admin_user_password))
@@ -529,6 +530,28 @@ async fn admin_session_revoke(
         Ok(_) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
+}
+
+async fn admin_oauth_providers(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    (
+        StatusCode::OK,
+        Json(json!({
+            "code": 0,
+            "data": state.oauth.provider_views(),
+            "redirect_url_configured": !state.oauth_redirect_url.is_empty()
+        })),
+    )
+        .into_response()
 }
 
 async fn admin_user_list(

@@ -10,6 +10,7 @@ Minimal standalone Vite frontend for the compatible RustDesk HTTP API.
 - Address-book tag list, creation/update, and deletion
 - Administrator user list
 - Administrator session list and revocation
+- Administrator OAuth provider status and endpoint view
 - Administrator LDAP configuration editor with bind-password redaction
 - Authenticated device list
 - Authenticated user-group list
