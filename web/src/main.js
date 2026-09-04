@@ -19,6 +19,11 @@ const messages = {
     users: '用户管理',
     devices: '设备',
     groups: '用户组',
+    deviceGroups: '设备组',
+    groupName: '组名称',
+    create: '创建',
+    delete: '删除',
+    noDeviceGroups: '暂无设备组',
     ldap: 'LDAP 配置',
     ldapUrl: 'LDAP URL',
     bindDn: '绑定 DN',
@@ -73,6 +78,11 @@ const messages = {
     users: 'User management',
     devices: 'Devices',
     groups: 'User groups',
+    deviceGroups: 'Device groups',
+    groupName: 'Group name',
+    create: 'Create',
+    delete: 'Delete',
+    noDeviceGroups: 'No device groups found',
     ldap: 'LDAP configuration',
     ldapUrl: 'LDAP URL',
     bindDn: 'Bind DN',
@@ -125,6 +135,8 @@ const state = {
   users: [],
   devices: [],
   groups: [],
+  deviceGroups: [],
+  deviceGroupDraft: '',
   ldap: null,
   ldapDraft: null,
   busy: false,
@@ -212,6 +224,7 @@ function workspace() {
   nav.append(navButton('addressBook', t('addressBook')));
   nav.append(navButton('devices', t('devices')));
   nav.append(navButton('groups', t('groups')));
+  nav.append(navButton('deviceGroups', t('deviceGroups')));
   if (state.user.is_admin) {
     nav.append(navButton('users', t('users')));
     nav.append(navButton('ldap', t('ldap')));
@@ -223,6 +236,7 @@ function workspace() {
   if (state.activeView === 'addressBook') content.append(addressBookView());
   else if (state.activeView === 'devices') content.append(devicesView());
   else if (state.activeView === 'groups') content.append(groupsView());
+  else if (state.activeView === 'deviceGroups') content.append(deviceGroupsView());
   else if (state.activeView === 'users' && state.user.is_admin) content.append(usersView());
   else if (state.activeView === 'ldap' && state.user.is_admin) content.append(ldapView());
   else content.append(profileView());
@@ -333,6 +347,39 @@ function groupsView() {
     const item = element('div', 'group-row');
     item.append(element('strong', '', group.name || '—'));
     item.append(element('small', '', group.created_at || ''));
+    list.append(item);
+  });
+  view.append(list);
+  return view;
+}
+
+function deviceGroupsView() {
+  const view = viewHeader(t('deviceGroups'), [button('refresh-device-groups', t('refresh'), 'secondary')]);
+  const form = element('form', 'inline-form');
+  form.id = 'device-group-form';
+  const input = document.createElement('input');
+  input.id = 'device-group-name';
+  input.name = 'name';
+  input.placeholder = t('groupName');
+  input.value = state.deviceGroupDraft;
+  input.maxLength = 128;
+  input.required = true;
+  input.disabled = state.busy;
+  form.append(input);
+  const submit = button('create-device-group', t('create'), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy;
+  form.append(submit);
+  view.append(form);
+  const list = element('div', 'group-list');
+  if (!state.deviceGroups.length) list.append(element('p', 'empty-state', t('noDeviceGroups')));
+  state.deviceGroups.forEach(group => {
+    const item = element('div', 'group-row');
+    item.append(element('strong', '', group.name || '—'));
+    const remove = button('', t('delete'), 'secondary');
+    remove.dataset.deleteDeviceGroup = group.id;
+    remove.disabled = state.busy;
+    item.append(remove);
     list.append(item);
   });
   view.append(list);
@@ -489,6 +536,7 @@ function bindEvents() {
     if (state.activeView === 'addressBook') await loadAddressBook();
     if (state.activeView === 'devices') await loadDevices();
     if (state.activeView === 'groups') await loadGroups();
+    if (state.activeView === 'deviceGroups') await loadDeviceGroups();
     if (state.activeView === 'users') await loadUsers();
     if (state.activeView === 'ldap' && !state.ldap) await loadLdap();
   }));
@@ -497,6 +545,15 @@ function bindEvents() {
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
+  document.querySelector('#refresh-device-groups')?.addEventListener('click', loadDeviceGroups);
+  const deviceGroupForm = document.querySelector('#device-group-form');
+  deviceGroupForm?.addEventListener('submit', createDeviceGroup);
+  deviceGroupForm?.addEventListener('input', event => {
+    state.deviceGroupDraft = String(new FormData(event.currentTarget).get('name') || '');
+  });
+  document.querySelectorAll('[data-delete-device-group]').forEach(node => {
+    node.addEventListener('click', () => deleteDeviceGroup(node.dataset.deleteDeviceGroup));
+  });
   document.querySelector('#refresh-ldap')?.addEventListener('click', () => loadLdap(true));
   const ldapForm = document.querySelector('#ldap-form');
   ldapForm?.addEventListener('submit', saveLdap);
@@ -625,6 +682,62 @@ async function loadGroups() {
   }
 }
 
+async function loadDeviceGroups() {
+  state.busy = true;
+  render();
+  try {
+    const result = await api('/api/device-groups');
+    const value = result.data?.list || result.data || result.list || result;
+    state.deviceGroups = Array.isArray(value) ? value : [];
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function createDeviceGroup(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const name = String(data.get('name') || '').trim();
+  if (!name) return;
+  state.deviceGroupDraft = name;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/device-groups', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+    state.deviceGroupDraft = '';
+    await loadDeviceGroups();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function deleteDeviceGroup(id) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/device-groups/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id })
+    });
+    await loadDeviceGroups();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 async function loadUsers() {
   state.busy = true;
   render();
@@ -742,6 +855,8 @@ function clearSession() {
   state.users = [];
   state.devices = [];
   state.groups = [];
+  state.deviceGroups = [];
+  state.deviceGroupDraft = '';
   state.ldap = null;
   state.ldapDraft = null;
   state.activeView = 'profile';

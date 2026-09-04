@@ -200,6 +200,8 @@ pub fn build_router(
         .route("/api/ab", get(get_address_book).post(update_address_book))
         .route("/api/groups", get(list_groups).post(create_group))
         .route("/api/groups/delete", post(delete_group))
+        .route("/api/device-groups", get(list_device_groups).post(create_device_group))
+        .route("/api/device-groups/delete", post(delete_device_group))
         .route("/api/devices", get(list_devices))
         .route("/api/server-config", post(server_config))
         .route("/api/server-config-v2", post(server_config))
@@ -733,6 +735,79 @@ async fn delete_group(
         .auth
         .db()
         .delete_api_user_group(&request.id, &principal.user_id)
+        .await
+    {
+        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn list_device_groups(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state
+        .auth
+        .db()
+        .list_api_device_groups(&principal.user_id)
+        .await
+    {
+        Ok(groups) => (StatusCode::OK, Json(json!({ "code": 0, "data": groups }))).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn create_device_group(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<GroupRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 128 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_group_name" })),
+        )
+            .into_response();
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    match state
+        .auth
+        .db()
+        .create_api_device_group(&id, name, &principal.user_id)
+        .await
+    {
+        Ok(()) => (StatusCode::CREATED, Json(json!({ "id": id, "name": name }))).into_response(),
+        Err(err) if err.to_string().to_lowercase().contains("unique") => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "group_exists" })),
+        )
+            .into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn delete_device_group(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<GroupIdRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state
+        .auth
+        .db()
+        .delete_api_device_group(&request.id, &principal.user_id)
         .await
     {
         Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),

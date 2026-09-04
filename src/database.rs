@@ -64,8 +64,16 @@ pub struct ApiUser {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct ApiUserGroup {
+    pub id: String,
+    pub name: String,
+    pub created_by: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct ApiDeviceGroup {
     pub id: String,
     pub name: String,
     pub created_by: String,
@@ -549,6 +557,39 @@ impl Database {
 
     pub async fn delete_api_user_group(&self, id: &str, created_by: &str) -> ResultType<()> {
         sqlx::query("delete from api_user_group where id = ? and created_by = ?")
+            .bind(id)
+            .bind(created_by)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_api_device_groups(&self, user_id: &str) -> ResultType<Vec<ApiDeviceGroup>> {
+        Ok(sqlx::query_as::<_, ApiDeviceGroup>(
+            "select id, name, created_by, created_at from api_device_group where created_by = ? order by name",
+        )
+        .bind(user_id)
+        .fetch_all(self.pool.get().await?.deref_mut())
+        .await?)
+    }
+
+    pub async fn create_api_device_group(
+        &self,
+        id: &str,
+        name: &str,
+        created_by: &str,
+    ) -> ResultType<()> {
+        sqlx::query("insert into api_device_group(id, name, created_by) values(?, ?, ?)")
+            .bind(id)
+            .bind(name)
+            .bind(created_by)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_api_device_group(&self, id: &str, created_by: &str) -> ResultType<()> {
+        sqlx::query("delete from api_device_group where id = ? and created_by = ?")
             .bind(id)
             .bind(created_by)
             .execute(self.pool.get().await?.deref_mut())

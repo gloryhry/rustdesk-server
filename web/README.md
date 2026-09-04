@@ -11,6 +11,7 @@ Minimal standalone Vite frontend for the compatible RustDesk HTTP API.
 - Administrator LDAP configuration editor with bind-password redaction
 - Authenticated device list
 - Authenticated user-group list
+- Authenticated device-group list, creation, and deletion
 - `zh-CN` and `en-US` locale toggle
 
 The frontend uses these API endpoints:
@@ -23,6 +24,8 @@ The frontend uses these API endpoints:
 - `GET` and `POST /api/admin/ldap/config`
 - `GET /api/devices`
 - `GET /api/groups`
+- `GET` and `POST /api/device-groups`
+- `POST /api/device-groups/delete`
 - `POST /api/logout`
 
 ## Development

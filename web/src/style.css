@@ -156,6 +156,22 @@ textarea:disabled {
   gap: 17px;
 }
 
+.inline-form {
+  display: flex;
+  max-width: 520px;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.inline-form input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid #bcc6ce;
+  border-radius: 4px;
+}
+
 .panel-form {
   display: grid;
   max-width: 720px;
