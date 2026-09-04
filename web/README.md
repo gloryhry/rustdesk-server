@@ -19,18 +19,23 @@ Minimal standalone Vite frontend for the compatible RustDesk HTTP API.
 
 The frontend uses these API endpoints:
 
-- `POST /api/login`
+- `GET` and `POST /api/oidc/auth`, `GET /api/oidc/auth-query`, and `GET /api/oidc/callback`
+- `GET /api/user/info`
 - `POST /api/register`
 - `GET /api/currentUser`
 - `GET` and `POST /api/ab`
+- `GET` and `POST /api/ab/peers`
 - `GET` and `POST /api/ab/tags`
 - `POST /api/ab/tags/delete`
 - `GET /api/admin/user/list`
+- `POST /api/admin/user/create`, `/api/admin/user/update`, and `/api/admin/user/delete`
+- `GET /api/admin/device/list` and `POST /api/admin/device/delete`
 - `GET /api/admin/session/list`
 - `POST /api/admin/session/revoke`
 - `GET` and `POST /api/admin/ldap/config`
 - `GET /api/devices`
-- `GET /api/groups`
+- `GET /api/groups` (the GET response includes `memberships`)
+- `POST /api/groups/members` and `/api/groups/members/delete`
 - `GET` and `POST /api/device-groups` (the GET response includes `memberships`)
 - `POST /api/device-groups/delete`
 - `POST /api/device-groups/members`

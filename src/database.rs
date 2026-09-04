@@ -73,6 +73,12 @@ pub struct ApiUserGroup {
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
+pub struct ApiUserGroupMember {
+    pub group_id: String,
+    pub user_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
 pub struct ApiDeviceGroup {
     pub id: String,
     pub name: String,
@@ -582,6 +588,14 @@ impl Database {
         .await?)
     }
 
+    pub async fn delete_api_device(&self, id: &str) -> ResultType<bool> {
+        let result = sqlx::query("delete from api_device where id = ?")
+            .bind(id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn update_api_user_password(&self, id: &str, password_hash: &str) -> ResultType<()> {
         sqlx::query("update api_user set password_hash = ?, updated_at = current_timestamp where id = ?")
             .bind(password_hash)
@@ -599,6 +613,64 @@ impl Database {
         .bind(user_id)
         .fetch_all(self.pool.get().await?.deref_mut())
         .await?)
+    }
+
+    pub async fn list_api_user_group_members(
+        &self,
+        user_id: &str,
+        is_admin: bool,
+    ) -> ResultType<Vec<ApiUserGroupMember>> {
+        let query = if is_admin {
+            "select group_id, user_id from api_user_group_member order by group_id, user_id"
+        } else {
+            "select group_id, user_id from api_user_group_member where user_id = ? or group_id in (select id from api_user_group where created_by = ?) order by group_id, user_id"
+        };
+        let mut query = sqlx::query_as::<_, ApiUserGroupMember>(query);
+        if !is_admin {
+            query = query.bind(user_id).bind(user_id);
+        }
+        Ok(query.fetch_all(self.pool.get().await?.deref_mut()).await?)
+    }
+
+    pub async fn add_api_user_group_member(
+        &self,
+        group_id: &str,
+        user_id: &str,
+        actor_id: &str,
+        is_admin: bool,
+    ) -> ResultType<bool> {
+        let result = sqlx::query(
+            "insert or ignore into api_user_group_member(group_id, user_id) select ?, ? where exists(select 1 from api_user where id = ?) and (? = 1 or exists(select 1 from api_user_group where id = ? and created_by = ?))",
+        )
+        .bind(group_id)
+        .bind(user_id)
+        .bind(user_id)
+        .bind(if is_admin { 1 } else { 0 })
+        .bind(group_id)
+        .bind(actor_id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn remove_api_user_group_member(
+        &self,
+        group_id: &str,
+        user_id: &str,
+        actor_id: &str,
+        is_admin: bool,
+    ) -> ResultType<bool> {
+        let result = sqlx::query(
+            "delete from api_user_group_member where group_id = ? and user_id = ? and (? = 1 or exists(select 1 from api_user_group where id = ? and created_by = ?))",
+        )
+        .bind(group_id)
+        .bind(user_id)
+        .bind(if is_admin { 1 } else { 0 })
+        .bind(group_id)
+        .bind(actor_id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn create_api_user_group(
@@ -798,6 +870,17 @@ impl Database {
         Ok(row.is_some())
     }
 
+    pub async fn touch_api_session(&self, id: &str, user_id: &str) -> ResultType<()> {
+        sqlx::query(
+            "update api_session set last_used_at = current_timestamp where id = ? and user_id = ? and revoked_at is null",
+        )
+        .bind(id)
+        .bind(user_id)
+        .execute(self.pool.get().await?.deref_mut())
+        .await?;
+        Ok(())
+    }
+
     pub async fn revoke_api_session(&self, id: &str, user_id: &str, now: i64) -> ResultType<()> {
         sqlx::query(
             "update api_session set revoked_at = ?, last_used_at = current_timestamp where id = ? and user_id = ? and revoked_at is null",
@@ -852,6 +935,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn upsert_api_address_book_entry(
         &self,
         entry: &ApiAddressBookEntry,
     ) -> ResultType<()> {
@@ -879,6 +963,14 @@ impl Database {
             .execute(self.pool.get().await?.deref_mut())
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn clear_api_address_book_entries(&self, user_id: &str) -> ResultType<()> {
+        sqlx::query("delete from api_address_book_entry where user_id = ?")
+            .bind(user_id)
+            .execute(self.pool.get().await?.deref_mut())
+            .await?;
+        Ok(())
     }
 
     pub async fn get_api_address_book(&self, user_id: &str) -> ResultType<Option<String>> {

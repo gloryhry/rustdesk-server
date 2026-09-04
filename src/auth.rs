@@ -274,6 +274,10 @@ impl AuthService {
         if !session_active {
             return Err(AuthError::InvalidCredentials);
         }
+        self.db
+            .touch_api_session(&claims.jti, &claims.sub)
+            .await
+            .map_err(|_| AuthError::Internal)?;
         Ok(Principal {
             user: public_user(&user),
             user_id: user.id,

@@ -60,6 +60,12 @@ const messages = {
     disabled: '禁用',
     createdAt: '创建时间',
     noUsers: '暂无用户',
+     createUser: '创建用户',
+     creatingUser: '正在创建...',
+     actions: '操作',
+     disable: '禁用',
+     enable: '启用',
+     remove: '删除',
     noDevices: '暂无设备',
     noGroups: '暂无用户组',
     uuid: '设备 UUID',
@@ -138,6 +144,12 @@ const messages = {
     disabled: 'Disabled',
     createdAt: 'Created',
     noUsers: 'No users found',
+     createUser: 'Create user',
+     creatingUser: 'Creating...',
+     actions: 'Actions',
+     disable: 'Disable',
+     enable: 'Enable',
+     remove: 'Delete',
     noDevices: 'No devices found',
     noGroups: 'No groups found',
     uuid: 'Device UUID',
@@ -174,6 +186,7 @@ const state = {
   tagDraft: { name: '', color: '' },
   serverConfig: null,
   users: [],
+  userDraft: { username: '', email: '', password: '' },
   sessions: [],
   oauthProviders: [],
   oauthRedirectConfigured: false,
@@ -376,11 +389,21 @@ function tagsPanel() {
 
 function usersView() {
   const view = viewHeader(t('users'), [button('refresh-users', t('refresh'), 'secondary')]);
+  const form = element('form', 'inline-form');
+  form.id = 'admin-user-form';
+  form.append(configField('admin-user-name', t('username'), state.userDraft.username));
+  form.append(configField('admin-user-email', t('email'), state.userDraft.email, 'email'));
+  form.append(configField('admin-user-password', t('password'), state.userDraft.password, 'password'));
+  const submit = button('create-admin-user', state.busy ? t('creatingUser') : t('createUser'), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy;
+  form.append(submit);
+  view.append(form);
   const tableWrap = element('div', 'table-wrap');
   const table = document.createElement('table');
   const head = document.createElement('thead');
   const headRow = document.createElement('tr');
-  [t('account'), t('email'), t('role'), t('status'), t('createdAt')].forEach(label => {
+  [t('account'), t('email'), t('role'), t('status'), t('createdAt'), t('actions')].forEach(label => {
     headRow.append(element('th', '', label));
   });
   head.append(headRow);
@@ -389,7 +412,7 @@ function usersView() {
   if (!state.users.length) {
     const row = document.createElement('tr');
     const cell = element('td', 'empty-cell', t('noUsers'));
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     row.append(cell);
     body.append(row);
   } else {
@@ -400,6 +423,19 @@ function usersView() {
       row.append(element('td', '', user.is_admin ? t('administrator') : t('member')));
       row.append(element('td', '', Number(user.status) === 1 ? t('enabled') : t('disabled')));
       row.append(element('td', '', user.created_at || user.createdAt || '—'));
+      const actions = element('div', 'button-group');
+      const toggle = button('', Number(user.status) === 1 ? t('disable') : t('enable'), 'secondary');
+      toggle.dataset.toggleUser = user.id;
+      toggle.dataset.userStatus = Number(user.status) === 1 ? '0' : '1';
+      toggle.disabled = state.busy;
+      actions.append(toggle);
+      const remove = button('', t('remove'), 'secondary');
+      remove.dataset.deleteUser = user.id;
+      remove.disabled = state.busy;
+      actions.append(remove);
+      const cell = document.createElement('td');
+      cell.append(actions);
+      row.append(cell);
       body.append(row);
     });
   }
@@ -784,6 +820,14 @@ function bindEvents() {
     node.addEventListener('click', () => deleteTag(node.dataset.deleteTag));
   });
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
+  document.querySelector('#admin-user-form')?.addEventListener('submit', createAdminUser);
+  document.querySelector('#admin-user-form')?.addEventListener('input', preserveUserDraft);
+  document.querySelectorAll('[data-toggle-user]').forEach(node => {
+    node.addEventListener('click', () => updateUserStatus(node.dataset.toggleUser, node.dataset.userStatus));
+  });
+  document.querySelectorAll('[data-delete-user]').forEach(node => {
+    node.addEventListener('click', () => deleteAdminUser(node.dataset.deleteUser));
+  });
   document.querySelector('#refresh-sessions')?.addEventListener('click', loadSessions);
   document.querySelector('#refresh-oauth')?.addEventListener('click', loadOauthProviders);
   document.querySelectorAll('[data-revoke-session]').forEach(node => {
@@ -1192,6 +1236,75 @@ async function loadUsers() {
   }
 }
 
+function preserveUserDraft(event) {
+  const data = new FormData(event.currentTarget);
+  state.userDraft = {
+    username: String(data.get('admin-user-name') || ''),
+    email: String(data.get('admin-user-email') || ''),
+    password: String(data.get('admin-user-password') || '')
+  };
+}
+
+async function createAdminUser(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const payload = {
+    username: String(data.get('admin-user-name') || '').trim(),
+    email: String(data.get('admin-user-email') || '').trim(),
+    password: String(data.get('admin-user-password') || '')
+  };
+  state.userDraft = payload;
+  if (!payload.username || !payload.password) return;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/admin/user/create', { method: 'POST', body: JSON.stringify(payload) });
+    state.userDraft = { username: '', email: '', password: '' };
+    setNotice('success', t('saved'));
+    await loadUsers();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function updateUserStatus(id, status) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/admin/user/update', {
+      method: 'POST',
+      body: JSON.stringify({ id, status: Number(status) })
+    });
+    await loadUsers();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function deleteAdminUser(id) {
+  if (!window.confirm(t('remove'))) return;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/admin/user/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id })
+    });
+    await loadUsers();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
 function ldapPayload(form) {
   const data = new FormData(form);
   return {
@@ -1291,6 +1404,7 @@ function clearSession() {
   state.token = '';
   state.user = null;
   state.users = [];
+  state.userDraft = { username: '', email: '', password: '' };
   state.sessions = [];
   state.oauthProviders = [];
   state.oauthRedirectConfigured = false;

@@ -62,6 +62,24 @@ pub struct OAuthQuery {
     pub state: String,
     #[serde(default)]
     pub error: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub uuid: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct OAuthAuthRequest {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default, rename = "redirectUri")]
+    pub redirect_uri: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub uuid: String,
+    #[serde(default, rename = "deviceInfo")]
+    pub device_info: Option<DeviceInfoRequest>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -112,6 +130,12 @@ pub struct GroupRequest {
 #[derive(Debug, Deserialize)]
 pub struct GroupIdRequest {
     pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GroupMemberRequest {
+    pub group_id: String,
+    pub user_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -225,7 +249,10 @@ pub fn build_router(
         .route("/api/login", post(login))
         .route("/api/admin/login", post(admin_login))
         .route("/api/login-options", get(login_options))
-        .route("/api/oidc/auth", get(oauth_login).post(oauth_login))
+        .route("/api/oidc/auth", get(oauth_login).post(oauth_login_post))
+        .route("/api/oidc/auth-query", get(oauth_auth_query))
+        .route("/api/oidc/msg", get(oauth_message))
+        .route("/api/oauth/msg", get(oauth_message))
         .route("/api/oidc/login", get(oauth_login))
         .route("/api/oidc/callback", get(oauth_callback))
         .route("/api/oauth/login", get(oauth_login))
@@ -233,6 +260,7 @@ pub fn build_router(
         .route("/api/register", post(register))
         .route("/api/admin/user/register", post(admin_user_create))
         .route("/api/currentUser", get(current_user).post(current_user))
+        .route("/api/user/info", get(current_user))
         .route("/api/users", get(list_users))
         .route("/api/peers", get(list_devices))
         .route("/api/device-group/accessible", get(list_device_groups))
@@ -252,7 +280,7 @@ pub fn build_router(
         .route("/api/ab/personal", get(get_address_book).post(update_address_book))
         .route("/api/ab/settings", get(get_address_book).post(update_address_book))
         .route("/api/ab/shared/profiles", get(shared_address_book_profiles))
-        .route("/api/ab/peers", get(list_address_book_entries))
+        .route("/api/ab/peers", get(list_address_book_entries).post(post_address_book_entries))
         .route("/api/ab/peer", post(upsert_address_book_entry))
         .route("/api/ab/peer/add/:guid", post(add_address_book_peer))
         .route("/api/ab/peer/:guid", delete_route(delete_address_book_peer))
@@ -266,19 +294,22 @@ pub fn build_router(
         .route("/api/ab/tag/:guid", delete_route(delete_address_book_tag))
         .route("/api/ab/tags/delete", post(delete_tag))
         .route("/api/groups", get(list_groups).post(create_group))
+        .route("/api/groups/members", post(add_group_member))
+        .route("/api/groups/members/delete", post(remove_group_member))
         .route("/api/groups/delete", post(delete_group))
         .route("/api/device-groups", get(list_device_groups).post(create_device_group))
         .route("/api/device-groups/delete", post(delete_device_group))
         .route("/api/device-groups/members", post(add_device_group_member))
         .route("/api/device-groups/members/delete", post(remove_device_group_member))
         .route("/api/devices", get(list_devices))
+        .route("/api/admin/device/list", get(admin_device_list))
+        .route("/api/admin/device/delete", post(admin_device_delete))
         .route("/api/server-config", post(server_config))
-        .route("/api/server-config-v2", post(server_config))
+        .route("/api/server-config-v2", post(server_config_v2))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(RequestBodyTimeoutLayer::new(Duration::from_secs(15)))
         .layer(Extension(state))
-        .nest(
-            "/",
+        .fallback(
             get_service(ServeDir::new(web_root)).layer(HandleErrorLayer::new(
                 |_: std::io::Error| async {
                     (
@@ -374,7 +405,7 @@ async fn sysinfo(
             return auth_error_response(AuthError::Internal, false);
         }
     }
-    (StatusCode::OK, Json(json!({ "code": 0 }))).into_response()
+    (StatusCode::OK, "SYSINFO_UPDATED").into_response()
 }
 
 async fn sysinfo_version() -> impl IntoResponse {
@@ -855,6 +886,46 @@ async fn list_devices(
     }
 }
 
+async fn admin_device_list(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    match state.auth.db().list_all_api_devices().await {
+        Ok(devices) => (StatusCode::OK, Json(json!({ "code": 0, "data": devices }))).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn admin_device_delete(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<UserIdRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if !principal.user.is_admin {
+        return admin_required_response();
+    }
+    match state.auth.db().delete_api_device(&request.id).await {
+        Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "device_not_found" })),
+        )
+            .into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
 async fn list_groups(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
@@ -863,8 +934,81 @@ async fn list_groups(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    match state.auth.db().list_api_user_groups(&principal.user_id).await {
-        Ok(groups) => (StatusCode::OK, Json(json!({ "code": 0, "data": groups }))).into_response(),
+    let groups = match state.auth.db().list_api_user_groups(&principal.user_id).await {
+        Ok(groups) => groups,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    match state
+        .auth
+        .db()
+        .list_api_user_group_members(&principal.user_id, principal.user.is_admin)
+        .await
+    {
+        Ok(memberships) => (
+            StatusCode::OK,
+            Json(json!({ "code": 0, "data": groups, "memberships": memberships })),
+        )
+            .into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn add_group_member(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<GroupMemberRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state
+        .auth
+        .db()
+        .add_api_user_group_member(
+            &request.group_id,
+            &request.user_id,
+            &principal.user_id,
+            principal.user.is_admin,
+        )
+        .await
+    {
+        Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "group_or_user_not_found" })),
+        )
+            .into_response(),
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn remove_group_member(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(request): Json<GroupMemberRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    match state
+        .auth
+        .db()
+        .remove_api_user_group_member(
+            &request.group_id,
+            &request.user_id,
+            &principal.user_id,
+            principal.user.is_admin,
+        )
+        .await
+    {
+        Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "group_member_not_found" })),
+        )
+            .into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
@@ -1079,21 +1223,148 @@ async fn delete_device_group(
     }
 }
 
+async fn server_config_v2(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> Response {
+    server_config_response(&state, &headers, false).await
+}
+
+async fn server_config_response(
+    state: &ApiState,
+    headers: &HeaderMap,
+    include_peers: bool,
+) -> Response {
+    if let Err(err) = authorize(state, headers).await {
+        return auth_error_response(err, true);
+    }
+    let config = &state.server_config;
+    let peers = if config.relay_server.is_empty() {
+        Vec::new()
+    } else {
+        vec![config.relay_server.clone()]
+    };
+    let mut data = json!({
+        "api_server": config.api_server.clone(),
+        "id_server": config.id_server.clone(),
+        "relay_server": config.relay_server.clone(),
+        "key": config.key.clone(),
+    });
+    if include_peers {
+        data["peers"] = json!(peers);
+    }
+    (StatusCode::OK, Json(json!({ "code": 0, "data": data }))).into_response()
+}
+
 async fn server_config(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
 ) -> Response {
-    if let Err(err) = authorize(&state, &headers).await {
-        return auth_error_response(err, true);
+    server_config_response(&state, &headers, true).await
+}
+
+fn address_book_entry_from_snapshot(
+    user_id: &str,
+    value: &serde_json::Value,
+) -> Option<crate::database::ApiAddressBookEntry> {
+    let peer_id = value
+        .get("peerId")
+        .or_else(|| value.get("peer_id"))
+        .or_else(|| value.get("id"))
+        .and_then(serde_json::Value::as_str)?
+        .trim();
+    if peer_id.is_empty() {
+        return None;
     }
-    (
-        StatusCode::OK,
-        Json(json!({
-            "code": 0,
-            "data": state.server_config.clone()
-        })),
-    )
-        .into_response()
+    let text = |key: &str| {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let tags = value
+        .get("tags")
+        .and_then(serde_json::Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(tag_name)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let id = value
+        .get("entryId")
+        .or_else(|| value.get("guid"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(peer_id)
+        .to_owned();
+    Some(crate::database::ApiAddressBookEntry {
+        id,
+        user_id: user_id.to_owned(),
+        peer_id: peer_id.to_owned(),
+        username: text("username"),
+        hostname: text("hostname"),
+        alias: text("alias"),
+        platform: text("platform"),
+        tags: serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_owned()),
+        force_always_relay: value
+            .get("forceAlwaysRelay")
+            .or_else(|| value.get("force_always_relay"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false) as i64,
+        created_at: String::new(),
+        updated_at: String::new(),
+    })
+}
+
+fn snapshot_peer_value(entry: &crate::database::ApiAddressBookEntry) -> serde_json::Value {
+    let mut value = address_book_entry_response(entry);
+    value["id"] = json!(entry.peer_id);
+    value["peerId"] = json!(entry.peer_id);
+    value
+}
+
+fn merge_address_book_entry(
+    document: &mut serde_json::Map<String, serde_json::Value>,
+    entry: &crate::database::ApiAddressBookEntry,
+) {
+    let peers = document
+        .entry("peers".to_owned())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    let peers = match peers.as_array_mut() {
+        Some(peers) => peers,
+        None => return,
+    };
+    let value = snapshot_peer_value(entry);
+    if let Some(existing) = peers.iter_mut().find(|peer| {
+        peer.get("peerId")
+            .or_else(|| peer.get("id"))
+            .and_then(serde_json::Value::as_str)
+            == Some(entry.peer_id.as_str())
+    }) {
+        *existing = value;
+    } else {
+        peers.push(value);
+    }
+}
+
+fn remove_address_book_entry_from_document(
+    document: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) {
+    if let Some(peers) = document
+        .get_mut("peers")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        peers.retain(|peer| {
+            peer.get("peerId")
+                .or_else(|| peer.get("id"))
+                .and_then(serde_json::Value::as_str)
+                != Some(key)
+        });
+    }
 }
 
 async fn get_address_book(
@@ -1104,15 +1375,36 @@ async fn get_address_book(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    match state.auth.db().get_api_address_book(&principal.user_id).await {
-        Ok(Some(data)) => (StatusCode::OK, Json(json!({ "data": data }))).into_response(),
-        Ok(None) => (
-            StatusCode::OK,
-            Json(json!({
-                "data": "{\"peers\":[],\"tags\":[],\"tag_colors\":\"{}\"}"
-            })),
-        )
-            .into_response(),
+    let mut document = match address_book_document(&state, &principal.user_id).await {
+        Ok(document) => document,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    if !document.contains_key("peers") {
+        document.insert("peers".to_owned(), serde_json::Value::Array(Vec::new()));
+    }
+    if !document.contains_key("tags") {
+        document.insert("tags".to_owned(), serde_json::Value::Array(Vec::new()));
+    }
+    if !document.contains_key("tag_colors") {
+        document.insert(
+            "tag_colors".to_owned(),
+            serde_json::Value::Object(serde_json::Map::new()),
+        );
+    }
+    let entries = match state
+        .auth
+        .db()
+        .list_api_address_book_entries(&principal.user_id)
+        .await
+    {
+        Ok(entries) => entries,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    for entry in &entries {
+        merge_address_book_entry(&mut document, entry);
+    }
+    match serde_json::to_string(&document) {
+        Ok(data) => (StatusCode::OK, Json(json!({ "data": data }))).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
@@ -1150,7 +1442,15 @@ async fn update_address_book(
         .upsert_api_address_book(&principal.user_id, &document)
         .await
     {
-        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(()) => match state
+            .auth
+            .db()
+            .clear_api_address_book_entries(&principal.user_id)
+            .await
+        {
+            Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+            Err(_) => auth_error_response(AuthError::Internal, false),
+        },
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
 }
@@ -1220,22 +1520,19 @@ async fn delete_address_book_peer(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    match state
-        .auth
-        .db()
-        .delete_api_address_book_entry_by_key(&guid, &principal.user_id)
-        .await
-    {
+    let _tag_guard = state.tag_lock.lock().await;
+    match remove_address_book_entry(&state, &principal.user_id, &guid).await {
         Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "address_book_entry_not_found" })),
         )
             .into_response(),
-        Err(_) => auth_error_response(AuthError::Internal, false),
+        Err(err) => auth_error_response(err, false),
     }
 }
 
+async fn list_address_book_entries(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
 ) -> Response {
@@ -1250,6 +1547,23 @@ async fn delete_address_book_peer(
         .await
     {
         Ok(entries) => {
+            let entries = if entries.is_empty() {
+                match address_book_document(&state, &principal.user_id).await {
+                    Ok(document) => document
+                        .get("peers")
+                        .and_then(serde_json::Value::as_array)
+                        .map(|peers| {
+                            peers
+                                .iter()
+                                .filter_map(|peer| address_book_entry_from_snapshot(&principal.user_id, peer))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default(),
+                    Err(_) => return auth_error_response(AuthError::Internal, false),
+                }
+            } else {
+                entries
+            };
             let entries = entries
                 .iter()
                 .map(address_book_entry_response)
@@ -1260,15 +1574,63 @@ async fn delete_address_book_peer(
     }
 }
 
-async fn upsert_address_book_entry(
+async fn post_address_book_entries(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
-    Json(request): Json<AddressBookEntryRequest>,
+    Json(payload): Json<serde_json::Value>,
 ) -> Response {
     let principal = match authorize(&state, &headers).await {
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
+    let peers = if payload.is_array() {
+        payload
+    } else {
+        match payload.get("peers") {
+            Some(peers) if peers.is_array() => peers.clone(),
+            _ => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "invalid_address_book_peers" })),
+                )
+                    .into_response()
+            }
+        }
+    };
+    let mut document = match address_book_document(&state, &principal.user_id).await {
+        Ok(document) => document,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    document.insert("peers".to_owned(), peers);
+    let data = match serde_json::to_string(&document) {
+        Ok(data) => data,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    match state
+        .auth
+        .db()
+        .upsert_api_address_book(&principal.user_id, &data)
+        .await
+    {
+        Ok(()) => list_address_book_entries(Extension(state), headers).await,
+        Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn upsert_address_book_entry(
+    Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
+    Json(mut request): Json<AddressBookEntryRequest>,
+) -> Response {
+    let principal = match authorize(&state, &headers).await {
+        Ok(principal) => principal,
+        Err(err) => return auth_error_response(err, true),
+    };
+    if request.peer_id.trim().is_empty() {
+        if let Some(id) = request.id.take() {
+            request.peer_id = id;
+        }
+    }
     let peer_id = request.peer_id.trim();
     if peer_id.is_empty() || peer_id.chars().count() > 128 {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_peer_id" }))).into_response();
@@ -1287,8 +1649,26 @@ async fn upsert_address_book_entry(
     {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_address_book_entry" }))).into_response();
     }
+    let _tag_guard = state.tag_lock.lock().await;
+    let entry_id = if let Some(id) = request.id {
+        id
+    } else {
+        match state
+            .auth
+            .db()
+            .get_api_address_book_entry(&principal.user_id, peer_id)
+            .await
+        {
+            Ok(Some(existing)) => existing.id,
+            Ok(None) => uuid::Uuid::new_v4().to_string(),
+            Err(_) => return auth_error_response(AuthError::Internal, false),
+        }
+    };
+    if entry_id.is_empty() || entry_id.chars().count() > 128 {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_address_book_entry" }))).into_response();
+    }
     let entry = crate::database::ApiAddressBookEntry {
-        id: request.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        id: entry_id,
         user_id: principal.user_id,
         peer_id: peer_id.to_owned(),
         username: request.username,
@@ -1300,23 +1680,80 @@ async fn upsert_address_book_entry(
         created_at: String::new(),
         updated_at: String::new(),
     };
+    let mut document = match address_book_document(&state, &entry.user_id).await {
+        Ok(document) => document,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
+    merge_address_book_entry(&mut document, &entry);
+    let snapshot = match serde_json::to_string(&document) {
+        Ok(snapshot) => snapshot,
+        Err(_) => return auth_error_response(AuthError::Internal, false),
+    };
     match state.auth.db().upsert_api_address_book_entry(&entry).await {
         Ok(()) => match state
             .auth
             .db()
-            .get_api_address_book_entry(&entry.user_id, &entry.peer_id)
+            .upsert_api_address_book(&entry.user_id, &snapshot)
             .await
         {
-            Ok(Some(saved)) => (
-                StatusCode::OK,
-                Json(json!({ "code": 0, "data": address_book_entry_response(&saved) })),
-            )
-                .into_response(),
-            Ok(None) => auth_error_response(AuthError::Internal, false),
+            Ok(()) => match state
+                .auth
+                .db()
+                .get_api_address_book_entry(&entry.user_id, &entry.peer_id)
+                .await
+            {
+                Ok(Some(saved)) => (
+                    StatusCode::OK,
+                    Json(json!({ "code": 0, "data": address_book_entry_response(&saved) })),
+                )
+                    .into_response(),
+                Ok(None) => auth_error_response(AuthError::Internal, false),
+                Err(_) => auth_error_response(AuthError::Internal, false),
+            },
             Err(_) => auth_error_response(AuthError::Internal, false),
         },
+        Err(err) if err.to_string().to_lowercase().contains("constraint") => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "address_book_entry_conflict" })),
+        )
+            .into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
     }
+}
+
+async fn remove_address_book_entry(
+    state: &ApiState,
+    user_id: &str,
+    key: &str,
+) -> Result<bool, AuthError> {
+    let entries = state
+        .auth
+        .db()
+        .list_api_address_book_entries(user_id)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+    let peer_id = entries
+        .iter()
+        .find(|entry| entry.id == key || entry.peer_id == key)
+        .map(|entry| entry.peer_id.clone());
+    let deleted = state
+        .auth
+        .db()
+        .delete_api_address_book_entry_by_key(key, user_id)
+        .await
+        .map_err(|_| AuthError::Internal)?;
+    if deleted {
+        let mut document = address_book_document(state, user_id).await?;
+        remove_address_book_entry_from_document(&mut document, peer_id.as_deref().unwrap_or(key));
+        let snapshot = serde_json::to_string(&document).map_err(|_| AuthError::Internal)?;
+        state
+            .auth
+            .db()
+            .upsert_api_address_book(user_id, &snapshot)
+            .await
+            .map_err(|_| AuthError::Internal)?;
+    }
+    Ok(deleted)
 }
 
 async fn delete_address_book_entry(
@@ -1328,14 +1765,15 @@ async fn delete_address_book_entry(
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    match state
-        .auth
-        .db()
-        .delete_api_address_book_entry(&request.id, &principal.user_id)
-        .await
-    {
-        Ok(_) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
-        Err(_) => auth_error_response(AuthError::Internal, false),
+    let _tag_guard = state.tag_lock.lock().await;
+    match remove_address_book_entry(&state, &principal.user_id, &request.id).await {
+        Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "address_book_entry_not_found" })),
+        )
+            .into_response(),
+        Err(err) => auth_error_response(err, false),
     }
 }
 
@@ -1385,6 +1823,7 @@ async fn delete_address_book_tag(
     .await
 }
 
+async fn list_tags(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
 ) -> Response {
@@ -1629,6 +2068,61 @@ async fn oauth_login(
     }
 }
 
+async fn oauth_login_post(
+    Extension(state): Extension<Arc<ApiState>>,
+    Json(request): Json<OAuthAuthRequest>,
+) -> Response {
+    oauth_begin_response(&state, request.provider, request.id, request.uuid, request.device_info).await
+}
+
+async fn oauth_auth_query(
+    Extension(state): Extension<Arc<ApiState>>,
+    Query(query): Query<OAuthQuery>,
+) -> Response {
+    oauth_begin_response(&state, query.provider, query.id, query.uuid, None).await
+}
+
+async fn oauth_begin_response(
+    state: &ApiState,
+    provider: String,
+    id: String,
+    uuid: String,
+    device_info: Option<DeviceInfoRequest>,
+) -> Response {
+    if state.oauth_redirect_url.is_empty() {
+        return oauth_error_response(OAuthError::NotConfigured);
+    }
+    let device_info = device_info.unwrap_or_default();
+    let device = crate::oauth::OAuthDevice {
+        id,
+        uuid,
+        name: device_info.name,
+        os: device_info.os,
+        device_type: device_info.device_type,
+    };
+    match state
+        .oauth
+        .begin_with_device(&provider, &state.oauth_redirect_url, device)
+        .await
+    {
+        Ok((url, state_value)) => (
+            StatusCode::OK,
+            Json(json!({
+                "code": 0,
+                "state": state_value.clone(),
+                "url": url.as_str(),
+                "data": { "state": state_value, "url": url.as_str() }
+            })),
+        )
+            .into_response(),
+        Err(err) => oauth_error_response(err),
+    }
+}
+
+async fn oauth_message() -> impl IntoResponse {
+    Json(json!({ "code": 0, "data": "" }))
+}
+
 async fn oauth_callback(
     Extension(state): Extension<Arc<ApiState>>,
     Query(query): Query<OAuthQuery>,
@@ -1661,7 +2155,13 @@ async fn oauth_callback(
             &identity.subject,
             &identity.username,
             &identity.email,
-            LoginDevice::default(),
+            LoginDevice {
+                id: identity.device.id,
+                uuid: identity.device.uuid,
+                name: identity.device.name,
+                os: identity.device.os,
+                device_type: identity.device.device_type,
+            },
         )
         .await
     {

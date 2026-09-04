@@ -24,7 +24,17 @@ struct PendingState {
     provider: String,
     redirect_uri: String,
     code_verifier: String,
+    device: OAuthDevice,
     expires_at: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OAuthDevice {
+    pub id: String,
+    pub uuid: String,
+    pub name: String,
+    pub os: String,
+    pub device_type: String,
 }
 
 #[derive(Debug)]
@@ -49,6 +59,7 @@ pub struct ExternalIdentity {
     pub subject: String,
     pub username: String,
     pub email: String,
+    pub device: OAuthDevice,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +109,17 @@ impl OAuthRuntime {
     }
 
     pub async fn begin(&self, provider: &str, redirect_uri: &str) -> Result<Url, OAuthError> {
+        self.begin_with_device(provider, redirect_uri, OAuthDevice::default())
+            .await
+            .map(|(url, _)| url)
+    }
+
+    pub async fn begin_with_device(
+        &self,
+        provider: &str,
+        redirect_uri: &str,
+        device: OAuthDevice,
+    ) -> Result<(Url, String), OAuthError> {
         let config = self
             .providers
             .get(provider)
@@ -127,6 +149,7 @@ impl OAuthRuntime {
                 provider: provider.to_owned(),
                 redirect_uri: redirect_uri.to_owned(),
                 code_verifier,
+                device,
                 expires_at: now.saturating_add(300),
             },
         );
@@ -139,7 +162,7 @@ impl OAuthRuntime {
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
             .append_pair("state", &state);
-        Ok(url)
+        Ok((url, state))
     }
 
     pub async fn complete(
@@ -162,6 +185,7 @@ impl OAuthRuntime {
         }
         let provider = pending.provider;
         let code_verifier = pending.code_verifier;
+        let device = pending.device;
         let config = self
             .providers
             .get(&provider)
@@ -224,6 +248,7 @@ impl OAuthRuntime {
             subject,
             username,
             email,
+            device,
         })
     }
 }
@@ -255,8 +280,16 @@ mod tests {
     #[tokio::test]
     async fn begin_stores_one_time_state_in_authorization_url() {
         let runtime = test_runtime();
-        let url = runtime
-            .begin("test", "https://api.example/callback")
+        let (url, returned_state) = runtime
+            .begin_with_device(
+                "test",
+                "https://api.example/callback",
+                OAuthDevice {
+                    id: "device-id".to_owned(),
+                    uuid: "device-uuid".to_owned(),
+                    ..OAuthDevice::default()
+                },
+            )
             .await
             .expect("authorization URL should be created");
         assert_eq!(url.host_str(), Some("provider.example"));
@@ -277,6 +310,7 @@ mod tests {
             .find(|(key, _)| key == "state")
             .map(|(_, value)| value.into_owned())
             .expect("state should be present");
+        assert_eq!(returned_state, state);
         assert!(runtime
             .complete("code", &state, "https://api.example/callback")
             .await

@@ -499,7 +499,7 @@ jobs:
   docker-manifest-classic:
 
     name: Docker manifest
-    needs: docker
+    needs: docker-classic
     runs-on: ubuntu-22.04
 
     steps:
