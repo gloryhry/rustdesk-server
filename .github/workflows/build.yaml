@@ -632,3 +632,4 @@ jobs:
             debian-build/rustdesk-server-hbbr_*_${{ matrix.job.debian_platform }}.deb
             debian-build/rustdesk-server-hbbs_*_${{ matrix.job.debian_platform }}.deb
             debian-build/rustdesk-server-utils_*_${{ matrix.job.debian_platform }}.deb
+            debian-build/rustdesk-server-api_*_${{ matrix.job.debian_platform }}.deb
