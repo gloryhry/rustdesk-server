@@ -1,0 +1,91 @@
+name: API compatibility tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "libs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "web/**"
+      - ".github/workflows/api-compatibility.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "libs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "web/**"
+      - ".github/workflows/api-compatibility.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Rust API checks
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run library tests
+        run: cargo test --lib
+      - name: Check all targets
+        run: cargo check --all-targets
+      - name: Build API binary
+        run: cargo build --bin rustdesk-api
+      - name: Smoke test API process
+        shell: bash
+        run: |
+          set -euo pipefail
+          db_url="$RUNNER_TEMP/rustdesk-api.sqlite3"
+          web_root="$RUNNER_TEMP/rustdesk-api-web"
+          mkdir -p "$web_root"
+          API_ENABLED=1 \
+          API_BIND=127.0.0.1 \
+          API_PORT=21114 \
+          API_JWT_SECRET=01234567890123456789012345678901 \
+          API_REGISTER_ENABLED=1 \
+          DB_URL="$db_url" \
+          RUSTDESK_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+          API_WEB_ROOT="$web_root" \
+          target/debug/rustdesk-api >"$RUNNER_TEMP/rustdesk-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:21114/health/live >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:21114/health/live
+          curl --fail --silent -X POST http://127.0.0.1:21114/api/register \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"ci-user","password":"password123"}'
+          curl --fail --silent -X POST http://127.0.0.1:21114/api/login \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"ci-user","password":"password123"}'
+
+  web:
+    name: Web Admin build
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build Web Admin
+        run: npm ci && npm run build
