@@ -1323,6 +1323,7 @@ fn snapshot_peer_value(entry: &crate::database::ApiAddressBookEntry) -> serde_js
     let mut value = address_book_entry_response(entry);
     value["id"] = json!(entry.peer_id);
     value["peerId"] = json!(entry.peer_id);
+    value["entryId"] = json!(entry.id);
     value
 }
 
@@ -2218,6 +2219,62 @@ async fn login_options(Extension(state): Extension<Arc<ApiState>>) -> impl IntoR
     Json(options)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str, peer_id: &str, tags: &[&str]) -> crate::database::ApiAddressBookEntry {
+        crate::database::ApiAddressBookEntry {
+            id: id.to_owned(),
+            user_id: "user-1".to_owned(),
+            peer_id: peer_id.to_owned(),
+            username: "alice".to_owned(),
+            hostname: "workstation".to_owned(),
+            alias: "Office".to_owned(),
+            platform: "Linux".to_owned(),
+            tags: serde_json::to_string(tags).expect("tags should serialize"),
+            force_always_relay: 1,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn snapshot_conversion_round_trips_peer_fields() {
+        let original = entry("entry-1", "peer-1", &["ops", "linux"]);
+        let snapshot = snapshot_peer_value(&original);
+        let parsed = address_book_entry_from_snapshot("user-1", &snapshot)
+            .expect("snapshot peer should parse");
+
+        assert_eq!(parsed.id, "entry-1");
+        assert_eq!(parsed.peer_id, "peer-1");
+        assert_eq!(parsed.tags, "[\"ops\",\"linux\"]");
+        assert_eq!(parsed.force_always_relay, 1);
+    }
+
+    #[test]
+    fn merge_replaces_existing_peer_without_duplicate() {
+        let original = entry("entry-1", "peer-1", &["old"]);
+        let replacement = entry("entry-2", "peer-1", &["new"]);
+        let mut document = serde_json::Map::new();
+        document.insert(
+            "peers".to_owned(),
+            serde_json::Value::Array(vec![snapshot_peer_value(&original)]),
+        );
+
+        merge_address_book_entry(&mut document, &replacement);
+
+        let peers = document
+            .get("peers")
+            .and_then(serde_json::Value::as_array)
+            .expect("peers should remain an array");
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0]["peerId"], "peer-1");
+        assert_eq!(peers[0]["entryId"], "entry-2");
+        assert_eq!(peers[0]["tags"], serde_json::json!(["new"]));
+    }
+}
 fn auth_error_response(error: AuthError, unauthorized: bool) -> Response {
     match error {
         AuthError::InvalidCredentials if unauthorized => (
