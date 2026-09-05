@@ -161,6 +161,48 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         .expect("current user response should read");
     assert!(String::from_utf8_lossy(&current_user_body).contains("route-user"));
 
+    let peer_upsert = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/ab/peer",
+            r#"{"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true}"#,
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(peer_upsert.status(), StatusCode::OK);
+
+    let peers = send(
+        &app,
+        Request::builder()
+            .uri("/api/ab/peers")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .expect("peers request should build"),
+    )
+    .await;
+    assert_eq!(peers.status(), StatusCode::OK);
+    let peers_body = to_bytes(peers.into_body())
+        .await
+        .expect("peers response should read");
+    let peers_json = serde_json::from_slice::<serde_json::Value>(&peers_body)
+        .expect("peers response should be JSON");
+    assert_eq!(peers_json["data"][0]["peerId"], "peer-42");
+    assert_eq!(peers_json["data"][0]["forceAlwaysRelay"], true);
+
+    let peer_delete = send(
+        &app,
+        Request::builder()
+            .method("DELETE")
+            .uri("/api/ab/peer/peer-42")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .expect("peer delete request should build"),
+    )
+    .await;
+    assert_eq!(peer_delete.status(), StatusCode::OK);
+
     let group_create = send(
         &app,
         authenticated_json_request(

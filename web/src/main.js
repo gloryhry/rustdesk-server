@@ -16,6 +16,13 @@ const messages = {
     registering: '正在注册...',
     profile: '当前用户',
     addressBook: '地址簿',
+    peerId: '设备 ID',
+    hostname: '主机名',
+    alias: '别名',
+    forceRelay: '始终中继',
+    addPeer: '添加设备',
+    updatePeer: '更新设备',
+    noPeers: '暂无地址簿设备',
     users: '用户管理',
     sessions: '会话管理',
     oauth: 'OAuth 配置',
@@ -33,6 +40,7 @@ const messages = {
     groupName: '组名称',
     create: '创建',
     delete: '删除',
+    cancel: '取消',
     noDeviceGroups: '暂无设备组',
     addDevice: '添加设备',
     noAssignedDevices: '尚未分配设备',
@@ -103,6 +111,13 @@ const messages = {
     registering: 'Registering...',
     profile: 'Current user',
     addressBook: 'Address book',
+    peerId: 'Device ID',
+    hostname: 'Hostname',
+    alias: 'Alias',
+    forceRelay: 'Always relay',
+    addPeer: 'Add device',
+    updatePeer: 'Update device',
+    noPeers: 'No address-book devices',
     users: 'User management',
     sessions: 'Session management',
     oauth: 'OAuth configuration',
@@ -120,6 +135,7 @@ const messages = {
     groupName: 'Group name',
     create: 'Create',
     delete: 'Delete',
+    cancel: 'Cancel',
     noDeviceGroups: 'No device groups found',
     addDevice: 'Add device',
     noAssignedDevices: 'No assigned devices',
@@ -189,6 +205,17 @@ const state = {
   activeView: 'profile',
   authMode: 'login',
   addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
+  addressBookEntries: [],
+  addressBookDraft: {
+    id: '',
+    peer_id: '',
+    username: '',
+    hostname: '',
+    alias: '',
+    platform: '',
+    tags: '',
+    force_always_relay: false
+  },
   tags: [],
   tagDraft: { name: '', color: '' },
   serverConfig: null,
@@ -352,6 +379,50 @@ function addressBookView() {
     button('refresh-address-book', t('refresh'), 'secondary'),
     button('save-address-book', state.busy ? t('saving') : t('save'), 'primary')
   ]);
+  view.append(peerEditor());
+  const tableWrap = element('div', 'table-wrap');
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  [t('peerId'), t('alias'), t('hostname'), t('platform'), t('tags'), t('actions')]
+    .forEach(label => headRow.append(element('th', '', label)));
+  head.append(headRow);
+  table.append(head);
+  const body = document.createElement('tbody');
+  if (!state.addressBookEntries.length) {
+    const row = document.createElement('tr');
+    const cell = element('td', 'empty-cell', t('noPeers'));
+    cell.colSpan = 6;
+    row.append(cell);
+    body.append(row);
+  } else {
+    state.addressBookEntries.forEach(peer => {
+      const row = document.createElement('tr');
+      row.append(element('td', 'strong-cell', peer.peerId || peer.id || '—'));
+      row.append(element('td', '', peer.alias || '—'));
+      row.append(element('td', '', peer.hostname || '—'));
+      row.append(element('td', '', peer.platform || '—'));
+      const tags = Array.isArray(peer.tags) ? peer.tags.join(', ') : '—';
+      row.append(element('td', '', tags));
+      const actions = element('div', 'button-group');
+      const edit = button('', t('updatePeer'), 'secondary');
+      edit.dataset.editPeer = peer.id || peer.peerId || '';
+      edit.disabled = state.busy;
+      actions.append(edit);
+      const remove = button('', t('delete'), 'secondary');
+      remove.dataset.deletePeer = peer.id || peer.peerId || '';
+      remove.disabled = state.busy;
+      actions.append(remove);
+      const cell = document.createElement('td');
+      cell.append(actions);
+      row.append(cell);
+      body.append(row);
+    });
+  }
+  table.append(body);
+  tableWrap.append(table);
+  view.append(tableWrap);
+
   const editor = document.createElement('textarea');
   editor.id = 'address-book-editor';
   editor.className = 'json-editor';
@@ -361,6 +432,36 @@ function addressBookView() {
   view.append(editor);
   view.append(tagsPanel());
   return view;
+}
+
+function peerEditor() {
+  const panel = element('section', 'panel-form');
+  const form = document.createElement('form');
+  form.id = 'peer-form';
+  const draft = state.addressBookDraft;
+  form.append(configField('peer-id', t('peerId'), draft.peer_id));
+  form.append(configField('peer-username', t('username'), draft.username));
+  form.append(configField('peer-hostname', t('hostname'), draft.hostname));
+  form.append(configField('peer-alias', t('alias'), draft.alias));
+  form.append(configField('peer-platform', t('platform'), draft.platform));
+  form.append(configField('peer-tags', t('tags'), draft.tags));
+  form.append(checkboxField('peer-relay', t('forceRelay'), draft.force_always_relay));
+  const actions = element('div', 'button-group');
+  const submit = button('save-peer', state.busy
+    ? t('saving')
+    : (draft.id ? t('updatePeer') : t('addPeer')), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy;
+  actions.append(submit);
+  if (draft.id) {
+    const clear = button('clear-peer', t('cancel'), 'secondary');
+    clear.type = 'button';
+    clear.disabled = state.busy;
+    actions.append(clear);
+  }
+  form.append(actions);
+  panel.append(form);
+  return panel;
 }
 
 function tagsPanel() {
@@ -895,6 +996,16 @@ function bindEvents() {
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
+  document.querySelector('#peer-form')?.addEventListener('submit', savePeer);
+  document.querySelector('#peer-form')?.addEventListener('input', preservePeerDraft);
+  document.querySelector('#peer-form')?.addEventListener('change', preservePeerDraft);
+  document.querySelector('#clear-peer')?.addEventListener('click', clearPeerDraft);
+  document.querySelectorAll('[data-edit-peer]').forEach(node => {
+    node.addEventListener('click', () => editPeer(node.dataset.editPeer));
+  });
+  document.querySelectorAll('[data-delete-peer]').forEach(node => {
+    node.addEventListener('click', () => deletePeer(node.dataset.deletePeer));
+  });
   const tagForm = document.querySelector('#tag-form');
   tagForm?.addEventListener('submit', saveTag);
   tagForm?.addEventListener('input', event => {
@@ -1049,10 +1160,15 @@ async function loadAddressBook() {
   state.busy = true;
   render();
   try {
-    const result = await api('/api/ab');
+    const [result, entriesResult] = await Promise.all([
+      api('/api/ab'),
+      api('/api/ab/peers')
+    ]);
     const raw = result.data ?? result;
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     state.addressBook = JSON.stringify(parsed, null, 2);
+    const entries = entriesResult.data?.list || entriesResult.data || entriesResult.list || entriesResult;
+    state.addressBookEntries = Array.isArray(entries) ? entries : [];
     setNotice(null, null);
   } catch (error) {
     setNotice('error', error.message);
@@ -1079,7 +1195,102 @@ async function saveAddressBook() {
   try {
     await api('/api/ab', { method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed) }) });
     state.addressBook = JSON.stringify(parsed, null, 2);
+    const entriesResult = await api('/api/ab/peers');
+    const entries = entriesResult.data?.list || entriesResult.data || entriesResult.list || entriesResult;
+    state.addressBookEntries = Array.isArray(entries) ? entries : [];
     setNotice('success', t('saved'));
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function savePeer(event) {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget);
+  const payload = {
+    id: state.addressBookDraft.id || undefined,
+    peer_id: String(data.get('peer-id') || '').trim(),
+    username: String(data.get('peer-username') || '').trim(),
+    hostname: String(data.get('peer-hostname') || '').trim(),
+    alias: String(data.get('peer-alias') || '').trim(),
+    platform: String(data.get('peer-platform') || '').trim(),
+    tags: String(data.get('peer-tags') || '')
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(Boolean),
+    force_always_relay: event.currentTarget.querySelector('[name="peer-relay"]')?.checked || false
+  };
+  if (!payload.peer_id) return;
+  state.addressBookDraft = { ...state.addressBookDraft, ...payload, tags: payload.tags.join(', ') };
+  state.busy = true;
+  render();
+  try {
+    await api('/api/ab/peer', { method: 'POST', body: JSON.stringify(payload) });
+    clearPeerDraft();
+    await loadAddressBook();
+    setNotice('success', t('saved'));
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+function preservePeerDraft(event) {
+  const data = new FormData(event.currentTarget);
+  state.addressBookDraft = {
+    ...state.addressBookDraft,
+    peer_id: String(data.get('peer-id') || ''),
+    username: String(data.get('peer-username') || ''),
+    hostname: String(data.get('peer-hostname') || ''),
+    alias: String(data.get('peer-alias') || ''),
+    platform: String(data.get('peer-platform') || ''),
+    tags: String(data.get('peer-tags') || ''),
+    force_always_relay: event.currentTarget.querySelector('[name="peer-relay"]')?.checked || false
+  };
+}
+
+function editPeer(id) {
+  const peer = state.addressBookEntries.find(value => value.id === id || value.peerId === id);
+  if (!peer) return;
+  state.addressBookDraft = {
+    id: peer.id || '',
+    peer_id: peer.peerId || peer.id || '',
+    username: peer.username || '',
+    hostname: peer.hostname || '',
+    alias: peer.alias || '',
+    platform: peer.platform || '',
+    tags: Array.isArray(peer.tags) ? peer.tags.join(', ') : '',
+    force_always_relay: Boolean(peer.forceAlwaysRelay)
+  };
+  render();
+}
+
+function clearPeerDraft() {
+  state.addressBookDraft = {
+    id: '',
+    peer_id: '',
+    username: '',
+    hostname: '',
+    alias: '',
+    platform: '',
+    tags: '',
+    force_always_relay: false
+  };
+}
+
+async function deletePeer(id) {
+  if (!id) return;
+  state.busy = true;
+  render();
+  try {
+    await api(`/api/ab/peer/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    clearPeerDraft();
+    await loadAddressBook();
   } catch (error) {
     setNotice('error', error.message);
   } finally {
@@ -1610,6 +1821,17 @@ function clearSession() {
   state.groupUsers = [];
   state.groupDraft = '';
   state.tags = [];
+  state.addressBookEntries = [];
+  state.addressBookDraft = {
+    id: '',
+    peer_id: '',
+    username: '',
+    hostname: '',
+    alias: '',
+    platform: '',
+    tags: '',
+    force_always_relay: false
+  };
   state.tagDraft = { name: '', color: '' };
   state.deviceGroups = [];
   state.deviceGroupMemberships = [];
