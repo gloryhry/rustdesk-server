@@ -1,7 +1,7 @@
+use hbb_common::tokio;
 use reqwest::Url;
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
-use hbb_common::tokio;
 
 #[derive(Clone)]
 pub struct OAuthProviderConfig {
@@ -289,6 +289,7 @@ fn json_scalar_string(value: &serde_json::Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hbb_common::tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn test_runtime() -> OAuthRuntime {
         OAuthRuntime::new(vec![OAuthProviderConfig {
@@ -344,6 +345,61 @@ mod tests {
             .complete("code", &state, "https://api.example/callback")
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn complete_exchanges_code_and_resolves_userinfo_identity() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("mock OAuth listener should bind");
+        let address = listener.local_addr().expect("mock listener address should exist");
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.expect("mock request should connect");
+                let mut request = [0_u8; 4096];
+                let size = stream.read(&mut request).await.expect("mock request should read");
+                let request = String::from_utf8_lossy(&request[..size]);
+                let body = if request.starts_with("POST /token ") {
+                    r#"{"access_token":"mock-access-token"}"#
+                } else {
+                    r#"{"id":"42","login":"alice","email":"alice@example.com"}"#
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("mock response should write");
+            }
+        });
+        let base = format!("http://{address}");
+        let runtime = OAuthRuntime::new(vec![OAuthProviderConfig {
+            name: "local".to_owned(),
+            client_id: "client".to_owned(),
+            client_secret: "secret".to_owned(),
+            authorization_url: format!("{base}/authorize"),
+            token_url: format!("{base}/token"),
+            userinfo_url: format!("{base}/userinfo"),
+            scopes: "openid email".to_owned(),
+        }]);
+        let (_, state) = runtime
+            .begin_with_device("local", "https://api.example/callback", OAuthDevice::default())
+            .await
+            .expect("local provider should begin");
+
+        let identity = runtime
+            .complete("authorization-code", &state, "https://api.example/callback")
+            .await
+            .expect("mock provider should complete");
+        server.await.expect("mock OAuth server should finish");
+
+        assert_eq!(identity.provider, "local");
+        assert_eq!(identity.subject, "42");
+        assert_eq!(identity.username, "alice");
+        assert_eq!(identity.email, "alice@example.com");
     }
 
     #[test]
