@@ -9,6 +9,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/**"
+      - "tests/**"
       - ".github/workflows/api-compatibility.yml"
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "web/**"
+      - "tests/**"
       - ".github/workflows/api-compatibility.yml"
   workflow_dispatch:
 
@@ -34,8 +36,8 @@ jobs:
           submodules: recursive
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      - name: Run library tests
-        run: cargo test --lib
+      - name: Run Rust tests
+        run: cargo test --locked --all-targets
       - name: Check all targets
         run: cargo check --all-targets
       - name: Build API binary
