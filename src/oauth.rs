@@ -78,6 +78,9 @@ impl OAuthRuntime {
                     && !config.authorization_url.is_empty()
                     && !config.token_url.is_empty()
                     && !config.userinfo_url.is_empty()
+                    && valid_provider_endpoint(&config.authorization_url)
+                    && valid_provider_endpoint(&config.token_url)
+                    && valid_provider_endpoint(&config.userinfo_url)
             })
             .map(|config| (config.name.clone(), config))
             .collect();
@@ -213,7 +216,13 @@ impl OAuthRuntime {
             .json::<TokenResponse>()
             .await
             .map_err(|_| OAuthError::InvalidResponse)?;
-        let access_token = token.access_token.ok_or(OAuthError::InvalidResponse)?;
+        let access_token = token
+            .access_token
+            .and_then(|value| {
+                let value = value.trim();
+                (!value.is_empty()).then(|| value.to_owned())
+            })
+            .ok_or(OAuthError::InvalidResponse)?;
         let profile = client
             .get(&config.userinfo_url)
             .bearer_auth(access_token)
@@ -230,6 +239,7 @@ impl OAuthRuntime {
             .get("sub")
             .or_else(|| profile.get("id"))
             .and_then(json_scalar_string)
+            .filter(|value| !value.trim().is_empty())
             .ok_or(OAuthError::InvalidResponse)?;
         let username = profile
             .get("preferred_username")
@@ -250,6 +260,21 @@ impl OAuthRuntime {
             email,
             device,
         })
+    }
+}
+
+fn valid_provider_endpoint(value: &str) -> bool {
+    let url = match Url::parse(value) {
+        Ok(url) => url,
+        Err(_) => return false,
+    };
+    if url.fragment().is_some() || url.username() != "" || url.password().is_some() {
+        return false;
+    }
+    match url.scheme() {
+        "https" => url.host_str().is_some(),
+        "http" => matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]" | "::1")),
+        _ => false,
     }
 }
 
@@ -319,5 +344,22 @@ mod tests {
             .complete("code", &state, "https://api.example/callback")
             .await
             .is_err());
+    }
+
+    #[test]
+    fn provider_endpoints_require_secure_or_local_urls() {
+        assert!(valid_provider_endpoint("https://provider.example/token"));
+        assert!(valid_provider_endpoint("http://127.0.0.1:8080/token"));
+        assert!(!valid_provider_endpoint("http://provider.example/token"));
+        assert!(!valid_provider_endpoint("https://user:pass@provider.example/token"));
+        assert!(!valid_provider_endpoint("https://provider.example/token#fragment"));
+    }
+
+    #[test]
+    fn empty_identity_subject_is_not_a_scalar_identity() {
+        let value = serde_json::Value::String("   ".to_owned());
+        assert!(json_scalar_string(&value)
+            .filter(|subject| !subject.trim().is_empty())
+            .is_none());
     }
 }
