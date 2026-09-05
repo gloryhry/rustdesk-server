@@ -4,7 +4,7 @@ use crate::oauth::{OAuthError, OAuthRuntime};
 use axum::{
     error_handling::HandleErrorLayer,
     extract::{Extension, Json, Path, Query},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::{delete as delete_route, get, get_service, post, put},
     Router,
@@ -418,7 +418,11 @@ async fn login(
 ) -> Response {
     let (username, password, device) = login_parts(request);
     match state.auth.login(&username, &password, device).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(result) => with_auth_cookie(
+            (StatusCode::OK, Json(result.clone())).into_response(),
+            &result.access_token,
+            result.expires_in,
+        ),
         Err(err) => auth_error_response(err, true),
     }
 }
@@ -429,7 +433,11 @@ async fn admin_login(
 ) -> Response {
     let (username, password, device) = login_parts(request);
     match state.auth.login_admin(&username, &password, device).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(result) => with_auth_cookie(
+            (StatusCode::OK, Json(result.clone())).into_response(),
+            &result.access_token,
+            result.expires_in,
+        ),
         Err(err) => auth_error_response(err, true),
     }
 }
@@ -838,7 +846,7 @@ async fn logout(
             .revoke_session(&principal.user_id, &principal.session_id)
             .await
         {
-            Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+            Ok(()) => clear_auth_cookie((StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
             Err(err) => auth_error_response(err, false),
         },
         Err(err) => auth_error_response(err, true),
@@ -862,7 +870,7 @@ async fn logout_authorized(state: &ApiState, principal: Principal) -> Response {
         .revoke_session(&principal.user_id, &principal.session_id)
         .await
     {
-        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
+        Ok(()) => clear_auth_cookie((StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
         Err(err) => auth_error_response(err, false),
     }
 }
@@ -2058,17 +2066,45 @@ fn valid_tag_color(value: &str) -> bool {
 }
 
 async fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<Principal, AuthError> {
-    let value = headers
-        .get(axum::http::header::AUTHORIZATION)
+    let token = headers
+        .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .filter(|value| !value.is_empty())
+        .or_else(|| cookie_value(headers.get(header::COOKIE), "rustdesk_api_token"))
         .ok_or(AuthError::InvalidCredentials)?;
-    let token = value
-        .strip_prefix("Bearer ")
-        .ok_or(AuthError::InvalidCredentials)?;
-    if token.is_empty() {
-        return Err(AuthError::InvalidCredentials);
-    }
     state.auth.authorize(token).await
+}
+
+fn cookie_value<'a>(value: Option<&'a HeaderValue>, name: &str) -> Option<&'a str> {
+    value
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';').find_map(|cookie| {
+                let (cookie_name, cookie_value) = cookie.trim().split_once('=')?;
+                (cookie_name == name && !cookie_value.is_empty()).then_some(cookie_value)
+            })
+        })
+}
+
+fn with_auth_cookie(mut response: Response, token: &str, expires_in: u64) -> Response {
+    let cookie = format!(
+        "rustdesk_api_token={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={expires_in}"
+    );
+    if let Ok(value) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(header::SET_COOKIE, value);
+    }
+    response
+}
+
+fn clear_auth_cookie(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_static(
+            "rustdesk_api_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",
+        ),
+    );
+    response
 }
 
 async fn oauth_login(
@@ -2145,6 +2181,7 @@ async fn oauth_message() -> impl IntoResponse {
 
 async fn oauth_callback(
     Extension(state): Extension<Arc<ApiState>>,
+    headers: HeaderMap,
     Query(query): Query<OAuthQuery>,
 ) -> Response {
     if !query.error.is_empty() {
@@ -2185,7 +2222,23 @@ async fn oauth_callback(
         )
         .await
     {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(result) => {
+            let accepts_html = headers
+                .get(header::ACCEPT)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.contains("text/html"))
+                .unwrap_or(false);
+            if accepts_html {
+                let response = Redirect::temporary("/").into_response();
+                with_auth_cookie(response, &result.access_token, result.expires_in)
+            } else {
+                with_auth_cookie(
+                    (StatusCode::OK, Json(result.clone())).into_response(),
+                    &result.access_token,
+                    result.expires_in,
+                )
+            }
+        }
         Err(err) => auth_error_response(err, false),
     }
 }
@@ -2274,6 +2327,40 @@ mod tests {
         assert_eq!(peers[0]["entryId"], "entry-2");
         assert_eq!(peers[0]["tags"], serde_json::json!(["new"]));
     }
+
+    #[test]
+    fn cookie_value_extracts_named_cookie_without_prefix_confusion() {
+        let headers = HeaderMap::from_iter([(
+            header::COOKIE,
+            HeaderValue::from_static("other=one; rustdesk_api_token=token-123; rustdesk_api_token_extra=no"),
+        )]);
+
+        assert_eq!(
+            cookie_value(headers.get(header::COOKIE), "rustdesk_api_token"),
+            Some("token-123")
+        );
+        assert_eq!(cookie_value(headers.get(header::COOKIE), "missing"), None);
+    }
+
+    #[test]
+    fn auth_cookie_response_sets_browser_session_attributes() {
+        let response = with_auth_cookie(
+            (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+            "token-123",
+            900,
+        );
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .expect("auth cookie should be present");
+
+        assert!(cookie.contains("rustdesk_api_token=token-123"));
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Lax"));
+        assert!(cookie.contains("Max-Age=900"));
+    }
+
 }
 fn auth_error_response(error: AuthError, unauthorized: bool) -> Response {
     match error {

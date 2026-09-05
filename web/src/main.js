@@ -19,6 +19,7 @@ const messages = {
     users: '用户管理',
     sessions: '会话管理',
     oauth: 'OAuth 配置',
+    oauthSignIn: '使用 OAuth 登录',
     provider: '提供商',
     authorizationEndpoint: '授权端点',
     userInfoEndpoint: '用户信息端点',
@@ -103,6 +104,7 @@ const messages = {
     users: 'User management',
     sessions: 'Session management',
     oauth: 'OAuth configuration',
+    oauthSignIn: 'Sign in with OAuth',
     provider: 'Provider',
     authorizationEndpoint: 'Authorization endpoint',
     userInfoEndpoint: 'Userinfo endpoint',
@@ -178,6 +180,7 @@ const messages = {
 const state = {
   locale: localStorage.getItem(LOCALE_KEY) || 'zh-CN',
   token: sessionStorage.getItem(TOKEN_KEY) || '',
+  cookieSession: false,
   user: null,
   activeView: 'profile',
   authMode: 'login',
@@ -189,6 +192,7 @@ const state = {
   userDraft: { username: '', email: '', password: '' },
   sessions: [],
   oauthProviders: [],
+  oauthLoginProviders: [],
   oauthRedirectConfigured: false,
   devices: [],
   groups: [],
@@ -221,7 +225,7 @@ function render() {
 
   const shell = element('div', 'app-shell');
   shell.append(header());
-  shell.append(state.token && state.user ? workspace() : authView());
+  shell.append(state.user && (state.token || state.cookieSession) ? workspace() : authView());
   if (state.notice) shell.append(notice());
   app.append(shell);
   bindEvents();
@@ -238,7 +242,7 @@ function header() {
   const locale = button('locale-toggle', t('language'), 'secondary');
   locale.type = 'button';
   actions.append(locale);
-  if (state.token && state.user) actions.append(button('logout', t('logout'), 'secondary'));
+  if (state.user && (state.token || state.cookieSession)) actions.append(button('logout', t('logout'), 'secondary'));
   node.append(actions);
   return node;
 }
@@ -265,6 +269,16 @@ function authView() {
   submit.disabled = state.busy;
   form.append(submit);
   panel.append(form);
+  if (state.oauthLoginProviders.length) {
+    const oauth = element('div', 'oauth-login');
+    oauth.append(element('small', '', t('oauthSignIn')));
+    state.oauthLoginProviders.forEach(provider => {
+      const action = button(`oauth-login-${provider}`, provider, 'secondary');
+      action.dataset.oauthProvider = provider;
+      oauth.append(action);
+    });
+    panel.append(oauth);
+  }
   main.append(panel);
   return main;
 }
@@ -779,6 +793,16 @@ function bindEvents() {
     render();
   }));
   document.querySelector('#auth-form')?.addEventListener('submit', submitAuth);
+  document.querySelectorAll('[data-oauth-provider]').forEach(node => {
+    node.addEventListener('click', () => {
+      const params = new URLSearchParams({
+        provider: node.dataset.oauthProvider || '',
+        id: 'web',
+        uuid: 'web'
+      });
+      window.location.assign(`${API_BASE}/api/oidc/auth?${params.toString()}`);
+    });
+  });
   document.querySelector('#logout')?.addEventListener('click', logout);
   document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click', async () => {
     const nextView = node.dataset.view;
@@ -894,15 +918,30 @@ async function submitAuth(event) {
   }
 }
 
+async function loadLoginOptions() {
+  try {
+    const result = await api('/api/login-options', { authenticated: false });
+    const options = Array.isArray(result) ? result : result?.data;
+    state.oauthLoginProviders = (Array.isArray(options) ? options : [])
+      .filter(option => typeof option === 'string' && option.startsWith('oidc/'))
+      .map(option => option.slice('oidc/'.length))
+      .filter(Boolean);
+  } catch {
+    state.oauthLoginProviders = [];
+  }
+}
+
 async function loadCurrentUser(renderAfter = true) {
+  const hadToken = Boolean(state.token);
   try {
     const result = await api('/api/currentUser');
     state.user = safeUser(result);
     if (!state.user || typeof state.user !== 'object') throw new Error(t('requestFailed'));
+    state.cookieSession = !state.token;
     await loadBootstrapData();
   } catch (error) {
     clearSession();
-    setNotice('error', error.message);
+    if (hadToken) setNotice('error', error.message);
   }
   if (renderAfter) render();
 }
@@ -1402,11 +1441,13 @@ async function api(path, options = {}) {
 
 function clearSession() {
   state.token = '';
+  state.cookieSession = false;
   state.user = null;
   state.users = [];
   state.userDraft = { username: '', email: '', password: '' };
   state.sessions = [];
   state.oauthProviders = [];
+  state.oauthLoginProviders = [];
   state.oauthRedirectConfigured = false;
   state.devices = [];
   state.groups = [];
@@ -1426,4 +1467,8 @@ function clearSession() {
 }
 
 render();
-if (state.token) loadCurrentUser();
+if (state.token) {
+  loadCurrentUser();
+} else {
+  Promise.all([loadCurrentUser(false), loadLoginOptions()]).then(() => render());
+}
