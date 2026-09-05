@@ -12,10 +12,17 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn test_app() -> (axum::Router, PathBuf) {
-    let database_path = std::env::temp_dir().join(format!("rustdesk-api-routes-{}.sqlite3", Uuid::new_v4()));
-    let database = Database::new(database_path.to_str().expect("database path should be UTF-8"))
-        .await
-        .expect("test database should initialize");
+    let database_path = std::env::temp_dir().join(format!(
+        "rustdesk-api-routes-{}.sqlite3",
+        Uuid::new_v4()
+    ));
+    let database = Database::new(
+        database_path
+            .to_str()
+            .expect("database path should be UTF-8"),
+    )
+    .await
+    .expect("test database should initialize");
     let router = build_service(
         database,
         "01234567890123456789012345678901".to_owned(),
@@ -38,11 +45,11 @@ async fn test_app() -> (axum::Router, PathBuf) {
     (router, database_path)
 }
 
-async fn send(
-    app: &axum::Router,
-    request: Request<Body>,
-) -> axum::response::Response {
-    app.clone().oneshot(request).await.expect("router should respond")
+async fn send(app: &axum::Router, request: Request<Body>) -> axum::response::Response {
+    app.clone()
+        .oneshot(request)
+        .await
+        .expect("router should respond")
 }
 
 fn json_request(method: &str, path: &str, body: &str) -> Request<Body> {
@@ -52,6 +59,21 @@ fn json_request(method: &str, path: &str, body: &str) -> Request<Body> {
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_owned()))
         .expect("test request should build")
+}
+
+fn authenticated_json_request(
+    method: &str,
+    path: &str,
+    body: &str,
+    cookie: &str,
+) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_owned()))
+        .expect("authenticated request should build")
 }
 
 fn cookie_from(response: &axum::response::Response) -> String {
@@ -65,7 +87,7 @@ fn cookie_from(response: &axum::response::Response) -> String {
 }
 
 #[tokio::test]
-async fn api_routes_support_cookie_sessions_and_compatibility_health() {
+async fn api_routes_support_auth_groups_and_cookie_sessions() {
     let (app, database_path) = test_app().await;
 
     let health = send(
@@ -97,10 +119,15 @@ async fn api_routes_support_cookie_sessions_and_compatibility_health() {
         ),
     )
     .await;
-    assert!(matches!(
-        registration.status(),
-        StatusCode::OK | StatusCode::CREATED
-    ));
+    assert_eq!(registration.status(), StatusCode::CREATED);
+    let registration_body = to_bytes(registration.into_body())
+        .await
+        .expect("registration response should read");
+    let user_id = serde_json::from_slice::<serde_json::Value>(&registration_body)
+        .expect("registration response should be JSON")["id"]
+        .as_str()
+        .expect("registration response should contain an id")
+        .to_owned();
 
     let login = send(
         &app,
@@ -134,14 +161,83 @@ async fn api_routes_support_cookie_sessions_and_compatibility_health() {
         .expect("current user response should read");
     assert!(String::from_utf8_lossy(&current_user_body).contains("route-user"));
 
-    let logout = send(
+    let group_create = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/groups",
+            r#"{"name":"route-group"}"#,
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(group_create.status(), StatusCode::CREATED);
+    let group_body = to_bytes(group_create.into_body())
+        .await
+        .expect("group response should read");
+    let group_id = serde_json::from_slice::<serde_json::Value>(&group_body)
+        .expect("group response should be JSON")["id"]
+        .as_str()
+        .expect("group response should contain an id")
+        .to_owned();
+
+    let add_member = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/groups/members",
+            &format!(r#"{{"group_id":"{group_id}","user_id":"{user_id}"}}"#),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(add_member.status(), StatusCode::OK);
+
+    let groups = send(
         &app,
         Request::builder()
-            .method("POST")
-            .uri("/api/logout")
+            .uri("/api/groups")
             .header(header::COOKIE, &cookie)
             .body(Body::empty())
-            .expect("logout request should build"),
+            .expect("groups request should build"),
+    )
+    .await;
+    assert_eq!(groups.status(), StatusCode::OK);
+    let groups_body = to_bytes(groups.into_body())
+        .await
+        .expect("groups response should read");
+    let groups_json = serde_json::from_slice::<serde_json::Value>(&groups_body)
+        .expect("groups response should be JSON");
+    assert_eq!(groups_json["data"][0]["name"], "route-group");
+    assert_eq!(groups_json["memberships"][0]["user_id"], user_id);
+
+    let remove_member = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/groups/members/delete",
+            &format!(r#"{{"group_id":"{group_id}","user_id":"{user_id}"}}"#),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(remove_member.status(), StatusCode::OK);
+
+    let delete_group = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/groups/delete",
+            &format!(r#"{{"id":"{group_id}"}}"#),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(delete_group.status(), StatusCode::OK);
+
+    let logout = send(
+        &app,
+        authenticated_json_request("POST", "/api/logout", "", &cookie),
     )
     .await;
     assert_eq!(logout.status(), StatusCode::OK);

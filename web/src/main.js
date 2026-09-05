@@ -69,6 +69,8 @@ const messages = {
      remove: '删除',
     noDevices: '暂无设备',
     noGroups: '暂无用户组',
+    noGroupMembers: '暂无成员',
+    addMember: '添加成员',
     uuid: '设备 UUID',
     platform: '平台',
     invalidJson: '地址簿必须是有效的 JSON 对象',
@@ -154,6 +156,8 @@ const messages = {
      remove: 'Delete',
     noDevices: 'No devices found',
     noGroups: 'No groups found',
+    noGroupMembers: 'No members found',
+    addMember: 'Add member',
     uuid: 'Device UUID',
     platform: 'Platform',
     invalidJson: 'Address book must be a valid JSON object',
@@ -196,6 +200,9 @@ const state = {
   oauthRedirectConfigured: false,
   devices: [],
   groups: [],
+  groupMemberships: [],
+  groupUsers: [],
+  groupDraft: '',
   deviceGroups: [],
   deviceGroupMemberships: [],
   deviceGroupDevices: [],
@@ -568,12 +575,69 @@ function devicesView() {
 
 function groupsView() {
   const view = viewHeader(t('groups'), [button('refresh-groups', t('refresh'), 'secondary')]);
+  const form = element('form', 'inline-form');
+  form.id = 'group-form';
+  const input = document.createElement('input');
+  input.name = 'name';
+  input.placeholder = t('groupName');
+  input.maxLength = 128;
+  input.required = true;
+  input.value = state.groupDraft;
+  input.disabled = state.busy;
+  form.append(input);
+  const submit = button('create-group', t('create'), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy;
+  form.append(submit);
+  view.append(form);
+
   const list = element('div', 'group-list');
   if (!state.groups.length) list.append(element('p', 'empty-state', t('noGroups')));
   state.groups.forEach(group => {
-    const item = element('div', 'group-row');
-    item.append(element('strong', '', group.name || '—'));
-    item.append(element('small', '', group.created_at || ''));
+    const item = element('section', 'device-group-card');
+    const heading = element('div', 'group-row');
+    heading.append(element('strong', '', group.name || '—'));
+    const remove = button('', t('delete'), 'secondary');
+    remove.dataset.deleteGroup = group.id;
+    remove.disabled = state.busy;
+    heading.append(remove);
+    item.append(heading);
+
+    const members = state.groupMemberships.filter(member => member.group_id === group.id);
+    const memberList = element('div', 'membership-list');
+    if (!members.length) memberList.append(element('small', 'empty-state', t('noGroupMembers')));
+    members.forEach(member => {
+      const user = state.groupUsers.find(value => value.id === member.user_id);
+      const row = element('div', 'membership-row');
+      row.append(element('span', '', user?.name || user?.username || member.user_id));
+      const detach = button('', t('delete'), 'secondary');
+      detach.dataset.removeGroup = group.id;
+      detach.dataset.userId = member.user_id;
+      detach.disabled = state.busy;
+      row.append(detach);
+      memberList.append(row);
+    });
+    item.append(memberList);
+
+    const available = state.groupUsers.filter(user => !members.some(member => member.user_id === user.id));
+    if (available.length) {
+      const assign = element('div', 'inline-form');
+      const select = document.createElement('select');
+      select.id = `group-select-${group.id}`;
+      available.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user.id;
+        option.textContent = user.name || user.username || user.id;
+        select.append(option);
+      });
+      select.disabled = state.busy;
+      assign.append(select);
+      const add = button('', t('addMember'), 'primary');
+      add.dataset.addGroup = group.id;
+      add.disabled = state.busy;
+      assign.append(add);
+      item.append(assign);
+    }
     list.append(item);
   });
   view.append(list);
@@ -859,6 +923,22 @@ function bindEvents() {
   });
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
+  document.querySelector('#group-form')?.addEventListener('submit', createGroup);
+  document.querySelector('#group-form')?.addEventListener('input', event => {
+    state.groupDraft = String(new FormData(event.currentTarget).get('name') || '');
+  });
+  document.querySelectorAll('[data-delete-group]').forEach(node => {
+    node.addEventListener('click', () => deleteGroup(node.dataset.deleteGroup));
+  });
+  document.querySelectorAll('[data-add-group]').forEach(node => {
+    node.addEventListener('click', () => addGroupMember(node.dataset.addGroup));
+  });
+  document.querySelectorAll('[data-remove-group]').forEach(node => {
+    node.addEventListener('click', () => removeGroupMember(
+      node.dataset.removeGroup,
+      node.dataset.userId
+    ));
+  });
   document.querySelector('#refresh-device-groups')?.addEventListener('click', loadDeviceGroups);
   const deviceGroupForm = document.querySelector('#device-group-form');
   deviceGroupForm?.addEventListener('submit', createDeviceGroup);
@@ -1087,10 +1167,85 @@ async function loadGroups() {
   state.busy = true;
   render();
   try {
-    const result = await api('/api/groups');
+    const [result, userResult] = await Promise.all([
+      api('/api/groups'),
+      api('/api/users')
+    ]);
     const value = result.data?.list || result.data || result.list || result;
+    const users = userResult.data?.list || userResult.data || userResult.list || userResult;
     state.groups = Array.isArray(value) ? value : [];
+    state.groupMemberships = Array.isArray(result.memberships) ? result.memberships : [];
+    state.groupUsers = Array.isArray(users) ? users : [];
     setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function createGroup(event) {
+  event.preventDefault();
+  const name = String(new FormData(event.currentTarget).get('name') || '').trim();
+  if (!name) return;
+  state.groupDraft = name;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/groups', { method: 'POST', body: JSON.stringify({ name }) });
+    state.groupDraft = '';
+    await loadGroups();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function deleteGroup(id) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/groups/delete', { method: 'POST', body: JSON.stringify({ id }) });
+    await loadGroups();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function addGroupMember(groupId) {
+  const userId = document.querySelector(`#group-select-${groupId}`)?.value || '';
+  if (!userId) return;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/groups/members', {
+      method: 'POST',
+      body: JSON.stringify({ group_id: groupId, user_id: userId })
+    });
+    await loadGroups();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
+  }
+}
+
+async function removeGroupMember(groupId, userId) {
+  state.busy = true;
+  render();
+  try {
+    await api('/api/groups/members/delete', {
+      method: 'POST',
+      body: JSON.stringify({ group_id: groupId, user_id: userId })
+    });
+    await loadGroups();
   } catch (error) {
     setNotice('error', error.message);
   } finally {
@@ -1451,6 +1606,9 @@ function clearSession() {
   state.oauthRedirectConfigured = false;
   state.devices = [];
   state.groups = [];
+  state.groupMemberships = [];
+  state.groupUsers = [];
+  state.groupDraft = '';
   state.tags = [];
   state.tagDraft = { name: '', color: '' };
   state.deviceGroups = [];
