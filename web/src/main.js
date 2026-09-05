@@ -31,7 +31,21 @@ const messages = {
     authorizationEndpoint: '授权端点',
     userInfoEndpoint: '用户信息端点',
     redirectConfigured: '回调地址已配置',
-    noProviders: '暂无已启用 provider',
+    addProvider: '添加提供商',
+     editProvider: '编辑提供商',
+     providerName: '名称',
+     clientId: 'Client ID',
+     clientSecret: 'Client Secret（留空则保持不变）',
+     tokenEndpoint: '令牌端点',
+     issuerEndpoint: 'Issuer（可选）',
+     jwksEndpoint: 'JWKS（可选）',
+     scopes: 'Scopes',
+     providerEnabled: '已启用',
+     providerDisabled: '已禁用',
+     saveProvider: '保存提供商',
+     providerSaved: 'OAuth 提供商已保存',
+     providerDeleted: 'OAuth 提供商已删除',
+     providerToggled: 'OAuth 提供商状态已更新',
     sessionId: '会话 ID',
     noSessions: '暂无会话',
     devices: '设备',
@@ -128,6 +142,21 @@ const messages = {
     userInfoEndpoint: 'Userinfo endpoint',
     redirectConfigured: 'Callback configured',
     noProviders: 'No enabled providers',
+     addProvider: 'Add provider',
+     editProvider: 'Edit provider',
+     providerName: 'Name',
+     clientId: 'Client ID',
+     clientSecret: 'Client secret (leave blank to keep)',
+     tokenEndpoint: 'Token endpoint',
+     issuerEndpoint: 'Issuer (optional)',
+     jwksEndpoint: 'JWKS (optional)',
+     scopes: 'Scopes',
+     providerEnabled: 'Enabled',
+     providerDisabled: 'Disabled',
+     saveProvider: 'Save provider',
+     providerSaved: 'OAuth provider saved',
+     providerDeleted: 'OAuth provider deleted',
+     providerToggled: 'OAuth provider status updated',
     sessionId: 'Session ID',
     noSessions: 'No sessions found',
     devices: 'Devices',
@@ -227,6 +256,7 @@ const state = {
   oauthProviders: [],
   oauthLoginProviders: [],
   oauthRedirectConfigured: false,
+  oauthDraft: null,
   devices: [],
   groups: [],
   groupMemberships: [],
@@ -606,38 +636,35 @@ function sessionsView() {
 }
 
 function oauthView() {
+  const editing = state.oauthDraft?.id;
   const view = viewHeader(t('oauth'), [button('refresh-oauth', t('refresh'), 'secondary')]);
-  view.append(element(
-    'p',
-    'empty-state',
-    `${t('redirectConfigured')}: ${state.oauthRedirectConfigured ? t('enabled') : t('disabled')}`
-  ));
-  const tableWrap = element('div', 'table-wrap');
-  const table = document.createElement('table');
-  const head = document.createElement('thead');
-  const row = document.createElement('tr');
-  [t('provider'), t('authorizationEndpoint'), t('userInfoEndpoint')].forEach(label => row.append(element('th', '', label)));
-  head.append(row);
-  table.append(head);
+  view.append(element('p', 'empty-state', `${t('redirectConfigured')}: ${state.oauthRedirectConfigured ? t('enabled') : t('disabled')}`));
+  const form = element('form', 'panel-form oauth-provider-form');
+  form.id = 'oauth-provider-form';
+  const draft = state.oauthDraft || {};
+  [['name', t('providerName'), 'text'], ['client_id', t('clientId'), 'text'], ['client_secret', t('clientSecret'), 'password'], ['authorization_url', t('authorizationEndpoint'), 'url'], ['token_url', t('tokenEndpoint'), 'url'], ['userinfo_url', t('userInfoEndpoint'), 'url'], ['issuer_url', t('issuerEndpoint'), 'url'], ['jwks_url', t('jwksEndpoint'), 'url'], ['scopes', t('scopes'), 'text']].forEach(([key, label, type]) => {
+    const input = field(`oauth-${key}`, label, type, 'off', key === 'name' || key === 'client_id' || key === 'authorization_url' || key === 'token_url' || key === 'userinfo_url');
+    input.querySelector('input').name = key;
+    input.querySelector('input').value = draft[key] || '';
+    form.append(input);
+  });
+  const enabled = element('label', 'checkbox-field');
+  const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.name = 'enabled'; checkbox.checked = draft.enabled !== false;
+  enabled.append(checkbox, element('span', '', t('enabled'))); form.append(enabled);
+  const actions = element('div', 'button-group');
+  const saveButton = button('save-oauth-provider', editing ? t('editProvider') : t('addProvider'), 'primary'); saveButton.type = 'submit'; actions.append(saveButton);
+  if (editing) actions.append(button('cancel-oauth-provider', t('cancel'), 'secondary'));
+  form.append(actions); view.append(form);
+  const tableWrap = element('div', 'table-wrap'); const table = document.createElement('table');
+  const head = document.createElement('thead'); const row = document.createElement('tr');
+  [t('provider'), t('authorizationEndpoint'), t('userInfoEndpoint'), t('status'), t('actions')].forEach(label => row.append(element('th', '', label))); head.append(row); table.append(head);
   const body = document.createElement('tbody');
   state.oauthProviders.forEach(provider => {
-    const item = document.createElement('tr');
-    item.append(element('td', 'strong-cell', provider.name || '—'));
-    item.append(element('td', '', provider.authorization_url || '—'));
-    item.append(element('td', '', provider.userinfo_url || '—'));
-    body.append(item);
+    const item = document.createElement('tr'); item.append(element('td', 'strong-cell', provider.name || '—')); item.append(element('td', '', provider.authorization_url || '—')); item.append(element('td', '', provider.userinfo_url || '—')); item.append(element('td', '', provider.enabled === false ? t('providerDisabled') : t('providerEnabled')));
+    const cell = document.createElement('td'); const edit = button('', t('editProvider'), 'secondary'); edit.dataset.editOauth = provider.id || provider.name; cell.append(edit); const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary'); toggle.dataset.toggleOauth = provider.id || provider.name; toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true'; cell.append(toggle); const remove = button('', t('delete'), 'secondary'); remove.dataset.deleteOauth = provider.id || provider.name; cell.append(remove); item.append(cell); body.append(item);
   });
-  if (!state.oauthProviders.length) {
-    const emptyRow = document.createElement('tr');
-    const emptyCell = element('td', 'empty-cell', t('noProviders'));
-    emptyCell.colSpan = 3;
-    emptyRow.append(emptyCell);
-    body.append(emptyRow);
-  }
-  table.append(body);
-  tableWrap.append(table);
-  view.append(tableWrap);
-  return view;
+  if (!state.oauthProviders.length) { const empty = document.createElement('tr'); const cell = element('td', 'empty-cell', t('noProviders')); cell.colSpan = 5; empty.append(cell); body.append(empty); }
+  table.append(body); tableWrap.append(table); view.append(tableWrap); return view;
 }
 
 function devicesView() {
@@ -1039,6 +1066,11 @@ function bindEvents() {
   });
   document.querySelector('#refresh-sessions')?.addEventListener('click', loadSessions);
   document.querySelector('#refresh-oauth')?.addEventListener('click', loadOauthProviders);
+  document.querySelector('#oauth-provider-form')?.addEventListener('submit', saveOauthProvider);
+  document.querySelector('#cancel-oauth-provider')?.addEventListener('click', () => { state.oauthDraft = null; render(); });
+  document.querySelectorAll('[data-edit-oauth]').forEach(node => node.addEventListener('click', () => editOauthProvider(node.dataset.editOauth)));
+  document.querySelectorAll('[data-toggle-oauth]').forEach(node => node.addEventListener('click', () => toggleOauthProvider(node.dataset.toggleOauth, node.dataset.oauthEnabled === 'true')));
+  document.querySelectorAll('[data-delete-oauth]').forEach(node => node.addEventListener('click', () => deleteOauthProvider(node.dataset.deleteOauth)));
   document.querySelectorAll('[data-revoke-session]').forEach(node => {
     node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
   });
@@ -1621,6 +1653,28 @@ async function loadOauthProviders() {
     state.busy = false;
     render();
   }
+}
+
+async function saveOauthProvider(event) {
+  event.preventDefault(); state.busy = true; render();
+  const data = Object.fromEntries(new FormData(event.currentTarget)); data.enabled = event.currentTarget.elements.enabled.checked;
+  const editing = state.oauthDraft?.id; if (editing) data.id = editing;
+  try { await api(editing ? '/api/admin/oauth/providers/update' : '/api/admin/oauth/providers', { method: 'POST', body: JSON.stringify(data) }); state.oauthDraft = null; setNotice('success', t('providerSaved')); await loadOauthProviders(); } catch (error) { setNotice('error', error.message); state.busy = false; render(); }
+}
+
+function editOauthProvider(id) {
+  const provider = state.oauthProviders.find(item => String(item.id || item.name) === String(id));
+  if (provider) { state.oauthDraft = { ...provider, client_secret: '' }; render(); }
+}
+
+async function toggleOauthProvider(id, enabled) {
+  state.busy = true; render();
+  try { await api('/api/admin/oauth/providers/toggle', { method: 'POST', body: JSON.stringify({ id, enabled: !enabled }) }); setNotice('success', t('providerToggled')); await loadOauthProviders(); } catch (error) { setNotice('error', error.message); state.busy = false; render(); }
+}
+
+async function deleteOauthProvider(id) {
+  state.busy = true; render();
+  try { await api('/api/admin/oauth/providers/delete', { method: 'POST', body: JSON.stringify({ id }) }); setNotice('success', t('providerDeleted')); await loadOauthProviders(); } catch (error) { setNotice('error', error.message); state.busy = false; render(); }
 }
 
 async function loadSessions() {

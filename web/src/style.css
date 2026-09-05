@@ -229,6 +229,23 @@ textarea:disabled {
   border-radius: 50%;
 }
 
+.oauth-provider-form {
+  margin-bottom: 22px;
+}
+
+.oauth-provider-form .button-group {
+  margin-top: 4px;
+}
+
+.oauth-provider-form input[type='url'] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.oauth-provider-form + .table-wrap {
+  margin-top: 22px;
+}
+
 .panel-form {
   display: grid;
   max-width: 720px;
