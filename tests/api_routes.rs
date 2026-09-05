@@ -110,6 +110,41 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     .await;
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
 
+    let api_root = send(
+        &app,
+        Request::builder()
+            .uri("/api/")
+            .body(Body::empty())
+            .expect("api root request should build"),
+    )
+    .await;
+    assert_eq!(api_root.status(), StatusCode::OK);
+    let api_root_body = to_bytes(api_root.into_body())
+        .await
+        .expect("api root response should read");
+    assert!(String::from_utf8_lossy(&api_root_body).contains("RustDesk API"));
+
+    let version = send(
+        &app,
+        Request::builder()
+            .uri("/api/version")
+            .body(Body::empty())
+            .expect("version request should build"),
+    )
+    .await;
+    assert_eq!(version.status(), StatusCode::OK);
+
+    let heartbeat = send(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/heartbeat")
+            .body(Body::empty())
+            .expect("heartbeat request should build"),
+    )
+    .await;
+    assert_eq!(heartbeat.status(), StatusCode::OK);
+
     let registration = send(
         &app,
         json_request(
@@ -145,6 +180,33 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         .get(header::SET_COOKIE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.contains("HttpOnly") && value.contains("SameSite=Lax")));
+
+    let sysinfo = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/sysinfo",
+            r#"{"id":"client-a","uuid":"uuid-a","name":"Office laptop","os":"Linux","type":"desktop","info":"{}"}"#,
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(sysinfo.status(), StatusCode::OK);
+
+    let peers_list = send(
+        &app,
+        Request::builder()
+            .uri("/api/peers")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .expect("peers list request should build"),
+    )
+    .await;
+    assert_eq!(peers_list.status(), StatusCode::OK);
+    let peers_list_body = to_bytes(peers_list.into_body())
+        .await
+        .expect("peers list response should read");
+    assert!(String::from_utf8_lossy(&peers_list_body).contains("Office laptop"));
 
     let current_user = send(
         &app,
