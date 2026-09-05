@@ -76,6 +76,7 @@ const messages = {
      enable: '启用',
      remove: '删除',
     noDevices: '暂无设备',
+    deleteDevice: '删除设备',
     noGroups: '暂无用户组',
     noGroupMembers: '暂无成员',
     addMember: '添加成员',
@@ -171,6 +172,7 @@ const messages = {
      enable: 'Enable',
      remove: 'Delete',
     noDevices: 'No devices found',
+    deleteDevice: 'Delete device',
     noGroups: 'No groups found',
     noGroupMembers: 'No members found',
     addMember: 'Add member',
@@ -646,16 +648,16 @@ function devicesView() {
   const table = document.createElement('table');
   const head = document.createElement('thead');
   const headRow = document.createElement('tr');
-  [t('account'), t('uuid'), t('platform'), t('status')].forEach(label => {
-    headRow.append(element('th', '', label));
-  });
+  const columns = [t('account'), t('uuid'), t('platform'), t('status')];
+  if (state.user.is_admin) columns.push(t('actions'));
+  columns.forEach(label => headRow.append(element('th', '', label)));
   head.append(headRow);
   table.append(head);
   const body = document.createElement('tbody');
   if (!state.devices.length) {
     const row = document.createElement('tr');
     const cell = element('td', 'empty-cell', t('noDevices'));
-    cell.colSpan = 4;
+    cell.colSpan = columns.length;
     row.append(cell);
     body.append(row);
   } else {
@@ -665,6 +667,14 @@ function devicesView() {
       row.append(element('td', '', device.uuid || '—'));
       row.append(element('td', '', [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
       row.append(element('td', '', Number(device.status) === 1 ? t('enabled') : t('disabled')));
+      if (state.user.is_admin) {
+        const remove = button('', t('deleteDevice'), 'secondary');
+        remove.dataset.deleteDevice = device.id;
+        remove.disabled = state.busy;
+        const cell = document.createElement('td');
+        cell.append(remove);
+        row.append(cell);
+      }
       body.append(row);
     });
   }
@@ -1033,6 +1043,9 @@ function bindEvents() {
     node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
   });
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
+  document.querySelectorAll('[data-delete-device]').forEach(node => {
+    node.addEventListener('click', () => deleteDevice(node.dataset.deleteDevice));
+  });
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
   document.querySelector('#group-form')?.addEventListener('submit', createGroup);
   document.querySelector('#group-form')?.addEventListener('input', event => {
@@ -1371,6 +1384,24 @@ async function loadDevices() {
       state.busy = false;
       render();
     }
+  }
+}
+
+async function deleteDevice(id) {
+  if (!id) return;
+  state.busy = true;
+  render();
+  try {
+    await api('/api/admin/device/delete', {
+      method: 'POST',
+      body: JSON.stringify({ id })
+    });
+    await loadDevices();
+  } catch (error) {
+    setNotice('error', error.message);
+  } finally {
+    state.busy = false;
+    render();
   }
 }
 

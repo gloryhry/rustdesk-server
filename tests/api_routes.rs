@@ -203,6 +203,18 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     .await;
     assert_eq!(peer_delete.status(), StatusCode::OK);
 
+    let forbidden_device_delete = send(
+        &app,
+        authenticated_json_request(
+            "POST",
+            "/api/admin/device/delete",
+            r#"{"id":"missing-device"}"#,
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(forbidden_device_delete.status(), StatusCode::FORBIDDEN);
+
     let group_create = send(
         &app,
         authenticated_json_request(
