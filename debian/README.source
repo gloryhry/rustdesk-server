@@ -51,8 +51,10 @@ sed -e "s/{{ ARCH }}/${DEB_TARGET_ARCH}/" \
     
 
 cd target/rustdesk-server
-dpkg-checkbuilddeps || echo sudo apt install dpkg-dev
-debuild -uc -us
+# The package flow requires debhelper, devscripts (debuild), and fakeroot.
+dpkg-checkbuilddeps || echo sudo apt install dpkg-dev debhelper devscripts fakeroot
+# The CI workflow uses the same unsigned binary package build.
+debuild -uc -us -b
 
 #
 # For what it is worth:
