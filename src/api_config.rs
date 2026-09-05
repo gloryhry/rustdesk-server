@@ -68,6 +68,8 @@ pub(crate) fn load_oauth_runtime() -> OAuthRuntime {
     let oidc_auth = common::get_arg("API_OIDC_AUTH_URL");
     let oidc_token = common::get_arg("API_OIDC_TOKEN_URL");
     let oidc_userinfo = common::get_arg("API_OIDC_USERINFO_URL");
+    let oidc_issuer = common::get_arg("API_OIDC_ISSUER_URL");
+    let oidc_jwks = common::get_arg("API_OIDC_JWKS_URL");
     if !oidc_auth.is_empty() && !oidc_token.is_empty() && !oidc_userinfo.is_empty() {
         configs.push(OAuthProviderConfig {
             name: "oidc".to_owned(),
@@ -76,6 +78,8 @@ pub(crate) fn load_oauth_runtime() -> OAuthRuntime {
             authorization_url: oidc_auth,
             token_url: oidc_token,
             userinfo_url: oidc_userinfo,
+            issuer_url: oidc_issuer,
+            jwks_url: oidc_jwks,
             scopes: common::get_arg_or("API_OIDC_SCOPE", "openid email profile".to_owned()),
         });
     }
@@ -106,6 +110,8 @@ fn add_provider(
             authorization_url: authorization_url.to_owned(),
             token_url: token_url.to_owned(),
             userinfo_url: userinfo_url.to_owned(),
+            issuer_url: String::new(),
+            jwks_url: String::new(),
             scopes: scopes.to_owned(),
         });
     }

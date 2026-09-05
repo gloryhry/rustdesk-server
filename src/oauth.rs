@@ -1,4 +1,5 @@
 use hbb_common::tokio;
+use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
 use reqwest::Url;
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
@@ -11,6 +12,8 @@ pub struct OAuthProviderConfig {
     pub authorization_url: String,
     pub token_url: String,
     pub userinfo_url: String,
+    pub issuer_url: String,
+    pub jwks_url: String,
     pub scopes: String,
 }
 
@@ -24,6 +27,7 @@ struct PendingState {
     provider: String,
     redirect_uri: String,
     code_verifier: String,
+    nonce: String,
     device: OAuthDevice,
     expires_at: u64,
 }
@@ -65,6 +69,7 @@ pub struct ExternalIdentity {
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: Option<String>,
+    id_token: Option<String>,
 }
 
 impl OAuthRuntime {
@@ -81,6 +86,9 @@ impl OAuthRuntime {
                     && valid_provider_endpoint(&config.authorization_url)
                     && valid_provider_endpoint(&config.token_url)
                     && valid_provider_endpoint(&config.userinfo_url)
+                    && (config.issuer_url.is_empty() == config.jwks_url.is_empty())
+                    && (config.issuer_url.is_empty() || valid_provider_endpoint(&config.issuer_url))
+                    && (config.jwks_url.is_empty() || valid_provider_endpoint(&config.jwks_url))
             })
             .map(|config| (config.name.clone(), config))
             .collect();
@@ -128,6 +136,7 @@ impl OAuthRuntime {
             .get(provider)
             .ok_or(OAuthError::NotConfigured)?;
         let state = uuid::Uuid::new_v4().to_string();
+        let nonce = uuid::Uuid::new_v4().to_string();
         let code_verifier = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
@@ -152,6 +161,7 @@ impl OAuthRuntime {
                 provider: provider.to_owned(),
                 redirect_uri: redirect_uri.to_owned(),
                 code_verifier,
+                nonce: nonce.clone(),
                 device,
                 expires_at: now.saturating_add(300),
             },
@@ -164,7 +174,8 @@ impl OAuthRuntime {
             .append_pair("scope", &config.scopes)
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
-            .append_pair("state", &state);
+            .append_pair("state", &state)
+            .append_pair("nonce", &nonce);
         Ok((url, state))
     }
 
@@ -188,6 +199,7 @@ impl OAuthRuntime {
         }
         let provider = pending.provider;
         let code_verifier = pending.code_verifier;
+        let nonce = pending.nonce;
         let device = pending.device;
         let config = self
             .providers
@@ -218,11 +230,15 @@ impl OAuthRuntime {
             .map_err(|_| OAuthError::InvalidResponse)?;
         let access_token = token
             .access_token
+            .clone()
             .and_then(|value| {
                 let value = value.trim();
                 (!value.is_empty()).then(|| value.to_owned())
             })
             .ok_or(OAuthError::InvalidResponse)?;
+        if let Some(id_token) = token.id_token.as_deref() {
+            validate_id_token(&client, config, id_token, &nonce).await?;
+        }
         let profile = client
             .get(&config.userinfo_url)
             .bearer_auth(access_token)
@@ -263,6 +279,72 @@ impl OAuthRuntime {
     }
 }
 
+async fn validate_id_token(
+    client: &reqwest::Client,
+    config: &OAuthProviderConfig,
+    token: &str,
+    nonce: &str,
+) -> Result<(), OAuthError> {
+    let header = decode_header(token).map_err(|_| OAuthError::InvalidResponse)?;
+    if !matches!(header.alg, jsonwebtoken::Algorithm::RS256 | jsonwebtoken::Algorithm::RS384 | jsonwebtoken::Algorithm::RS512) {
+        return Err(OAuthError::InvalidResponse);
+    }
+    let key_set = client
+        .get(&config.jwks_url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|_| OAuthError::Remote)?
+        .error_for_status()
+        .map_err(|_| OAuthError::Remote)?
+        .json::<jsonwebtoken::jwk::JwkSet>()
+        .await
+        .map_err(|_| OAuthError::InvalidResponse)?;
+    let key_id = header.kid.as_deref().ok_or(OAuthError::InvalidResponse)?;
+    let jwk = key_set.find(key_id).ok_or(OAuthError::InvalidResponse)?;
+    if jwk.common.algorithm.is_some_and(|algorithm| algorithm != header.alg) {
+        return Err(OAuthError::InvalidResponse);
+    }
+    let parameters = match &jwk.algorithm {
+        jsonwebtoken::jwk::AlgorithmParameters::RSA(parameters) => parameters,
+        _ => return Err(OAuthError::InvalidResponse),
+    };
+    let key = DecodingKey::from_rsa_components(&parameters.n, &parameters.e)
+        .map_err(|_| OAuthError::InvalidResponse)?;
+    let mut validation = Validation::new(header.alg);
+    validation.set_issuer(&[config.issuer_url.as_str()]);
+    validation.set_audience(&[config.client_id.as_str()]);
+    let claims = decode::<IdTokenClaims>(token, &key, &validation)
+        .map_err(|_| OAuthError::InvalidResponse)?
+        .claims;
+    if claims.iss != config.issuer_url
+        || claims.sub.trim().is_empty()
+        || claims.nonce.as_deref() != Some(nonce)
+        || !claims.audience_contains(&config.client_id)
+    {
+        return Err(OAuthError::InvalidResponse);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct IdTokenClaims {
+    iss: String,
+    sub: String,
+    aud: serde_json::Value,
+    nonce: Option<String>,
+}
+
+impl IdTokenClaims {
+    fn audience_contains(&self, audience: &str) -> bool {
+        match &self.aud {
+            serde_json::Value::String(value) => value == audience,
+            serde_json::Value::Array(values) => values.iter().any(|value| value.as_str() == Some(audience)),
+            _ => false,
+        }
+    }
+}
+
 fn valid_provider_endpoint(value: &str) -> bool {
     let url = match Url::parse(value) {
         Ok(url) => url,
@@ -299,6 +381,8 @@ mod tests {
             authorization_url: "https://provider.example/authorize".to_owned(),
             token_url: "https://provider.example/token".to_owned(),
             userinfo_url: "https://provider.example/userinfo".to_owned(),
+            issuer_url: String::new(),
+            jwks_url: String::new(),
             scopes: "openid email".to_owned(),
         }])
     }
@@ -383,6 +467,8 @@ mod tests {
             authorization_url: format!("{base}/authorize"),
             token_url: format!("{base}/token"),
             userinfo_url: format!("{base}/userinfo"),
+            issuer_url: String::new(),
+            jwks_url: String::new(),
             scopes: "openid email".to_owned(),
         }]);
         let (_, state) = runtime
@@ -400,6 +486,24 @@ mod tests {
         assert_eq!(identity.subject, "42");
         assert_eq!(identity.username, "alice");
         assert_eq!(identity.email, "alice@example.com");
+    }
+
+    #[test]
+    fn oidc_validation_endpoints_must_be_paired() {
+        let mut config = OAuthProviderConfig {
+            name: "oidc".to_owned(),
+            client_id: "client".to_owned(),
+            client_secret: "secret".to_owned(),
+            authorization_url: "https://provider.example/authorize".to_owned(),
+            token_url: "https://provider.example/token".to_owned(),
+            userinfo_url: "https://provider.example/userinfo".to_owned(),
+            issuer_url: "https://provider.example".to_owned(),
+            jwks_url: String::new(),
+            scopes: "openid".to_owned(),
+        };
+        assert!(OAuthRuntime::new(vec![config.clone()]).provider_names().is_empty());
+        config.jwks_url = "https://provider.example/.well-known/jwks.json".to_owned();
+        assert_eq!(OAuthRuntime::new(vec![config]).provider_names(), vec!["oidc"]);
     }
 
     #[test]
