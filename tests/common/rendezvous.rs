@@ -16,6 +16,7 @@ impl MockHbbs {
         let child = Command::new(env!("CARGO_BIN_EXE_hbbs"))
             .args(["--bind","127.0.0.1","--port",&port.to_string(),"--key",""])
             .current_dir(directory).env_clear().env("DB_URL",database).env("TEST_HBBS","no")
+            .env("HOME",directory.join("home")).env("XDG_CONFIG_HOME",directory.join("client-config"))
             // The existing updater cannot reach an external server during this isolated test.
             .env("HTTP_PROXY","http://127.0.0.1:9").env("HTTPS_PROXY","http://127.0.0.1:9")
             .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
