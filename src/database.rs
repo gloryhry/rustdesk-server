@@ -1095,6 +1095,26 @@ impl Database {
         Ok(())
     }
 
+    pub async fn save_address_book_tag_change(&self, user_id: &str, snapshot: &str, old: &str, new: Option<&str>) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        let entries: Vec<(String,String)> = sqlx::query_as("select id,tags from api_address_book_entry where user_id=?").bind(user_id).fetch_all(&mut tx).await?;
+        for (id,raw) in entries {
+            let tags: Vec<String> = serde_json::from_str(&raw)?;
+            let updated: Vec<String> = tags.iter().filter_map(|tag| {
+                if tag.eq_ignore_ascii_case(old) { new.map(str::to_owned) } else { Some(tag.clone()) }
+            }).collect();
+            if updated!=tags {
+                sqlx::query("update api_address_book_entry set tags=?,updated_at=current_timestamp where id=? and user_id=?")
+                    .bind(serde_json::to_string(&updated)?).bind(id).bind(user_id).execute(&mut tx).await?;
+            }
+        }
+        sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
+            .bind(user_id).bind(snapshot).execute(&mut tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn upsert_api_address_book_entry(
         &self,
         entry: &ApiAddressBookEntry,

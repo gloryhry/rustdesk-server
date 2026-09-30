@@ -171,3 +171,61 @@ async fn invalid_relay_values_never_silently_become_false_or_modify_the_book() {
     assert_eq!(auth(&app,"GET","/api/ab",json!({}),&token).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(sqlx::query_scalar::<_,String>("select data from api_address_book_snapshot").fetch_one(&pool).await.unwrap(),damaged); pool.close().await;
 }
+
+#[tokio::test]
+async fn legacy_tag_color_map_is_a_json_string_and_preserves_all_argb_values_across_edits() {
+    let (app,token) = fixture().await;
+    let data = json!({"peers":[{"id":"123456","tags":["red","transparent"]}],"tags":["red","transparent","max"],"tag_colors":json!({"red":4294901760u32,"transparent":0x12345678u32,"max":u32::MAX}).to_string()});
+    assert_eq!(auth(&app,"POST","/api/ab",json!({"data":data.to_string()}),&token).await.status(),StatusCode::OK);
+    let colors: Value = serde_json::from_str(book(&app,&token).await["tag_colors"].as_str().unwrap()).unwrap();
+    assert_eq!(colors,json!({"red":4294901760u32,"transparent":0x12345678u32,"max":u32::MAX}));
+    let response = auth(&app,"POST","/api/ab/tags",json!({"name":"new","color":"#aabbcc"}),&token).await; assert_eq!(response.status(),StatusCode::OK);
+    let colors: Value = serde_json::from_str(book(&app,&token).await["tag_colors"].as_str().unwrap()).unwrap();
+    assert_eq!(colors["red"],4294901760u32); assert_eq!(colors["transparent"],0x12345678u32); assert_eq!(colors["max"],u32::MAX); assert_eq!(colors["new"],0xffaabbccu32);
+    let tags = value(auth(&app,"GET","/api/ab/tags",json!({}),&token).await).await;
+    assert_eq!(tags["data"].as_array().unwrap().iter().find(|tag|tag["name"]=="transparent").unwrap()["color"],"#34567812");
+}
+
+#[tokio::test]
+async fn tag_rename_and_delete_update_only_the_related_colors_and_peer_references() {
+    let (app,token) = fixture().await;
+    let data = json!({"peers":[{"id":"123456","tags":["old","keep"],"password":"saved"}],"tags":["old","keep"],"tag_colors":{"old":"#11223344","keep":"#abcdef"}});
+    assert_eq!(auth(&app,"POST","/api/ab",json!({"data":data.to_string()}),&token).await.status(),StatusCode::OK);
+    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Indexed"}),&token).await.status(),StatusCode::OK);
+    assert_eq!(auth(&app,"POST","/api/ab/tags",json!({"name":"renamed","old_name":"old"}),&token).await.status(),StatusCode::OK);
+    let doc = book(&app,&token).await; let colors: Value = serde_json::from_str(doc["tag_colors"].as_str().unwrap()).unwrap();
+    assert_eq!(colors,json!({"renamed":0x44112233u32,"keep":0xffabcdefu32})); assert_eq!(doc["tags"],json!(["renamed","keep"])); assert_eq!(doc["peers"][0]["tags"],json!(["renamed","keep"])); assert_eq!(doc["peers"][0]["password"],"saved");
+    assert_eq!(auth(&app,"POST","/api/ab/tags/delete",json!({"name":"renamed"}),&token).await.status(),StatusCode::OK);
+    let doc = book(&app,&token).await; let colors: Value = serde_json::from_str(doc["tag_colors"].as_str().unwrap()).unwrap();
+    assert_eq!(colors,json!({"keep":0xffabcdefu32})); assert_eq!(doc["peers"][0]["tags"],json!(["keep"]));
+}
+
+#[tokio::test]
+async fn damaged_tag_colors_are_reported_and_never_replaced_with_empty_data() {
+    let (app,token) = fixture().await; let before = book(&app,&token).await;
+    for invalid in [json!("not-json"),json!("[]"),json!({"old":-1}),json!({"old":4294967296u64}),json!({"old":"#gggggg"})] {
+        assert_eq!(auth(&app,"POST","/api/ab",json!({"data":json!({"tags":["old"],"tag_colors":invalid}).to_string()}),&token).await.status(),StatusCode::BAD_REQUEST);
+        assert_eq!(book(&app,&token).await,before);
+    }
+    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
+    let damaged = json!({"tags":["old"],"tag_colors":"not-json"}).to_string();
+    sqlx::query("update api_address_book_snapshot set data=?").bind(&damaged).execute(&pool).await.unwrap();
+    let response = auth(&app,"POST","/api/ab/tags",json!({"name":"new","color":"#ffffff"}),&token).await;
+    assert_eq!(response.status(),StatusCode::BAD_REQUEST); assert_eq!(value(response).await["error"],"invalid_tag_colors");
+    assert_eq!(sqlx::query_scalar::<_,String>("select data from api_address_book_snapshot").fetch_one(&pool).await.unwrap(),damaged); pool.close().await;
+}
+
+#[tokio::test]
+async fn tag_rename_conflicts_and_failed_persistence_leave_colors_and_indexes_unchanged() {
+    let (app,token) = fixture().await;
+    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456"}),&token).await.status(),StatusCode::OK);
+    assert_eq!(auth(&app,"POST","/api/ab/tags",json!({"name":"keep","color":"#abcdef"}),&token).await.status(),StatusCode::OK);
+    let before = book(&app,&token).await;
+    assert_eq!(auth(&app,"POST","/api/ab/tags",json!({"old_name":"old","name":"keep"}),&token).await.status(),StatusCode::CONFLICT);
+    assert_eq!(book(&app,&token).await,before);
+    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
+    sqlx::query("create trigger reject_tag_snapshot before update on api_address_book_snapshot begin select raise(abort,'test-only failure'); end").execute(&pool).await.unwrap();
+    assert_eq!(auth(&app,"POST","/api/ab/tags",json!({"old_name":"old","name":"changed","color":"#11223344"}),&token).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(book(&app,&token).await,before);
+    assert_eq!(sqlx::query_scalar::<_,String>("select tags from api_address_book_entry").fetch_one(&pool).await.unwrap(),"[\"old\"]"); pool.close().await;
+}

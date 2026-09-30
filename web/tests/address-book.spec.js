@@ -86,3 +86,29 @@ test('official false string restores an unchecked relay and Web edits round-trip
   expect(JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data).peers[0].forceAlwaysRelay).toBe(false);
   sqlite.close();
 });
+
+test('tag color editing keeps alpha and renaming or deleting updates only related Peer references', async ({ page, service }) => {
+  const sqlite = new DatabaseSync(join(service.directory, 'api.sqlite3'));
+  const owner = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
+  const initial = { tags: ['old', 'keep'], tag_colors: JSON.stringify({ old: 0x44112233, keep: 0xffabcdef }), peers: [{ id: '123456', entryId: 'stable-peer', tags: ['old', 'keep'] }] };
+  sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify(initial));
+  sqlite.prepare('insert into api_address_book_entry(id,user_id,peer_id,tags) values(?,?,?,?)').run('stable-peer', owner, '123456', JSON.stringify(['old', 'keep']));
+  await signIn(page, service); await page.locator('#nav-addressBook').click();
+  await page.locator('[data-edit-tag="old"]').click();
+  await expect(page.locator('#tag-form [name="color"]')).toHaveValue('#11223344');
+  await page.locator('#tag-form [name="name"]').fill('renamed');
+  await page.locator('#tag-form [name="color"]').fill('#34567812');
+  await page.locator('#save-tag').click();
+  await expect(page.locator('[data-edit-tag="renamed"]')).toBeVisible();
+  let stored = JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data);
+  expect(stored.tag_colors).toEqual({ renamed: 0x12345678, keep: 0xffabcdef });
+  expect(stored.peers[0].tags).toEqual(['renamed', 'keep']);
+  expect(JSON.parse(sqlite.prepare("select tags from api_address_book_entry where id='stable-peer'").get().tags)).toEqual(['renamed', 'keep']);
+  await page.locator('[data-delete-tag="renamed"]').click();
+  await expect(page.locator('[data-delete-tag="renamed"]')).toHaveCount(0);
+  stored = JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data);
+  expect(stored.tag_colors).toEqual({ keep: 0xffabcdef }); expect(stored.peers[0].tags).toEqual(['keep']);
+  await page.reload(); await page.locator('#nav-addressBook').click();
+  await expect(page.locator('[data-edit-tag="keep"]')).toBeVisible();
+  sqlite.close();
+});

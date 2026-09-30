@@ -512,3 +512,20 @@ also accept `force_always_relay`; omitted values are preserved, while null,
 numbers, arrays, and other strings are rejected. Conflicting aliases in a
 legacy document are rejected. Invalid historical values fail reads without
 rewriting the snapshot.
+
+### Address book tag colors and references
+
+Internal `tag_colors` is a map of unsigned 32-bit ARGB integers (0..4294967295).
+Legacy `/api/ab` returns this map encoded as a JSON string. The canonical new
+personal-book tag DTO uses integer `color`; its owned GUID routes are completed
+with the new address-book protocol work. Web colors use CSS `#RRGGBB` or
+`#RRGGBBAA`, so the last byte is alpha; existing six-digit RGB is opaque, and
+three-digit CSS shorthand is also accepted. Existing hexadecimal-object and
+JSON-string maps are converted without rewriting stored data on reads.
+
+Web `POST /api/ab/tags` accepts `name`, optional `old_name` for rename, and
+optional `color`. Omitted color retains it; empty color removes only that tag's
+color. Rename conflicts return 409. Rename/delete update the related Peer tag
+references in both document and index in one transaction, preserving other
+colors and connection fields. Invalid historical color maps return the explicit
+`invalid_tag_colors` error; they are never silently replaced with an empty map.

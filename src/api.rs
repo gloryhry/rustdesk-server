@@ -182,7 +182,8 @@ pub struct AddressBookEntryDeleteRequest {
 pub struct TagRequest {
     pub name: String,
     #[serde(default)]
-    pub color: String,
+    pub color: Option<String>,
+    pub old_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1616,7 +1617,7 @@ async fn get_address_book(
     };
     let mut document = match address_book_document(&state, &principal.user_id).await {
         Ok(document) => document,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
+        Err(error) => return auth_error_response(error, false),
     };
     if !document.contains_key("peers") {
         document.insert("peers".to_owned(), serde_json::Value::Array(Vec::new()));
@@ -1643,6 +1644,7 @@ async fn get_address_book(
         merge_address_book_entry(&mut document, entry);
     }
     crate::address_book_codec::official_relays(&mut document);
+    if let Err(error) = crate::address_book_codec::legacy_colors(&mut document) { return invalid_list_query(error); }
     match serde_json::to_string(&document) {
         Ok(data) => (StatusCode::OK, Json(json!({ "data": data }))).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
@@ -1668,7 +1670,7 @@ async fn update_address_book(
     }
     let document = match serde_json::from_str::<serde_json::Value>(&request.data) {
         Ok(serde_json::Value::Object(mut document)) => {
-            if let Err(error) = crate::address_book_codec::normalize_relays(&mut document) { return invalid_list_query(error); }
+            if let Err(error) = crate::address_book_codec::normalize_relays(&mut document).and_then(|_|crate::address_book_codec::normalize_colors(&mut document)) { return invalid_list_query(error); }
             match serde_json::to_string(&document) { Ok(data) => data, Err(_) => return auth_error_response(AuthError::Internal,false) }
         },
         _ => {
@@ -1864,10 +1866,10 @@ async fn post_address_book_entries(
     };
     let mut document = match address_book_document(&state, &principal.user_id).await {
         Ok(document) => document,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
+        Err(error) => return auth_error_response(error, false),
     };
     document.insert("peers".to_owned(), peers);
-    if let Err(error) = crate::address_book_codec::normalize_relays(&mut document) { return invalid_list_query(error); }
+    if let Err(error) = crate::address_book_codec::normalize_relays(&mut document).and_then(|_|crate::address_book_codec::normalize_colors(&mut document)) { return invalid_list_query(error); }
     let data = match serde_json::to_string(&document) {
         Ok(data) => data,
         Err(_) => return auth_error_response(AuthError::Internal, false),
@@ -1898,7 +1900,7 @@ async fn upsert_address_book_entry(
     let _tag_guard = state.tag_lock.lock().await;
     let mut document = match address_book_document(&state, &principal.user_id).await {
         Ok(document) => document,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
+        Err(error) => return auth_error_response(error, false),
     };
     let entries = match state.auth.db().list_api_address_book_entries(&principal.user_id).await {
         Ok(entries) => entries, Err(_) => return auth_error_response(AuthError::Internal,false),
@@ -2074,160 +2076,70 @@ async fn list_tags(
     };
     let document = match address_book_document(&state, &principal.user_id).await {
         Ok(document) => document,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
+        Err(error) => return auth_error_response(error, false),
     };
     let colors = document.get("tag_colors").and_then(serde_json::Value::as_object);
-    let tags = document
-        .get("tags")
-        .and_then(serde_json::Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(tag_name)
-                .map(|name| {
-                    let color = colors
-                        .and_then(|colors| colors.get(name))
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default();
-                    json!({ "name": name, "color": color })
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let mut tags = crate::address_book_codec::official_tag_values(&document);
+    for tag in &mut tags {
+        let color = tag["name"].as_str().and_then(|name|colors.and_then(|colors|colors.get(name)))
+            .and_then(serde_json::Value::as_u64).and_then(|color|u32::try_from(color).ok())
+            .map(crate::address_book_codec::web_color).unwrap_or_default();
+        tag["color"] = json!(color);
+    }
     (StatusCode::OK, Json(json!({ "code": 0, "data": tags }))).into_response()
 }
 
-async fn upsert_tag(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Json(request): Json<TagRequest>,
-) -> Response {
-    let principal = match authorize(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(err) => return auth_error_response(err, true),
-    };
+async fn upsert_tag(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<TagRequest>) -> Response {
+    let principal = match authorize(&state,&headers).await { Ok(principal) => principal, Err(error) => return auth_error_response(error,true) };
     let _tag_guard = state.tag_lock.lock().await;
     let name = request.name.trim();
-    let color = request.color.trim();
-    if name.is_empty() || name.chars().count() > 64 || !valid_tag_color(color) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid_tag" })),
-        )
-            .into_response();
-    }
-    let mut document = match address_book_document(&state, &principal.user_id).await {
-        Ok(document) => document,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
+    if name.is_empty() || name.chars().count()>64 { return invalid_list_query("invalid_tag"); }
+    let color = match request.color.as_deref().map(str::trim) {
+        Some("") => Some(None),
+        Some(value) => match crate::address_book_codec::css_color(value) { Ok(color) => Some(Some(color)), Err(error) => return invalid_list_query(error) },
+        None => None,
     };
-    if !document
-        .get("tags")
-        .map(serde_json::Value::is_array)
-        .unwrap_or(false)
-    {
-        document["tags"] = serde_json::Value::Array(Vec::new());
+    let mut document = match address_book_document(&state,&principal.user_id).await { Ok(document) => document, Err(error) => return auth_error_response(error,false) };
+    let tags = document.entry("tags".to_owned()).or_insert_with(||json!([]));
+    let tags = match tags.as_array_mut() { Some(tags) => tags, None => return invalid_list_query("invalid_tags") };
+    let source = request.old_name.as_deref().unwrap_or(name).trim();
+    let position = tags.iter().position(|tag|tag_name(tag).is_some_and(|tag|tag.eq_ignore_ascii_case(source)));
+    if request.old_name.is_some() && position.is_none() { return (StatusCode::NOT_FOUND,Json(json!({"error":"tag_not_found"}))).into_response(); }
+    if tags.iter().enumerate().any(|(index,tag)|Some(index)!=position && tag_name(tag).is_some_and(|tag|tag.eq_ignore_ascii_case(name))) {
+        return (StatusCode::CONFLICT,Json(json!({"error":"tag_exists"}))).into_response();
     }
-    if !document
-        .get("tag_colors")
-        .map(serde_json::Value::is_object)
-        .unwrap_or(false)
-    {
-        document["tag_colors"] = serde_json::Value::Object(serde_json::Map::new());
-    }
-    let tags = match document
-        .get_mut("tags")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        Some(tags) => tags,
-        None => return auth_error_response(AuthError::Internal, false),
-    };
-    if let Some(existing) = tags.iter_mut().find(|tag| {
-        tag_name(tag)
-            .map(|value| value.eq_ignore_ascii_case(name))
-            .unwrap_or(false)
-    }) {
-        *existing = serde_json::Value::String(name.to_owned());
-    } else {
-        tags.push(serde_json::Value::String(name.to_owned()));
-    }
-    let colors = match document
-        .get_mut("tag_colors")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        Some(colors) => colors,
-        None => return auth_error_response(AuthError::Internal, false),
-    };
-    colors.retain(|key, _| !key.eq_ignore_ascii_case(name) || key == name);
-    if color.is_empty() {
-        colors.remove(name);
-    } else {
-        colors.insert(name.to_owned(), serde_json::Value::String(color.to_owned()));
-    }
-    let data = match serde_json::to_string(&document) {
-        Ok(data) => data,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
-    };
-    match state
-        .auth
-        .db()
-        .upsert_api_address_book(&principal.user_id, &data)
-        .await
-    {
-        Ok(()) => (StatusCode::OK, Json(json!({ "name": name, "color": color }))).into_response(),
-        Err(_) => auth_error_response(AuthError::Internal, false),
+    let old = if let Some(position) = position {
+        let old = tag_name(&tags[position]).unwrap_or(source).to_owned();
+        if tags[position].is_object() { tags[position]["name"] = json!(name); } else { tags[position] = json!(name); }
+        old
+    } else { tags.push(json!(name)); name.to_owned() };
+    let colors = match document.get_mut("tag_colors").and_then(serde_json::Value::as_object_mut) { Some(colors) => colors, None => return invalid_list_query("invalid_tag_colors") };
+    let keys = colors.keys().filter(|key|key.eq_ignore_ascii_case(&old)).cloned().collect::<Vec<_>>();
+    if keys.len()>1 { return invalid_list_query("ambiguous_tag_colors"); }
+    let previous = keys.first().and_then(|key|colors.remove(key));
+    if let Some(previous) = previous { colors.insert(name.to_owned(),previous); }
+    if let Some(color) = color { if let Some(color) = color { colors.insert(name.to_owned(),json!(color)); } else { colors.remove(name); } }
+    if let Err(error) = crate::address_book_codec::rewrite_tag_refs(&mut document,&old,Some(name)) { return invalid_list_query(error); }
+    let data = match serde_json::to_string(&document) { Ok(data) => data, Err(_) => return auth_error_response(AuthError::Internal,false) };
+    match state.auth.db().save_address_book_tag_change(&principal.user_id,&data,&old,Some(name)).await {
+        Ok(()) => Json(json!({"name":name,"color":document["tag_colors"].get(name).and_then(serde_json::Value::as_u64).and_then(|color|u32::try_from(color).ok()).map(crate::address_book_codec::web_color).unwrap_or_default()})).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal,false),
     }
 }
 
-async fn delete_tag(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Json(request): Json<TagDeleteRequest>,
-) -> Response {
-    let principal = match authorize(&state, &headers).await {
-        Ok(principal) => principal,
-        Err(err) => return auth_error_response(err, true),
-    };
+async fn delete_tag(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<TagDeleteRequest>) -> Response {
+    let principal = match authorize(&state,&headers).await { Ok(principal) => principal, Err(error) => return auth_error_response(error,true) };
     let _tag_guard = state.tag_lock.lock().await;
     let name = request.name.trim();
-    if name.is_empty() || name.chars().count() > 64 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid_tag" })),
-        )
-            .into_response();
-    }
-    let mut document = match address_book_document(&state, &principal.user_id).await {
-        Ok(document) => document,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
-    };
-    if let Some(tags) = document
-        .get_mut("tags")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        tags.retain(|tag| {
-            !tag_name(tag)
-                .map(|value| value.eq_ignore_ascii_case(name))
-                .unwrap_or(false)
-        });
-    }
-    if let Some(colors) = document
-        .get_mut("tag_colors")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        colors.retain(|key, _| !key.eq_ignore_ascii_case(name));
-    }
-    let data = match serde_json::to_string(&document) {
-        Ok(data) => data,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
-    };
-    match state
-        .auth
-        .db()
-        .upsert_api_address_book(&principal.user_id, &data)
-        .await
-    {
-        Ok(()) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
-        Err(_) => auth_error_response(AuthError::Internal, false),
+    if name.is_empty() || name.chars().count()>64 { return invalid_list_query("invalid_tag"); }
+    let mut document = match address_book_document(&state,&principal.user_id).await { Ok(document) => document, Err(error) => return auth_error_response(error,false) };
+    if let Some(tags) = document.get_mut("tags").and_then(serde_json::Value::as_array_mut) { tags.retain(|tag|!tag_name(tag).is_some_and(|tag|tag.eq_ignore_ascii_case(name))); }
+    if let Some(colors) = document.get_mut("tag_colors").and_then(serde_json::Value::as_object_mut) { colors.retain(|key,_|!key.eq_ignore_ascii_case(name)); }
+    if let Err(error) = crate::address_book_codec::rewrite_tag_refs(&mut document,name,None) { return invalid_list_query(error); }
+    let data = match serde_json::to_string(&document) { Ok(data) => data, Err(_) => return auth_error_response(AuthError::Internal,false) };
+    match state.auth.db().save_address_book_tag_change(&principal.user_id,&data,name,None).await {
+        Ok(()) => (StatusCode::OK,Json(serde_json::Value::Null)).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal,false),
     }
 }
 
@@ -2268,17 +2180,11 @@ async fn address_book_document(
     match serde_json::from_str::<serde_json::Value>(&data).map_err(|_| AuthError::Internal)? {
         serde_json::Value::Object(mut document) => {
             crate::address_book_codec::normalize_relays(&mut document).map_err(|_|AuthError::Internal)?;
+            crate::address_book_codec::normalize_colors(&mut document).map_err(AuthError::InvalidInput)?;
             Ok(document)
         },
         _ => Err(AuthError::Internal),
     }
-}
-
-fn valid_tag_color(value: &str) -> bool {
-    value.is_empty()
-        || ((value.len() == 4 || value.len() == 7)
-            && value.starts_with('#')
-            && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
 async fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<Principal, AuthError> {

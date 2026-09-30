@@ -120,7 +120,8 @@ const messages = {
     publicKey: '公开 KEY',
     tags: '标签',
     tagName: '标签名称',
-    tagColor: '颜色（可选）',
+    tagColor: '颜色（#RRGGBB 或 #RRGGBBAA）',
+    editTag: '编辑标签',
     noTags: '暂无标签',
     language: 'English',
     loading: '加载中...',
@@ -242,7 +243,8 @@ const messages = {
     publicKey: 'Public key',
     tags: 'Tags',
     tagName: 'Tag name',
-    tagColor: 'Color (optional)',
+    tagColor: 'Color (#RRGGBB or #RRGGBBAA)',
+    editTag: 'Edit tag',
     noTags: 'No tags found',
     language: '简体中文',
     loading: 'Loading...',
@@ -538,7 +540,7 @@ function tagsPanel() {
   const color = document.createElement('input');
   color.name = 'color';
   color.placeholder = t('tagColor');
-  color.maxLength = 7;
+  color.maxLength = 9;
   color.value = state.tagDraft.color;
   color.disabled = state.busy;
   form.append(name, color);
@@ -558,6 +560,10 @@ function tagsPanel() {
       swatch.title = tag.color;
       row.append(swatch);
     }
+    const edit = button('', t('editTag'), 'secondary');
+    edit.dataset.editTag = tag.name || '';
+    edit.disabled = state.busy;
+    row.append(edit);
     const remove = button('', t('delete'), 'secondary');
     remove.dataset.deleteTag = tag.name || '';
     remove.disabled = state.busy;
@@ -1111,9 +1117,16 @@ function bindEvents() {
   tagForm?.addEventListener('input', event => {
     const data = new FormData(event.currentTarget);
     state.tagDraft = {
+      ...state.tagDraft,
       name: String(data.get('name') || ''),
       color: String(data.get('color') || '')
     };
+  });
+  document.querySelectorAll('[data-edit-tag]').forEach(node => {
+    node.addEventListener('click', () => {
+      const tag = state.tags.find(tag => tag.name === node.dataset.editTag);
+      if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '' }; render(); }
+    });
   });
   document.querySelectorAll('[data-delete-tag]').forEach(node => {
     node.addEventListener('click', () => deleteTag(node.dataset.deleteTag));
@@ -1423,6 +1436,7 @@ async function saveTag(event) {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
   const payload = {
+    old_name: state.tagDraft.old_name,
     name: String(data.get('name') || '').trim(),
     color: String(data.get('color') || '').trim()
   };
@@ -1433,6 +1447,7 @@ async function saveTag(event) {
   try {
     await api('/api/ab/tags', { method: 'POST', body: JSON.stringify(payload) });
     state.tagDraft = { name: '', color: '' };
+    await loadAddressBook();
     await loadTags();
     setNotice('success', t('saved'));
   } catch (error) {
@@ -1451,6 +1466,7 @@ async function deleteTag(name) {
       method: 'POST',
       body: JSON.stringify({ name })
     });
+    await loadAddressBook();
     await loadTags();
   } catch (error) {
     setNotice('error', error.message);
