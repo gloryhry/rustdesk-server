@@ -129,6 +129,11 @@ fn canonical(document: &mut Map<String,Value>) -> Result<(),BookError> {
         for key in ["username","hostname","alias","platform"] {
             if fields.get(key).is_some_and(|value|!value.is_string()) { return Err(BookError::Invalid(format!("invalid_peer_field:{id}:{key}"))); }
         }
+        // Official Peer.fromJson assigns these directly to typed strings/bools.
+        for key in ["hash","password","rdpPort","rdpUsername","loginName","device_group_name","note"] {
+            if fields.get(key).is_some_and(|value|!value.is_null() && !value.is_string()) { return Err(BookError::Invalid(format!("invalid_peer_field:{id}:{key}"))); }
+        }
+        if fields.get("same_server").is_some_and(|value|!value.is_null() && !value.is_boolean()) { return Err(invalid("invalid_same_server")); }
         for key in ["createdAt","updatedAt"] {
             if let Some(value) = fields.get(key) {
                 let value = value.as_str().ok_or_else(||invalid("invalid_address_book_timestamp"))?;

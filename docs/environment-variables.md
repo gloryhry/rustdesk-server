@@ -486,7 +486,7 @@ uses this ID, and usernames are never accepted as substitute member IDs.
 
 ### Address book partial edits
 
-The Web entry API (`POST /api/ab/peer`) treats omitted editable fields as
+The Web entry API (`POST /api/web/ab/entries`) treats omitted editable fields as
 unchanged. Explicit empty strings/arrays clear the relevant values. Stored
 hash/password, RDP settings, note, and unknown JSON fields survive edits and
 appear in the Web entry response. Identity and server timestamp fields are
@@ -502,7 +502,7 @@ Web entry `id` is immutable once assigned; `peer_id` is the editable RustDesk ID
 An edit with `id` resolves only within its account and may omit `peer_id` to
 keep the current value. A new target already used by another entry returns 409
 without changes; an unknown/foreign entry ID returns 404. Imported entries
-without entry identity acquire a stable ID when first edited. The snapshot
+without entry identity acquire a stable ID when loaded or uploaded. The snapshot
 Peer key and index are changed in one transaction, preserving extension fields.
 
 Address book `forceAlwaysRelay` accepts exact strings `"true"`/`"false"` or JSON
@@ -523,9 +523,15 @@ with the new address-book protocol work. Web colors use CSS `#RRGGBB` or
 three-digit CSS shorthand is also accepted. Existing hexadecimal-object and
 JSON-string maps are converted without rewriting stored data on reads.
 
-Web `POST /api/ab/tags` accepts `name`, optional `old_name` for rename, and
+Web `POST /api/web/ab/tags` accepts `name`, optional `old_name` for rename, and
 optional `color`. Omitted color retains it; empty color removes only that tag's
 color. Rename conflicts return 409. Rename/delete update the related Peer tag
 references in both document and index in one transaction, preserving other
 colors and connection fields. Invalid historical color maps return the explicit
 `invalid_tag_colors` error; they are never silently replaced with an empty map.
+
+
+The complete official 1.4.9 personal-book protocol and Web management route
+changes are documented in [rustdesk-1.4.9-protocol.md](rustdesk-1.4.9-protocol.md).
+Address-book migration version 3 and revision conflicts are documented in
+[address-book-storage.md](address-book-storage.md).

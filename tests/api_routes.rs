@@ -242,7 +242,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         &app,
         authenticated_json_request(
             "POST",
-            "/api/ab/peer",
+            "/api/web/ab/entries",
             &serde_json::json!({"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true,"revision":revision}).to_string(),
             &cookie,
             csrf,
@@ -255,7 +255,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     let peers = send(
         &app,
         Request::builder()
-            .uri("/api/ab/peers")
+            .uri("/api/web/ab/entries")
             .header(header::COOKIE, &cookie)
             .body(Body::empty())
             .expect("peers request should build"),
@@ -274,7 +274,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         &app,
         Request::builder()
             .method("DELETE")
-            .uri(format!("/api/ab/peer/peer-42?revision={}",peer_saved["revision"].as_i64().unwrap()))
+            .uri(format!("/api/web/ab/entries/peer-42?revision={}",peer_saved["revision"].as_i64().unwrap()))
             .header(header::COOKIE, &cookie)
             .header(header::ORIGIN, "http://127.0.0.1:21114")
             .header("x-csrf-token", csrf)

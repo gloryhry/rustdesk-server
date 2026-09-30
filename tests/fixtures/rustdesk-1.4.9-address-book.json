@@ -1,0 +1,147 @@
+{
+  "version": "1.4.9",
+  "commit": "6c578292e8ebbbec708b76986ba8c4bc7c509747",
+  "sources": [
+    "https://github.com/rustdesk/rustdesk/blob/6c578292e8ebbbec708b76986ba8c4bc7c509747/flutter/lib/models/ab_model.dart",
+    "https://github.com/rustdesk/rustdesk/blob/6c578292e8ebbbec708b76986ba8c4bc7c509747/flutter/lib/models/peer_model.dart",
+    "https://github.com/rustdesk/rustdesk/blob/6c578292e8ebbbec708b76986ba8c4bc7c509747/flutter/lib/common/hbbs/hbbs.dart"
+  ],
+  "description": "Sanitized request samples transcribed from official client methods; $guid is the current authenticated personal book. Null body means Content-Length: 0 with application/json, not JSON null.",
+  "sequence": [
+    {
+      "method": "POST",
+      "path": "/api/ab/personal",
+      "body": null,
+      "response": "guid"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/settings",
+      "body": null,
+      "response": "settings"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/shared/profiles?current=1&pageSize=100",
+      "body": null,
+      "response": "empty_page"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/peers?ab=$guid&current=1&pageSize=100",
+      "body": null,
+      "response": "empty_page"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/tags/$guid",
+      "body": null,
+      "response": "empty_tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/tag/add/$guid",
+      "body": {
+        "name": "ops",
+        "color": 4279312947
+      },
+      "response": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/peer/add/$guid",
+      "body": {
+        "id": "123456",
+        "alias": "Office",
+        "tags": [
+          "ops"
+        ],
+        "hash": "test-only-hash"
+      },
+      "response": "empty"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/ab/peer/update/$guid",
+      "body": {
+        "id": "123456",
+        "alias": "Renamed"
+      },
+      "response": "empty"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/ab/tag/rename/$guid",
+      "body": {
+        "old": "ops",
+        "new": "work"
+      },
+      "response": "empty"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/ab/tag/update/$guid",
+      "body": {
+        "name": "work",
+        "color": 305419896
+      },
+      "response": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/peers?ab=$guid&current=1&pageSize=100",
+      "body": null,
+      "response": "peer_page"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/tags/$guid",
+      "body": null,
+      "response": "tag_array"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/ab/peer/$guid",
+      "body": [
+        "123456"
+      ],
+      "response": "empty"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/ab/tag/$guid",
+      "body": [
+        "work"
+      ],
+      "response": "empty"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ab/peers?ab=$guid&current=1&pageSize=100",
+      "body": null,
+      "response": "empty_page"
+    }
+  ],
+  "legacy": {
+    "peers": [
+      {
+        "id": "654321",
+        "alias": "Legacy",
+        "hash": "test-only-hash",
+        "forceAlwaysRelay": "true",
+        "tags": [
+          "legacy"
+        ]
+      }
+    ],
+    "tags": [
+      "legacy"
+    ],
+    "tag_colors": "{\"legacy\":4294967295}"
+  },
+  "source_sha256": {
+    "flutter/lib/models/ab_model.dart": "2c0a08778636375c5e82a85c9cd106c3934478f7b5a883b008a1484b05f2a6fa",
+    "flutter/lib/models/peer_model.dart": "4eae9664abaa10f72f7af8d8ea37c0330a6e358bb58cb54002a57a985da31c82",
+    "flutter/lib/common/hbbs/hbbs.dart": "5671fdbbf0bb843f2c598bf66f04ba66cdefa049250fd026bd0326c251c52d25"
+  }
+}

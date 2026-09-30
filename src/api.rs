@@ -1,4 +1,5 @@
 use crate::auth::{AuthError, AuthService, LoginDevice, Principal};
+mod official_address_book;
 use crate::ldap::LdapConfig;
 use crate::address_book_store::{AddressBookStore,Book,BookError};
 pub use crate::browser_security::{CookiePolicy, BrowserPolicy};
@@ -292,22 +293,24 @@ fn build_router(
         .route("/api/logout", post(logout))
         .route("/api/admin/logout", post(admin_logout))
         .route("/api/ab", get(get_address_book).post(update_address_book))
-        .route("/api/ab/personal", get(get_address_book).post(update_address_book))
-        .route("/api/ab/settings", get(get_address_book).post(update_address_book))
-        .route("/api/ab/shared/profiles", get(shared_address_book_profiles))
-        .route("/api/ab/peers", get(list_address_book_entries).post(post_address_book_entries))
-        .route("/api/ab/peer", post(upsert_address_book_entry))
-        .route("/api/ab/peer/add/:guid", post(add_address_book_peer))
-        .route("/api/ab/peer/:guid", delete_route(delete_address_book_peer))
-        .route("/api/ab/peer/update/:guid", put(update_address_book_peer))
-        .route("/api/ab/peer/delete", post(delete_address_book_entry))
-        .route("/api/ab/tags", get(list_tags).post(upsert_tag))
-        .route("/api/ab/tags/:guid", get(address_book_tags))
-        .route("/api/ab/tag/add/:guid", post(add_address_book_tag))
-        .route("/api/ab/tag/rename/:guid", post(rename_address_book_tag))
-        .route("/api/ab/tag/update/:guid", put(update_address_book_tag))
-        .route("/api/ab/tag/:guid", delete_route(delete_address_book_tag))
-        .route("/api/ab/tags/delete", post(delete_tag))
+        .route("/api/ab/personal", get(official_address_book::personal).post(official_address_book::personal))
+        .route("/api/ab/settings", get(official_address_book::settings).post(official_address_book::settings))
+        .route("/api/ab/shared/profiles", get(official_address_book::shared_profiles).post(official_address_book::shared_profiles))
+        .route("/api/ab/peers", get(official_address_book::peers).post(official_address_book::peers))
+        .route("/api/ab/peer/add/:guid", post(official_address_book::add_peer))
+        .route("/api/ab/peer/:guid", delete_route(official_address_book::delete_peers))
+        .route("/api/ab/peer/update/:guid", put(official_address_book::update_peer))
+        .route("/api/ab/tags/:guid", get(official_address_book::tags).post(official_address_book::tags))
+        .route("/api/ab/tag/add/:guid", post(official_address_book::add_tag))
+        .route("/api/ab/tag/rename/:guid", put(official_address_book::rename_tag))
+        .route("/api/ab/tag/update/:guid", put(official_address_book::update_tag))
+        .route("/api/ab/tag/:guid", delete_route(official_address_book::delete_tags))
+        .route("/api/web/ab/entries", get(list_address_book_entries).post(upsert_address_book_entry))
+        .route("/api/web/ab/entries/batch", post(post_address_book_entries))
+        .route("/api/web/ab/entries/delete", post(delete_address_book_entry))
+        .route("/api/web/ab/entries/:id", delete_route(delete_web_address_book_entry))
+        .route("/api/web/ab/tags", get(list_tags).post(upsert_tag))
+        .route("/api/web/ab/tags/delete", post(delete_tag))
         .route("/api/groups", get(list_groups).post(create_group))
         .route("/api/groups/members", post(add_group_member))
         .route("/api/groups/members/delete", post(remove_group_member))
@@ -1658,52 +1661,12 @@ async fn update_address_book(Extension(state): Extension<Arc<ApiState>>, headers
     if request.revision.is_some_and(|revision|revision<1) { return invalid_list_query("invalid_address_book_revision"); }
     // Native legacy uploads intentionally replace the entire book; Web supplies a revision.
     match address_books(&state).replace(&principal.user_id,request.revision,document).await {
-        Ok(book) => Json(json!({"revision":book.revision,"guid":book.guid})).into_response(),
+        Ok(_) => StatusCode::OK.into_response(),
         Err(error) => book_error_response(error),
     }
 }
 
-async fn shared_address_book_profiles(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap) -> Response {
-    // Kept until the complete native shared-profiles protocol is wired in fix #18.
-    list_address_book_entries(Extension(state),headers).await
-}
-
-async fn address_book_tags(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(_guid): Path<String>,
-) -> Response {
-    list_tags(Extension(state), headers).await
-}
-
-async fn add_address_book_peer(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(guid): Path<String>,
-    Json(mut request): Json<AddressBookEntryRequest>,
-) -> Response {
-    if request.peer_id.trim().is_empty() {
-        request.peer_id = guid;
-    }
-    upsert_address_book_entry(Extension(state), headers, Json(request)).await
-}
-
-async fn update_address_book_peer(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(guid): Path<String>,
-    Json(mut request): Json<AddressBookEntryRequest>,
-) -> Response {
-    if request.id.is_none() {
-        request.id = Some(guid.clone());
-    }
-    if request.peer_id.trim().is_empty() {
-        request.peer_id = guid;
-    }
-    upsert_address_book_entry(Extension(state), headers, Json(request)).await
-}
-
-async fn delete_address_book_peer(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Path(key): Path<String>, Query(query): Query<BookRevision>) -> Response {
+async fn delete_web_address_book_entry(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Path(key): Path<String>, Query(query): Query<BookRevision>) -> Response {
     let principal = match authorize(&state,&headers).await { Ok(principal) => principal, Err(error) => return auth_error_response(error,true) };
     let _guard = state.tag_lock.lock().await;
     deleted_book_response(remove_address_book_entry(&state,&principal.user_id,&key,&headers,query.revision).await)
@@ -1844,53 +1807,6 @@ fn deleted_book_response(result: Result<Option<Book>,BookError>) -> Response {
         Ok(None) => (StatusCode::NOT_FOUND,Json(json!({"error":"address_book_entry_not_found"}))).into_response(),
         Err(error) => book_error_response(error),
     }
-}
-
-async fn add_address_book_tag(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(guid): Path<String>,
-    Json(mut request): Json<TagRequest>,
-) -> Response {
-    if request.name.trim().is_empty() {
-        request.name = guid;
-    }
-    upsert_tag(Extension(state), headers, Json(request)).await
-}
-
-async fn rename_address_book_tag(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(_guid): Path<String>,
-    Json(request): Json<TagRequest>,
-) -> Response {
-    upsert_tag(Extension(state), headers, Json(request)).await
-}
-
-async fn update_address_book_tag(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(guid): Path<String>,
-    Json(mut request): Json<TagRequest>,
-) -> Response {
-    if request.name.trim().is_empty() {
-        request.name = guid;
-    }
-    upsert_tag(Extension(state), headers, Json(request)).await
-}
-
-async fn delete_address_book_tag(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    Path(guid): Path<String>,
-    Query(query): Query<BookRevision>,
-) -> Response {
-    delete_tag(
-        Extension(state),
-        headers,
-        Json(TagDeleteRequest { name: guid,revision:query.revision }),
-    )
-    .await
 }
 
 async fn list_tags(

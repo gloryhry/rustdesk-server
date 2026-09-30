@@ -1287,7 +1287,7 @@ async function loadAddressBook() {
   try {
     const [result, entriesResult] = await Promise.all([
       api('/api/ab'),
-      api('/api/ab/peers')
+      api('/api/web/ab/entries')
     ]);
     if (!Number.isSafeInteger(result.revision) || result.revision !== entriesResult.revision) throw new Error('address_book_revision_conflict');
     state.addressBookRevision = result.revision;
@@ -1354,7 +1354,7 @@ async function savePeer(event) {
   state.busy = true;
   render();
   try {
-    await api('/api/ab/peer', { method: 'POST', body: JSON.stringify(payload) });
+    await api('/api/web/ab/entries', { method: 'POST', body: JSON.stringify(payload) });
     clearPeerDraft();
     await loadAddressBook();
     setNotice('success', t('saved'));
@@ -1416,7 +1416,7 @@ async function deletePeer(id) {
   state.busy = true;
   render();
   try {
-    await api(`/api/ab/peer/${encodeURIComponent(id)}?revision=${state.addressBookRevision}`, { method: 'DELETE' });
+    await api(`/api/web/ab/entries/${encodeURIComponent(id)}?revision=${state.addressBookRevision}`, { method: 'DELETE' });
     clearPeerDraft();
     await loadAddressBook();
   } catch (error) {
@@ -1429,7 +1429,7 @@ async function deletePeer(id) {
 
 async function loadTags() {
   try {
-    const result = await api('/api/ab/tags');
+    const result = await api('/api/web/ab/tags');
     if (result.revision !== state.addressBookRevision) throw new Error('address_book_revision_conflict');
     const value = result.data || result;
     state.tags = Array.isArray(value) ? value.filter(tag => tag && typeof tag === 'object') : [];
@@ -1453,7 +1453,7 @@ async function saveTag(event) {
   state.busy = true;
   render();
   try {
-    await api('/api/ab/tags', { method: 'POST', body: JSON.stringify(payload) });
+    await api('/api/web/ab/tags', { method: 'POST', body: JSON.stringify(payload) });
     state.tagDraft = { name: '', color: '' };
     await loadAddressBook();
     await loadTags();
@@ -1470,7 +1470,7 @@ async function deleteTag(name) {
   state.busy = true;
   render();
   try {
-    await api('/api/ab/tags/delete', {
+    await api('/api/web/ab/tags/delete', {
       method: 'POST',
       body: JSON.stringify({ name, revision: state.addressBookRevision })
     });

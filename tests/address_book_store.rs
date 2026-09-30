@@ -19,8 +19,8 @@ async fn fixture() -> (TestApp,String) {
 #[tokio::test]
 async fn editing_one_imported_peer_keeps_all_other_document_entries_visible() {
     let (app,token) = fixture().await;
-    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Edited"}),&token).await.status(),StatusCode::OK);
-    let entries = value(auth(&app,"GET","/api/ab/peers",json!({}),&token).await).await;
+    assert_eq!(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"123456","alias":"Edited"}),&token).await.status(),StatusCode::OK);
+    let entries = value(auth(&app,"GET","/api/web/ab/entries",json!({}),&token).await).await;
     assert_eq!(entries["data"].as_array().unwrap().len(),2);
     let second = entries["data"].as_array().unwrap().iter().find(|entry|entry["peerId"]=="654321").unwrap();
     assert_eq!(second["extension"],json!({"preserved":true}));
@@ -32,10 +32,10 @@ async fn address_book_guid_revision_and_entry_ids_are_stable_across_api_restart(
     let first = value(auth(&app,"GET","/api/ab",json!({}),&token).await).await;
     assert!(first["guid"].as_str().is_some_and(|guid|uuid::Uuid::parse_str(guid).is_ok()));
     assert!(first["revision"].as_u64().is_some());
-    let entries = value(auth(&app,"GET","/api/ab/peers",json!({}),&token).await).await;
+    let entries = value(auth(&app,"GET","/api/web/ab/entries",json!({}),&token).await).await;
     app.reopen(OAuthRuntime::new(Vec::new()),Some(hbbs::oauth_admin::ProviderSecretKey::from_bytes(&[7;32]).unwrap())).await.unwrap();
     assert_eq!(value(auth(&app,"GET","/api/ab",json!({}),&token).await).await,first);
-    assert_eq!(value(auth(&app,"GET","/api/ab/peers",json!({}),&token).await).await,entries);
+    assert_eq!(value(auth(&app,"GET","/api/web/ab/entries",json!({}),&token).await).await,entries);
 }
 
 #[tokio::test]
@@ -43,8 +43,8 @@ async fn stale_revision_cannot_overwrite_a_newer_peer_edit() {
     let (app,token) = fixture().await;
     let first = value(auth(&app,"GET","/api/ab",json!({}),&token).await).await;
     let revision = first["revision"].as_u64().expect("a persistent revision is required");
-    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Newer","revision":revision}),&token).await.status(),StatusCode::OK);
-    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"654321","alias":"Stale","revision":revision}),&token).await.status(),StatusCode::CONFLICT);
+    assert_eq!(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"123456","alias":"Newer","revision":revision}),&token).await.status(),StatusCode::OK);
+    assert_eq!(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"654321","alias":"Stale","revision":revision}),&token).await.status(),StatusCode::CONFLICT);
     let current = value(auth(&app,"GET","/api/ab",json!({}),&token).await).await;
     assert_eq!(current["guid"],first["guid"]); assert!(current["revision"].as_u64().unwrap()>revision);
     let document: Value = serde_json::from_str(current["data"].as_str().unwrap()).unwrap();
@@ -159,7 +159,7 @@ async fn browser_mutations_require_revision_and_foreign_imports_get_local_entry_
     let mut csrf = request("GET","/api/session/csrf",json!({})); csrf.headers_mut().insert(header::COOKIE,session.parse().unwrap());
     let csrf = value(app.send_raw(csrf).await).await;
     let before = value(auth(&app,"GET","/api/ab",json!({}),&token).await).await;
-    let mut update = request("POST","/api/ab/peer",json!({"peer_id":"123456","alias":"No revision"}));
+    let mut update = request("POST","/api/web/ab/entries",json!({"peer_id":"123456","alias":"No revision"}));
     update.headers_mut().insert(header::COOKIE,session.parse().unwrap());
     update.headers_mut().insert(header::ORIGIN,"https://api.example".parse().unwrap());
     update.headers_mut().insert("x-csrf-token",csrf["csrf_token"].as_str().unwrap().parse().unwrap());
