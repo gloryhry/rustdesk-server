@@ -4,8 +4,16 @@ use reqwest::Url;
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OAuthProviderKind {
+    OAuth2,
+    Oidc,
+}
+
 #[derive(Clone)]
 pub struct OAuthProviderConfig {
+    pub kind: OAuthProviderKind,
     pub name: String,
     pub client_id: String,
     pub client_secret: String,
@@ -15,6 +23,37 @@ pub struct OAuthProviderConfig {
     pub issuer_url: String,
     pub jwks_url: String,
     pub scopes: String,
+}
+
+impl OAuthProviderConfig {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.name.is_empty() || self.client_id.is_empty() || self.client_secret.is_empty() {
+            return Err("provider name and both client credentials are required");
+        }
+        if !valid_provider_endpoint(&self.authorization_url) || !valid_provider_endpoint(&self.token_url)
+            || !valid_provider_endpoint(&self.userinfo_url)
+        {
+            return Err("authorization, token and userinfo endpoints must use HTTPS or loopback HTTP");
+        }
+        match self.kind {
+            OAuthProviderKind::Oidc => {
+                if !valid_provider_endpoint(&self.issuer_url) || !valid_provider_endpoint(&self.jwks_url) {
+                    return Err("OIDC requires valid issuer and JWKS URLs");
+                }
+                if !self.scopes.split_whitespace().any(|scope| scope == "openid") {
+                    return Err("OIDC requires the openid scope");
+                }
+            }
+            OAuthProviderKind::OAuth2 => {
+                if !self.issuer_url.is_empty() || !self.jwks_url.is_empty()
+                    || self.scopes.split_whitespace().any(|scope| scope == "openid")
+                {
+                    return Err("OAuth2 cannot request OIDC scopes or validation endpoints");
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -53,6 +92,9 @@ pub enum OAuthError {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct OAuthProviderView {
+    pub kind: OAuthProviderKind,
+    pub issuer_url: String,
+    pub jwks_url: String,
     pub name: String,
     pub authorization_url: String,
     pub userinfo_url: String,
@@ -83,20 +125,7 @@ impl OAuthRuntime {
     pub fn new_with_clock(configs: Vec<OAuthProviderConfig>, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
         let providers = configs
             .into_iter()
-            .filter(|config| {
-                !config.name.is_empty()
-                    && !config.client_id.is_empty()
-                    && !config.client_secret.is_empty()
-                    && !config.authorization_url.is_empty()
-                    && !config.token_url.is_empty()
-                    && !config.userinfo_url.is_empty()
-                    && valid_provider_endpoint(&config.authorization_url)
-                    && valid_provider_endpoint(&config.token_url)
-                    && valid_provider_endpoint(&config.userinfo_url)
-                    && (config.issuer_url.is_empty() == config.jwks_url.is_empty())
-                    && (config.issuer_url.is_empty() || valid_provider_endpoint(&config.issuer_url))
-                    && (config.jwks_url.is_empty() || valid_provider_endpoint(&config.jwks_url))
-            })
+            .filter(|config| config.validate().is_ok())
             .map(|config| (config.name.clone(), config))
             .collect();
         Self {
@@ -104,6 +133,17 @@ impl OAuthRuntime {
             pending: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             clock,
         }
+    }
+
+    pub fn try_new(configs: Vec<OAuthProviderConfig>) -> Result<Self, String> {
+        let mut names = std::collections::HashSet::new();
+        for config in &configs {
+            config.validate().map_err(|message| format!("OAuth provider {}: {message}", config.name))?;
+            if !names.insert(&config.name) {
+                return Err(format!("duplicate OAuth provider name: {}", config.name));
+            }
+        }
+        Ok(Self::new(configs))
     }
 
     pub fn provider_names(&self) -> Vec<String> {
@@ -117,6 +157,9 @@ impl OAuthRuntime {
             .providers
             .values()
             .map(|config| OAuthProviderView {
+                kind: config.kind,
+                issuer_url: config.issuer_url.clone(),
+                jwks_url: config.jwks_url.clone(),
                 name: config.name.clone(),
                 authorization_url: config.authorization_url.clone(),
                 userinfo_url: config.userinfo_url.clone(),
@@ -395,6 +438,7 @@ mod tests {
 
     fn test_runtime() -> OAuthRuntime {
         OAuthRuntime::new(vec![OAuthProviderConfig {
+            kind: OAuthProviderKind::OAuth2,
             name: "test".to_owned(),
             client_id: "client".to_owned(),
             client_secret: "secret".to_owned(),
@@ -403,7 +447,7 @@ mod tests {
             userinfo_url: "https://provider.example/userinfo".to_owned(),
             issuer_url: String::new(),
             jwks_url: String::new(),
-            scopes: "openid email".to_owned(),
+            scopes: "email".to_owned(),
         }])
     }
 
@@ -482,6 +526,7 @@ mod tests {
         });
         let base = format!("http://{address}");
         let runtime = OAuthRuntime::new(vec![OAuthProviderConfig {
+            kind: OAuthProviderKind::OAuth2,
             name: "local".to_owned(),
             client_id: "client".to_owned(),
             client_secret: "secret".to_owned(),
@@ -490,7 +535,7 @@ mod tests {
             userinfo_url: format!("{base}/userinfo"),
             issuer_url: String::new(),
             jwks_url: String::new(),
-            scopes: "openid email".to_owned(),
+            scopes: "email".to_owned(),
         }]);
         let (_, state) = runtime
             .begin_with_device("local", "https://api.example/callback", OAuthDevice::default(), "test-browser")
@@ -510,8 +555,22 @@ mod tests {
     }
 
     #[test]
+    fn oidc_without_any_validation_endpoints_is_rejected() {
+        let config = OAuthProviderConfig {
+            kind: OAuthProviderKind::Oidc,
+            name: "oidc".to_owned(), client_id: "client".to_owned(), client_secret: "secret".to_owned(),
+            authorization_url: "https://provider.example/authorize".to_owned(),
+            token_url: "https://provider.example/token".to_owned(),
+            userinfo_url: "https://provider.example/userinfo".to_owned(),
+            issuer_url: String::new(), jwks_url: String::new(), scopes: "openid email".to_owned(),
+        };
+        assert!(OAuthRuntime::new(vec![config]).provider_names().is_empty());
+    }
+
+    #[test]
     fn oidc_validation_endpoints_must_be_paired() {
         let mut config = OAuthProviderConfig {
+            kind: OAuthProviderKind::Oidc,
             name: "oidc".to_owned(),
             client_id: "client".to_owned(),
             client_secret: "secret".to_owned(),

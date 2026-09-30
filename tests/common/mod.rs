@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+pub mod oidc;
 
 use axum::{body::Body, http::{header, Request, StatusCode}, response::Response, Router};
 use hbbs::{api::{build_service, CookiePolicy, PublicServerConfig}, database::Database,
@@ -85,6 +86,7 @@ impl MockOAuth {
 
     pub fn config(&self) -> OAuthProviderConfig {
         OAuthProviderConfig {
+            kind: hbbs::oauth::OAuthProviderKind::OAuth2,
             name: "test".to_owned(), client_id: "client".to_owned(), client_secret: "secret".to_owned(),
             authorization_url: format!("{}/authorize", self.base), token_url: format!("{}/token", self.base),
             userinfo_url: format!("{}/userinfo", self.base), issuer_url: String::new(),

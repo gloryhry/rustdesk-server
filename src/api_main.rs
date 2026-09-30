@@ -51,7 +51,7 @@ fn main() -> ResultType<()> {
         Some((bootstrap_username, bootstrap_password))
     };
     let web_root = common::get_arg_or("API_WEB_ROOT", "./web/dist".to_owned());
-    let oauth = load_oauth_runtime();
+    let oauth = load_oauth_runtime()?;
     let oauth_redirect_url = load_oauth_redirect_url();
     let ldap = load_ldap_config()?;
     let server_config = api::PublicServerConfig {
