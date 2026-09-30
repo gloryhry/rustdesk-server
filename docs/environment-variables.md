@@ -504,3 +504,11 @@ keep the current value. A new target already used by another entry returns 409
 without changes; an unknown/foreign entry ID returns 404. Imported entries
 without entry identity acquire a stable ID when first edited. The snapshot
 Peer key and index are changed in one transaction, preserving extension fields.
+
+Address book `forceAlwaysRelay` accepts exact strings `"true"`/`"false"` or JSON
+booleans. Internal snapshots use booleans; legacy `/api/ab` responses use the
+official string form. Web entry responses use booleans. Partial entry edits
+also accept `force_always_relay`; omitted values are preserved, while null,
+numbers, arrays, and other strings are rejected. Conflicting aliases in a
+legacy document are rejected. Invalid historical values fail reads without
+rewriting the snapshot.

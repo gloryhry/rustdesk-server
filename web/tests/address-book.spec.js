@@ -62,3 +62,27 @@ test('Peer ID edit preserves stable entry ID and duplicate targets leave data un
   expect(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data).toBe(before);
   sqlite.close();
 });
+
+test('official false string restores an unchecked relay and Web edits round-trip both values', async ({ page, service }) => {
+  const sqlite = new DatabaseSync(join(service.directory, 'api.sqlite3'));
+  const owner = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
+  sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify({ peers: [{ id: '123456', forceAlwaysRelay: 'false' }] }));
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  await page.locator('[data-edit-peer]').click();
+  const relay = page.locator('[name="peer-relay"]');
+  await expect(relay).not.toBeChecked();
+  await relay.check(); await page.locator('#save-peer').click();
+  await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+  await page.locator('[data-edit-peer]').click(); await expect(relay).toBeChecked();
+  let official = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
+  expect(official.peers[0].forceAlwaysRelay).toBe('true');
+  await relay.uncheck(); await page.locator('#save-peer').click();
+  await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+  await page.reload(); await page.locator('#nav-addressBook').click(); await page.locator('[data-edit-peer]').click();
+  await expect(relay).not.toBeChecked();
+  official = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
+  expect(official.peers[0].forceAlwaysRelay).toBe('false');
+  expect(JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data).peers[0].forceAlwaysRelay).toBe(false);
+  sqlite.close();
+});

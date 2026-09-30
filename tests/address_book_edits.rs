@@ -28,7 +28,7 @@ async fn partial_edits_preserve_saved_connection_and_unknown_fields() {
         assert_eq!(peer["hash"],"saved-hash"); assert_eq!(peer["password"],"saved-password");
         assert_eq!(peer["rdpPort"],"3390"); assert_eq!(peer["rdpUsername"],"rdp-user");
         assert_eq!(peer["extension"],json!({"nested":[1,2]})); assert_eq!(peer["username"],"os-user");
-        assert_eq!(peer["hostname"],"Laptop"); assert_eq!(peer["platform"],"Linux"); assert_eq!(peer["forceAlwaysRelay"],true);
+        assert_eq!(peer["hostname"],"Laptop"); assert_eq!(peer["platform"],"Linux"); assert_eq!(peer["forceAlwaysRelay"],"true");
     }
     let peer = &book(&app,&token).await["peers"][0]; assert_eq!(peer["alias"],"New alias"); assert_eq!(peer["tags"],json!(["new"])); assert_eq!(peer["note"],"changed note");
 }
@@ -134,4 +134,40 @@ async fn duplicate_target_and_foreign_entry_identity_cannot_change_address_book_
     let other = value(app.send(request("POST","/api/login",json!({"username":"other","password":"other-password"}))).await).await["access_token"].as_str().unwrap().to_owned();
     assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"id":entry["data"]["id"],"peer_id":"foreign","alias":"Attack"}),&other).await.status(),StatusCode::NOT_FOUND);
     assert_eq!(book(&app,&other).await["peers"],json!([])); assert_eq!(book(&app,&token).await,before);
+}
+
+#[tokio::test]
+async fn relay_string_and_boolean_inputs_round_trip_to_official_strings_and_web_booleans() {
+    let (app,token) = fixture().await;
+    for (input,enabled) in [(json!("true"),true),(json!("false"),false),(json!(true),true),(json!(false),false)] {
+        let data = json!({"peers":[{"id":"123456","forceAlwaysRelay":input}]});
+        assert_eq!(auth(&app,"POST","/api/ab",json!({"data":data.to_string()}),&token).await.status(),StatusCode::OK);
+        assert_eq!(book(&app,&token).await["peers"][0]["forceAlwaysRelay"],enabled.to_string());
+        let web = value(auth(&app,"GET","/api/ab/peers",json!({}),&token).await).await;
+        assert_eq!(web["data"][0]["forceAlwaysRelay"],enabled);
+        assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Only alias"}),&token).await.status(),StatusCode::OK);
+        assert_eq!(book(&app,&token).await["peers"][0]["forceAlwaysRelay"],enabled.to_string());
+    }
+    for (field,input,expected) in [("forceAlwaysRelay",json!("true"),true),("force_always_relay",json!("false"),false),("force_always_relay",json!(true),true),("forceAlwaysRelay",json!(false),false)] {
+        let response = auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456",(field):input}),&token).await;
+        assert_eq!(response.status(),StatusCode::OK); assert_eq!(value(response).await["data"]["forceAlwaysRelay"],expected);
+        assert_eq!(book(&app,&token).await["peers"][0]["forceAlwaysRelay"],expected.to_string());
+    }
+}
+
+#[tokio::test]
+async fn invalid_relay_values_never_silently_become_false_or_modify_the_book() {
+    let (app,token) = fixture().await; let before = book(&app,&token).await;
+    for input in [json!("TRUE"),json!("no"),json!(0),json!(null),json!([]),json!({})] {
+        let document = json!({"peers":[{"id":"123456","forceAlwaysRelay":input}]});
+        assert_eq!(auth(&app,"POST","/api/ab",json!({"data":document.to_string()}),&token).await.status(),StatusCode::BAD_REQUEST);
+        let response = auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","force_always_relay":input}),&token).await;
+        assert!(matches!(response.status(),StatusCode::BAD_REQUEST|StatusCode::UNPROCESSABLE_ENTITY));
+        assert_eq!(book(&app,&token).await,before);
+    }
+    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
+    let damaged = json!({"peers":[{"id":"123456","forceAlwaysRelay":"damaged"}]}).to_string();
+    sqlx::query("update api_address_book_snapshot set data=?").bind(&damaged).execute(&pool).await.unwrap();
+    assert_eq!(auth(&app,"GET","/api/ab",json!({}),&token).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(sqlx::query_scalar::<_,String>("select data from api_address_book_snapshot").fetch_one(&pool).await.unwrap(),damaged); pool.close().await;
 }

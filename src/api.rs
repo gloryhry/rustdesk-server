@@ -167,7 +167,7 @@ pub struct AddressBookEntryRequest {
     pub platform: Option<String>,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default,alias="forceAlwaysRelay",deserialize_with="crate::address_book_codec::optional_relay")]
     pub force_always_relay: Option<bool>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String,serde_json::Value>,
@@ -1642,6 +1642,7 @@ async fn get_address_book(
     for entry in &entries {
         merge_address_book_entry(&mut document, entry);
     }
+    crate::address_book_codec::official_relays(&mut document);
     match serde_json::to_string(&document) {
         Ok(data) => (StatusCode::OK, Json(json!({ "data": data }))).into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
@@ -1666,7 +1667,10 @@ async fn update_address_book(
             .into_response();
     }
     let document = match serde_json::from_str::<serde_json::Value>(&request.data) {
-        Ok(serde_json::Value::Object(_)) => request.data,
+        Ok(serde_json::Value::Object(mut document)) => {
+            if let Err(error) = crate::address_book_codec::normalize_relays(&mut document) { return invalid_list_query(error); }
+            match serde_json::to_string(&document) { Ok(data) => data, Err(_) => return auth_error_response(AuthError::Internal,false) }
+        },
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -1863,6 +1867,7 @@ async fn post_address_book_entries(
         Err(_) => return auth_error_response(AuthError::Internal, false),
     };
     document.insert("peers".to_owned(), peers);
+    if let Err(error) = crate::address_book_codec::normalize_relays(&mut document) { return invalid_list_query(error); }
     let data = match serde_json::to_string(&document) {
         Ok(data) => data,
         Err(_) => return auth_error_response(AuthError::Internal, false),
@@ -2261,7 +2266,10 @@ async fn address_book_document(
         .map_err(|_| AuthError::Internal)?
         .unwrap_or_else(|| "{}".to_owned());
     match serde_json::from_str::<serde_json::Value>(&data).map_err(|_| AuthError::Internal)? {
-        serde_json::Value::Object(document) => Ok(document),
+        serde_json::Value::Object(mut document) => {
+            crate::address_book_codec::normalize_relays(&mut document).map_err(|_|AuthError::Internal)?;
+            Ok(document)
+        },
         _ => Err(AuthError::Internal),
     }
 }
