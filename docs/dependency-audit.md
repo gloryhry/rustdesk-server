@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | #21 | axum-core 0.2.4 / RUSTSEC-2022-0055 | 已完成 |
 | #22 | crossbeam-epoch 0.9.8 / RUSTSEC-2026-0204 | 已完成 |
-| #23 | openssl 0.10.68 / RUSTSEC-2025-0022; openssl 0.10.68 / RUSTSEC-2025-0004 | 待处理 |
+| #23 | openssl 0.10.68 / RUSTSEC-2025-0022; openssl 0.10.68 / RUSTSEC-2025-0004 | 已完成 |
 | #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 待处理 |
 | #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 待处理 |
 | #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 待处理 |
@@ -33,3 +33,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ## #22 验收
 
 基线定向审计失败；仅更新 crossbeam-epoch 0.9.8 → 0.9.20 后 RUSTSEC-2026-0204 回归通过，其余 17 条仍待处理。根包 142 项测试和 locked 全目标检查通过；本项没有 API/Web 行为变化。锁文件校验为 077708abe05066773e13ee13f9c8d68ae6c6d6d06e08867799fb0736f7ba1c19，用户数据库保持基线。
+
+## #23 验收
+
+两条 OpenSSL 定向公告在基线失败；升级绑定 0.10.75 及必需的 openssl-sys 0.9.117 后通过，其余 15 条公告待处理。根包 142 项与 locked 全目标检查通过，服务链接和既有 OAuth/协议回归正常；没有 Web 代码变更。Cargo.lock SHA-256：4c30f9b8282a2a8183e81477bac33fd00fcbf4a1dc89d998d1c95ed64407e820，用户数据库保持基线。
