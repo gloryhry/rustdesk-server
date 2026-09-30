@@ -13,3 +13,4 @@ mod peer;
 mod version;
 
 pub mod device_registry;
+mod official_peer;

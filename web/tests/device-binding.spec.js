@@ -23,6 +23,7 @@ test('administrator independently checks the public key before binding or unbind
   await peer.locator('[name="pk_fingerprint"]').fill(`sha256:${createHash('sha256').update(pk).digest('hex')}`);
   await peer.locator('[type="submit"]').click();
   await expect(peer.locator('[data-unbind-device]')).toBeVisible();
+  await expect(page.locator('.content .table-wrap table').first()).toContainText('123456');
   await peer.locator('[data-unbind-device]').click();
   await expect(peer.locator('[data-unbind-device]')).toHaveCount(0);
   expect(sqlite.prepare('select count(*) as n from api_device_binding_audit').get().n).toBe(2);

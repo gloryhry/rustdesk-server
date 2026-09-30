@@ -264,7 +264,7 @@ fn build_router(
         .route("/api/session/csrf", get(session_csrf))
         .route("/api/user/info", get(current_user))
         .route("/api/users", get(list_users))
-        .route("/api/peers", get(list_devices))
+        .route("/api/peers", get(list_official_peers))
         .route("/api/device-group/accessible", get(list_device_groups))
         .route("/api/admin/user/current", get(admin_current_user))
         .route("/api/admin/user/list", get(admin_user_list))
@@ -1021,6 +1021,20 @@ async fn logout_authorized(state: &ApiState, principal: Principal) -> Response {
     {
         Ok(()) => clear_auth_cookie(&state.cookie_policy, (StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
         Err(err) => auth_error_response(err, false),
+    }
+}
+
+async fn list_official_peers(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap) -> Response {
+    let principal = match authorize(&state,&headers).await {
+        Ok(principal) => principal,
+        Err(error) => return auth_error_response(error,true),
+    };
+    match state.auth.db().official_peers(&principal.user_id,principal.user.is_admin).await {
+        Ok(records) => {
+            let peers = records.into_iter().map(crate::official_peer::OfficialPeer::from).collect::<Vec<_>>();
+            Json(json!({"code":0,"data":peers})).into_response()
+        }
+        Err(_) => auth_error_response(AuthError::Internal,false),
     }
 }
 

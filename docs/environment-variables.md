@@ -446,3 +446,22 @@ API restarts. API online status expires after the existing hbbs timeout of
 30000 milliseconds. This means hbbs observed a registration under its existing
 protocol rules; it is separate from API ownership verification and remote-control
 or relay authorization. Build and deploy the updated hbbs together with the API.
+
+### Native device list and management identifiers
+
+`GET /api/peers` now uses a separate RustDesk 1.4.9 PeerPayload DTO: `id` is the
+actual registered RustDesk ID, `info` is a JSON object with string
+`username`, `os` and `device_name`, and `user`/`user_name` refer to the verified
+account association. Registered reports provide presentation fields only;
+legacy JSON extension fields are retained. `status` remains the management
+state, while `online` and `registered_at_ms` report hbbs observations separately.
+Only currently verified associations are returned; administrators inspect pending
+records through management routes. Device-group names respect the requesting
+account's existing group scope.
+
+`GET /api/devices` and `/api/admin/device/list` retain stable internal device IDs
+for management deletion and group membership. Do not pass a native PeerPayload
+`id` to these management operations. A damaged legacy info document does not
+break the native object shape: available name/OS fields provide a safe fallback
+and `info_error` explicitly reports the corruption. Reads never rewrite or discard
+the original stored information, which remains available to administrators.

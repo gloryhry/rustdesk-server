@@ -158,3 +158,5 @@ cargo check --locked --all-targets
 浏览器回归：构建 API 和 Web 后运行 `RUSTDESK_API_BINARY=/absolute/path/rustdesk-api npm run test:browser`。测试使用独立临时数据库、随机端口和系统 Chrome，涵盖允许/拒绝跨源、登录恢复、修改、注销及第三方 Cookie 限制。
 
 管理员设备页面分别展示未认证报告和已核验归属。先通过已有可信渠道从受控设备核对公钥，再选择账户并填写 SHA-256 指纹进行绑定；报告中的用户名或 UUID 不能作为归属证明。支持按 RustDesk ID 查询登记记录和解除绑定。历史关联保留为待核验，普通用户只看到公钥及 UUID 仍与登记记录匹配的已核验设备。
+
+设备管理按钮及设备组成员关系始终使用内部设备主键；界面可显示对应 RustDesk ID。官方 `/api/peers` 则返回真实 RustDesk ID 和对象形式的信息，不能将其 ID 直接用于管理删除。管理启停状态与 hbbs 在线状态分别记录。

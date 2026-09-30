@@ -676,6 +676,20 @@ impl Database {
         Ok(())
     }
 
+    pub(crate) async fn official_peers(&self, viewer: &str, allow_all: bool) -> ResultType<Vec<crate::official_peer::PeerRecord>> {
+        let now = crate::device_registry::now_ms();
+        Ok(sqlx::query_as("select p.id as peer_id,d.user_id,u.username as user_name,d.name,d.os,d.info as legacy_info,t.sysinfo as reported_info,
+            d.status,coalesce(r.registered_at_ms,0) as registered_at_ms,
+            (coalesce(r.registered_at_ms,0)>? and coalesce(r.registered_at_ms,0)<=?) as online,
+            (select min(g.name) from api_device_group g inner join api_device_group_device m on m.group_id=g.id where m.device_id=d.id and g.created_by=?) as device_group_name
+            from api_device d inner join peer p on p.guid=d.peer_guid inner join api_user u on u.id=d.user_id
+            left join api_device_report t on t.peer_guid=p.guid and t.pk=p.pk and t.uuid=p.uuid
+            left join peer_registration r on r.peer_guid=p.guid and r.pk=p.pk and r.uuid=p.uuid
+            where d.verified=1 and d.verified_pk=p.pk and d.verified_uuid=p.uuid and (?=1 or d.user_id=?) order by p.id,d.id")
+            .bind(now-crate::device_registry::REGISTRATION_TIMEOUT_MS).bind(now).bind(viewer).bind(allow_all).bind(viewer)
+            .fetch_all(self.pool.get().await?.deref_mut()).await?)
+    }
+
     pub async fn list_api_devices(&self, user_id: &str) -> ResultType<Vec<ApiDevice>> {
         self.api_devices(Some(user_id)).await
     }

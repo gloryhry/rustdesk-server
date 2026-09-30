@@ -91,20 +91,20 @@ async fn admin_binding_is_fingerprint_checked_audited_persistent_and_report_cann
     let wrong = authenticated(&app,"POST","/api/admin/device/bind",json!({"peer_id":"123456","user_id":owner,"pk_fingerprint":key_fingerprint(&[4;32])}),&admin).await;
     assert_eq!(wrong.status(),StatusCode::CONFLICT);
     let id = bind(&app,&owner,&admin).await;
-    let before = value(authenticated(&app,"GET","/api/peers",json!({}),&owner_token).await).await;
+    let before = value(authenticated(&app,"GET","/api/devices",json!({}),&owner_token).await).await;
     assert_eq!(before["data"][0]["id"],id); assert_eq!(before["data"][0]["verified"],true); assert_eq!(before["data"][0]["online"],false);
     let mut spoofed = report(); spoofed["user_id"] = json!("attacker"); spoofed["pk"] = json!(base64::encode([4;32])); spoofed["verified"] = json!(true); spoofed["status"] = json!(0); spoofed["online"] = json!(true);
     assert_eq!(body(app.send(request("POST","/api/sysinfo",spoofed)).await).await,"SYSINFO_UPDATED");
-    let after = value(authenticated(&app,"GET","/api/peers",json!({}),&owner_token).await).await;
+    let after = value(authenticated(&app,"GET","/api/devices",json!({}),&owner_token).await).await;
     assert_eq!(before,after);
     app.reopen(OAuthRuntime::new(Vec::new()),Some(hbbs::oauth_admin::ProviderSecretKey::from_bytes(&[7;32]).unwrap())).await.unwrap();
-    let reopened = value(authenticated(&app,"GET","/api/peers",json!({}),&owner_token).await).await;
+    let reopened = value(authenticated(&app,"GET","/api/devices",json!({}),&owner_token).await).await;
     assert_eq!(reopened["data"][0]["id"],id);
     let registry = value(authenticated(&app,"GET","/api/admin/device/registry?peer_id=123456",json!({}),&admin).await).await;
     assert_eq!(registry["data"][0]["untrusted_sysinfo"]["user_id"],"attacker");
     assert_eq!(registry["data"][0]["owner_id"],owner);
     assert_eq!(authenticated(&app,"POST","/api/admin/device/unbind",json!({"id":id}),&admin).await.status(),StatusCode::OK);
-    assert_eq!(value(authenticated(&app,"GET","/api/peers",json!({}),&owner_token).await).await["data"],json!([]));
+    assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&owner_token).await).await["data"],json!([]));
     let pool = pool(&app).await;
     assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device_binding_audit").fetch_one(&pool).await.unwrap(),2);
     let pk: Vec<u8> = sqlx::query_scalar("select pk from peer where guid=?").bind(guid).fetch_one(&pool).await.unwrap();
@@ -116,12 +116,12 @@ async fn historical_links_remain_pending_and_key_changes_hide_verified_links() {
     let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
     let guid = seed(&app).await; let (owner,token) = owner(&app).await; let admin = admin(&app).await;
     db(&app).await.upsert_api_device("legacy",&owner,&base64::encode(b"device-uuid"),"Legacy","Linux","client","{\"old\":true}").await.unwrap();
-    assert_eq!(value(authenticated(&app,"GET","/api/peers",json!({}),&token).await).await["data"],json!([]));
+    assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&token).await).await["data"],json!([]));
     let admin_list = value(authenticated(&app,"GET","/api/admin/device/list",json!({}),&admin).await).await;
     assert_eq!(admin_list["data"][0]["id"],"legacy"); assert_eq!(admin_list["data"][0]["verified"],false);
     assert_eq!(bind(&app,&owner,&admin).await,"legacy");
     db(&app).await.update_pk(&guid,"123456",&[4;32],"{}").await.unwrap();
-    assert_eq!(value(authenticated(&app,"GET","/api/peers",json!({}),&token).await).await["data"],json!([]));
+    assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&token).await).await["data"],json!([]));
     let list = value(authenticated(&app,"GET","/api/admin/device/list",json!({}),&admin).await).await;
     assert_eq!(list["data"][0]["info"],"{\"old\":true}"); assert_eq!(list["data"][0]["verified"],false);
 }
@@ -137,12 +137,12 @@ async fn registration_queue_is_bounded_flushes_and_online_expires_without_api_re
     assert!(writer.observe(observation.clone()));
     assert!(!writer.observe(observation),"a full queue must return immediately without accepting the second event");
     drop(writer); task.await.unwrap();
-    let list = value(authenticated(&app,"GET","/api/peers",json!({}),&token).await).await;
+    let list = value(authenticated(&app,"GET","/api/devices",json!({}),&token).await).await;
     assert_eq!(list["data"][0]["online"],true);
     let pool = pool(&app).await;
     sqlx::query("update peer_registration set registered_at_ms=?").bind(now_ms()-30_001).execute(&pool).await.unwrap();
     assert_eq!(body(app.send(request("POST","/api/sysinfo",report())).await).await,"SYSINFO_UPDATED");
-    assert_eq!(value(authenticated(&app,"GET","/api/peers",json!({}),&token).await).await["data"][0]["online"],false);
+    assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&token).await).await["data"][0]["online"],false);
     let (writer,task) = RegistrationWriter::start(db(&app).await,8);
     let now = now_ms();
     for timestamp in [now,now-1000] {
@@ -195,7 +195,7 @@ async fn historical_database_migration_preserves_links_and_group_rows_without_au
     assert_eq!(sqlx::query_scalar::<_,i64>("select verified from api_device where id='legacy'").fetch_one(&pool).await.unwrap(),0);
     assert_eq!(sqlx::query_scalar::<_,String>("select info from api_device where id='legacy'").fetch_one(&pool).await.unwrap(),"{\"kept\":true}");
     assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device_group_device").fetch_one(&pool).await.unwrap(),1);
-    assert_eq!(value(authenticated(&app,"GET","/api/peers",json!({}),&token).await).await["data"],json!([]));
+    assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&token).await).await["data"],json!([]));
     assert!(db(&app).await.list_api_device_group_members(&owner,false).await.unwrap().is_empty());
     pool.close().await;
 }
@@ -263,7 +263,7 @@ async fn ownership_operations_roll_back_if_their_audit_cannot_be_saved() {
     sqlx::query("create trigger deny_binding_audit before insert on api_device_binding_audit begin select raise(abort,'test audit failure'); end").execute(&pool).await.unwrap();
     for path in ["/api/admin/device/unbind","/api/admin/device/delete"] {
         assert_eq!(authenticated(&app,"POST",path,json!({"id":id}),&admin).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(value(authenticated(&app,"GET","/api/peers",json!({}),&owner_token).await).await["data"][0]["verified"],true);
+        assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&owner_token).await).await["data"][0]["verified"],true);
     }
     sqlx::query("drop trigger deny_binding_audit").execute(&pool).await.unwrap();
     assert_eq!(authenticated(&app,"POST","/api/admin/device/delete",json!({"id":id}),&admin).await.status(),StatusCode::OK);
@@ -279,6 +279,6 @@ async fn rebinding_an_owner_cannot_silently_replace_another_verified_peer() {
     db(&app).await.insert_peer("654321",b"device-uuid",&[3;32],"{}").await.unwrap();
     let response = authenticated(&app,"POST","/api/admin/device/bind",json!({"peer_id":"654321","user_id":owner,"pk_fingerprint":key_fingerprint(&[3;32])}),&admin).await;
     assert_eq!(response.status(),StatusCode::CONFLICT);
-    let list = value(authenticated(&app,"GET","/api/peers",json!({}),&token).await).await;
+    let list = value(authenticated(&app,"GET","/api/devices",json!({}),&token).await).await;
     assert_eq!(list["data"][0]["id"],id); assert_eq!(list["data"][0]["peer_id"],"123456");
 }

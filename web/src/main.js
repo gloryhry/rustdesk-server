@@ -725,7 +725,7 @@ function devicesView() {
   } else {
     state.devices.forEach(device => {
       const row = document.createElement('tr');
-      row.append(element('td', 'strong-cell', device.name || device.id || '—'));
+      row.append(element('td', 'strong-cell', device.name || device.peer_id || device.id || '—'));
       row.append(element('td', '', device.uuid || '—'));
       row.append(element('td', '', [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
       row.append(element('td', '', `${Number(device.status) === 1 ? t('enabled') : t('disabled')} / ${device.verified ? t('verifiedBinding') : t('pendingBinding')}`));
