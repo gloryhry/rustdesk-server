@@ -100,36 +100,41 @@ impl PeerMap {
         ip: String,
     ) -> register_pk_response::Result {
         log::info!("update_pk {} {:?} {:?} {:?}", id, addr, uuid, pk);
-        let (info_str, guid) = {
-            let mut w = peer.write().await;
-            w.socket_addr = addr;
-            w.uuid = uuid.clone();
-            w.pk = pk.clone();
-            w.last_reg_time = Instant::now();
-            w.info.ip = ip;
-            (
-                serde_json::to_string(&w.info).unwrap_or_default(),
-                w.guid.clone(),
-            )
+        // Publish the new identity and registration only after durable storage.
+        // Otherwise a retry can match a failed cached key and receive a false OK.
+        let mut cached = peer.write().await;
+        let mut info = cached.info.clone();
+        info.ip = ip;
+        let info_str = match serde_json::to_string(&info) {
+            Ok(value) => value,
+            Err(error) => {
+                log::error!("serialize peer information failed: {}", error);
+                return register_pk_response::Result::SERVER_ERROR;
+            }
         };
-        if guid.is_empty() {
+        let guid = if cached.guid.is_empty() {
             match self.db.insert_peer(&id, &uuid, &pk, &info_str).await {
                 Err(err) => {
                     log::error!("db.insert_peer failed: {}", err);
                     return register_pk_response::Result::SERVER_ERROR;
                 }
-                Ok(guid) => {
-                    peer.write().await.guid = guid;
-                }
+                Ok(guid) => guid,
             }
         } else {
-            if let Err(err) = self.db.update_pk(&guid, &id, &pk, &info_str).await {
+            if let Err(err) = self.db.update_pk(&cached.guid, &id, &pk, &info_str).await {
                 log::error!("db.update_pk failed: {}", err);
                 return register_pk_response::Result::SERVER_ERROR;
             }
             log::info!("pk updated instead of insert");
-        }
-        self.observe_registration(&*peer.read().await);
+            cached.guid.clone()
+        };
+        cached.guid = guid;
+        cached.socket_addr = addr;
+        cached.uuid = uuid;
+        cached.pk = pk;
+        cached.info = info;
+        cached.last_reg_time = Instant::now();
+        self.observe_registration(&cached);
         register_pk_response::Result::OK
     }
 

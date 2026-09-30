@@ -237,6 +237,37 @@ async fn real_hbbs_udp_registrations_persist_their_time_and_survive_api_restart(
 }
 
 #[tokio::test]
+async fn real_hbbs_failed_key_persistence_returns_error_and_retry_does_not_use_failed_cache() {
+    use hbb_common::rendezvous_proto::{RendezvousMessage,RegisterPk,rendezvous_message,register_pk_response};
+    for operation in ["insert","update"] {
+        let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+        let path = app.database_path();
+        let database = db(&app).await;
+        if operation=="update" { database.insert_peer("765432",b"failure-device",&[3;32],"{\"ip\":\"127.0.0.1\"}").await.unwrap(); }
+        let server = common::rendezvous::MockHbbs::start(path.parent().unwrap(),&path).await;
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let pool = pool(&app).await;
+        sqlx::query(&format!("create trigger fail_registration before {operation} on peer begin select raise(abort,'isolated persistence failure'); end")).execute(&pool).await.unwrap();
+        let registration = || {
+            let mut message = RendezvousMessage::new();
+            message.set_register_pk(RegisterPk { id:"765432".to_owned(),uuid:b"failure-device".to_vec().into(),pk:vec![7;32].into(),..Default::default() }); message
+        };
+        for _ in 0..2 {
+            let response = server.exchange(&socket,registration());
+            assert!(matches!(response.union,Some(rendezvous_message::Union::RegisterPkResponse(ref result)) if result.result.enum_value().unwrap()==register_pk_response::Result::SERVER_ERROR),"{operation}: persistence failure must not return OK");
+        }
+        assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from peer_registration").fetch_one(&pool).await.unwrap(),0);
+        if operation=="update" { assert_eq!(database.get_peer("765432").await.unwrap().unwrap().pk,vec![3;32]); }
+        else { assert!(database.get_peer("765432").await.unwrap().is_none()); }
+        sqlx::query("drop trigger fail_registration").execute(&pool).await.unwrap();
+        let response = server.exchange(&socket,registration());
+        assert!(matches!(response.union,Some(rendezvous_message::Union::RegisterPkResponse(ref result)) if result.result.enum_value().unwrap()==register_pk_response::Result::OK));
+        assert_eq!(database.get_peer("765432").await.unwrap().unwrap().pk,vec![7;32]);
+        drop(server); pool.close().await;
+    }
+}
+
+#[tokio::test]
 async fn concurrent_sysinfo_reports_allow_only_one_write_and_authority_changes_request_new_sysinfo() {
     let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
     let guid = seed(&app).await;

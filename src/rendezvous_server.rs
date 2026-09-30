@@ -444,7 +444,8 @@ impl RendezvousServer {
                         }
                     }
                     if changed {
-                        self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+                        let result = self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+                        return send_rk_res(socket, addr, result).await;
                     } else {
                         let mut peer = peer.write().await;
                         peer.socket_addr = addr;
