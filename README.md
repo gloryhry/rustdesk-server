@@ -76,8 +76,8 @@ API 监听地址和端口默认由 `API_BIND`、`API_PORT` 控制，示例端口
 ├── docs/                   环境变量和部署说明
 ├── systemd/                hbbs、hbbr、rustdesk-api 服务单元
 ├── debian/                 Debian 包模板和安装脚本
-├── docker/                 s6 多服务 Docker 镜像构建上下文
-├── docker-classic/         传统 scratch Docker 镜像构建上下文
+├── docker/                 源码多阶段 Docker 构建与 s6 入口
+├── docker-classic/         兼容单进程源码 Dockerfile
 ├── kubernetes/             Kubernetes 单实例示例
 ├── .github/workflows/      测试、构建、Release 和 GHCR 自动化
 ├── Cargo.toml              Rust workspace 根配置
@@ -260,7 +260,7 @@ curl -b cookies.txt -X POST http://127.0.0.1:21114/api/logout
 
 OAuth callback 使用服务端保存的一次性 state 和 PKCE code verifier，避免接受客户端提交的任意 redirect URL。浏览器 callback 成功后会设置 HttpOnly、SameSite=Lax cookie 并跳转到 Web 首页；API/native caller 可以读取 JSON token。
 
-通用 OIDC provider 如果配置 `API_OIDC_ISSUER_URL` 和 `API_OIDC_JWKS_URL`，token endpoint 返回的 `id_token` 会经过签名、issuer、audience、expiry、subject 和 nonce 验证。远程 endpoint 必须使用 HTTPS；只有本机回环地址允许 HTTP。
+通用 OIDC provider 必须配置 `API_OIDC_ISSUER_URL` 和 `API_OIDC_JWKS_URL`，token endpoint 必须返回 `id_token`，并经过签名、issuer、audience、expiry、subject 和 nonce 验证。远程 endpoint 必须使用 HTTPS；只有本机回环地址允许 HTTP。
 
 ### LDAP
 
@@ -268,24 +268,19 @@ OAuth callback 使用服务端保存的一次性 state 和 PKCE code verifier，
 
 ## Docker
 
-`docker/Dockerfile` 构建基于 s6-overlay 的多服务镜像，镜像内包含 `hbbs`、`hbbr`、`rustdesk-api` 和 `web/dist`。API 仍默认关闭，使用 `API_ENABLED=1` 显式启用。镜像暴露以下常用端口：
-
-- `21114/tcp`：API。
-- `21115/tcp`、`21116/tcp+udp`、`21118/tcp`：hbbs。
-- `21117/tcp`、`21119/tcp`：hbbr。
-
-本地 Compose 示例：
+`docker/Dockerfile` 从本仓库和锁文件构建 hbbs、hbbr、rustdesk-api、工具和 Web 静态资源。`runtime` target 使用单进程入口（Compose/Kubernetes）；`supervisor` target 使用 s6，初始化完成后启动三个服务。两个入口都使用 `/data/db_v2.sqlite3`、`/data/id_ed25519*` 和 `/usr/share/rustdesk-api-web`。
 
 ```bash
-export API_JWT_SECRET='replace-with-at-least-32-random-bytes'
-docker compose up -d hbbr hbbs
-# 需要 API 时启用 api profile
-docker compose --profile api up -d rustdesk-api
+docker build -f docker/Dockerfile --target runtime -t rustdesk-local/server:1.1.17-api-1.4.9 .
+# 配置受限的 .env 文件后启动；没有可直接上线的默认秘密
+docker compose up -d --no-build --wait
 ```
 
-Compose 将 `./data` 挂载到容器数据目录。生产环境应使用 GHCR 发布的固定版本 tag，而不是未经验证的 `latest`，并通过 HTTPS 反向代理保护 API 和 Web。
+必需配置包括公开 HTTPS `API_PUBLIC_URL`、中继地址 `RUSTDESK_RELAY_SERVER`、独立随机 `API_JWT_SECRET` 与 base64 编码的 32 字节 `API_OAUTH_CONFIG_KEY`；新数据库还需首次管理员用户名和强密码。密钥只生成一次，半缺失或不匹配的密钥会拒绝初始化。`init` 在卷锁内迁移数据库并验证配置和 Web 资源，失败时后续服务不启动。
 
-自动发布的镜像地址和 tag 规则见下方“CI/CD 和发布”。
+Compose 使用专属命名卷，API 主机端口默认仅绑定回环。生产环境将镜像改为自己仓库中经过验证的明确版本，并通过 HTTPS 代理提供 Web/API。核心端口为 21115/21116/21118（hbbs）、21117/21119（hbbr），API 为 21114；21116 也使用 UDP。
+
+完整部署与回滚说明见 [`docs/deployment.md`](docs/deployment.md)。隔离自动化部署验收使用 `python3 tests/deployment/run.py`，要求 Docker、kind 和 kubectl，结束时仅删除此次创建的资源。
 
 ## Debian 安装和 systemd
 
@@ -307,19 +302,7 @@ debuild -uc -us -b
 
 示例 [`kubernetes/example.yaml`](kubernetes/example.yaml) 将 `hbbs`、`hbbr` 和 `rustdesk-api` 放在一个 `Recreate` Deployment 中，共享一个 `ReadWriteOnce` PVC，并暴露核心 RustDesk 端口和 API `21114`。
 
-应用前必须：
-
-1. 替换 Secret 中的 `API_JWT_SECRET`，使用至少 32 字节随机值。
-2. 把 hbbs 命令中的 Relay 主机名改为实际公开地址。
-3. 配置 `RUSTDESK_ID_SERVER`、`RUSTDESK_RELAY_SERVER` 和 `API_PUBLIC_URL` 等实际公开地址。
-4. 提供 `web/dist`，或者将 Web 资源挂载到 `/root/web`。
-5. 在 HTTPS 反向代理后暴露管理端和 Web。
-
-```bash
-kubectl apply -f kubernetes/example.yaml
-kubectl get pods -l app=rustdesk
-kubectl get service rustdesk-service
-```
+按 [`kubernetes/README.md`](kubernetes/README.md) 构建并推送自己的明确版本镜像、修改公开地址、在集群中单独创建秘密后应用清单。Web 资源已包含在镜像内；initContainer 执行迁移和密钥初始化，API readiness 验证数据库与静态资源，liveness 独立检测进程。
 
 该示例是单实例参考部署，不适合直接扩展为 HA。SQLite、PVC 锁和 `Recreate` 策略必须在扩容前替换为适合多副本的数据库和存储设计。
 
@@ -351,7 +334,7 @@ npm ci
 npm run build
 ```
 
-API compatibility workflow 会运行 Rust tests、API binary build、API process smoke test 和 Web build。发布 workflow 在主分支推送时创建 Pre-release，在版本 tag 推送时创建正式 Release，并把 Linux amd64 Docker 镜像发布到 GHCR；仓库中的旧跨架构构建 workflow 仍可手动运行。
+API compatibility workflow 会运行锁定依赖的 Rust 测试/检查、三个服务构建、Web 构建与 Chrome 测试、依赖漏洞审计，以及临时 Compose/s6/kind 全流程验收。发布 workflow 在主分支推送时创建 Pre-release，在版本 tag 推送时创建正式 Release，并把 Linux amd64 Docker 镜像发布到 GHCR；仓库中的旧跨架构构建 workflow 仍可手动运行。
 
 ## 自动发布
 

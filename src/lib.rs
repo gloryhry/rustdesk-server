@@ -18,3 +18,4 @@ mod pagination;
 
 mod address_book_codec;
 pub mod address_book_store;
+pub mod deployment;

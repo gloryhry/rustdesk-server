@@ -21,11 +21,13 @@ fn main() -> ResultType<()> {
         .write_mode(WriteMode::Async)
         .start()?;
     common::init_args(
-        "-c --config=[FILE] +takes_value 'Sets a custom config file'",
+        "-c --config=[FILE] +takes_value 'Sets a custom config file'\n--initialize 'Prepare keys, migrations and API configuration without listening'",
         "rustdesk-api",
         "RustDesk HTTP API Server",
     );
+    let initialize = std::env::args().any(|arg|arg=="--initialize");
     if common::get_arg_or("API_ENABLED", "0".to_owned()).to_lowercase() != "1" {
+        if initialize { bail!("API_ENABLED=1 is required for initialization"); }
         log::info!("API_ENABLED=0, exiting without starting the API server");
         return Ok(());
     }
@@ -42,6 +44,7 @@ fn main() -> ResultType<()> {
     }
     let registration_enabled = parse_bool_arg("API_REGISTER_ENABLED", false)?;
     let db_url = common::get_arg_or("DB_URL", "./db_v2.sqlite3".to_owned());
+    if initialize { hbbs::deployment::prepare_keypair(&std::env::current_dir()?)?; }
     let key = load_public_key()?;
     let bootstrap_username = common::get_arg("API_BOOTSTRAP_ADMIN_USERNAME");
     let bootstrap_password = common::get_arg("API_BOOTSTRAP_ADMIN_PASSWORD");
@@ -84,6 +87,7 @@ fn main() -> ResultType<()> {
         }
         None => None,
     };
+    if initialize && provider_key.is_none() { bail!("API_OAUTH_CONFIG_KEY is required for container initialization"); }
     start(
         bind_addr,
         db_url,
@@ -99,6 +103,7 @@ fn main() -> ResultType<()> {
         cookie_policy,
         provider_key,
         browser_policy,
+        initialize,
     )
 }
 
@@ -118,8 +123,14 @@ async fn start(
     cookie_policy: api::CookiePolicy,
     provider_key: Option<hbbs::oauth_admin::ProviderSecretKey>,
     browser_policy: api::BrowserPolicy,
+    initialize: bool,
 ) -> ResultType<()> {
+    if initialize { hbbs::deployment::check_web_assets(std::path::Path::new(&web_root))?; }
     let database = Database::new(&db_url).await?;
+    if initialize && bootstrap_admin.is_none() && database.api_user_count().await?==0 {
+        bail!("API_BOOTSTRAP_ADMIN_USERNAME and API_BOOTSTRAP_ADMIN_PASSWORD are required for a new database");
+    }
+    database.check_api_readiness().await?;
     let router = api::build_service(
         database,
         secret,
@@ -137,6 +148,7 @@ async fn start(
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;
+    if initialize { log::info!("RustDesk keys, API configuration and database initialization complete"); return Ok(()); }
     log::info!("RustDesk API listening on http://{bind_addr}");
     axum::Server::bind(&bind_addr)
         .serve(router.into_make_service())

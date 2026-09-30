@@ -39,6 +39,7 @@ pub struct Database {
 }
 
 #[derive(Default)]
+#[derive(sqlx::FromRow)]
 pub struct Peer {
     pub guid: Vec<u8>,
     pub id: String,
@@ -168,7 +169,7 @@ impl Database {
     }
 
     async fn create_tables(&self) -> ResultType<()> {
-        sqlx::query!(
+        sqlx::query(
             "
             create table if not exists peer (
                 guid blob primary key not null,
@@ -453,6 +454,16 @@ impl Database {
 
     pub(crate) async fn book_connection(&self) -> ResultType<deadpool::managed::Object<DbPool>> { Ok(self.pool.get().await?) }
 
+    pub async fn check_api_readiness(&self) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let versions: i64 = sqlx::query_scalar("select count(*) from api_schema_migration where version in (1,2,3)").fetch_one(conn.deref_mut()).await?;
+        if versions!=3 { hbb_common::bail!("API database migrations are incomplete"); }
+        sqlx::query("select id,token_version from api_user limit 1").fetch_optional(conn.deref_mut()).await?;
+        sqlx::query("select id from api_session limit 1").fetch_optional(conn.deref_mut()).await?;
+        sqlx::query("select guid,revision from api_address_book_snapshot limit 1").fetch_optional(conn.deref_mut()).await?;
+        Ok(())
+    }
+
     pub(crate) async fn oauth_provider_records(&self) -> ResultType<Vec<crate::oauth_admin::ProviderRecord>> {
         Ok(sqlx::query_as("select id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision from api_oauth_provider order by name")
             .fetch_all(self.pool.get().await?.deref_mut()).await?)
@@ -492,11 +503,8 @@ impl Database {
     }
 
     pub async fn get_peer(&self, id: &str) -> ResultType<Option<Peer>> {
-        Ok(sqlx::query_as!(
-            Peer,
-            "select guid, id, uuid, pk, user, status, info from peer where id = ?",
-            id
-        )
+        Ok(sqlx::query_as::<_,Peer>("select guid, id, uuid, pk, user, status, info from peer where id = ?")
+        .bind(id)
         .fetch_optional(self.pool.get().await?.deref_mut())
         .await?)
     }
@@ -509,14 +517,8 @@ impl Database {
         info: &str,
     ) -> ResultType<Vec<u8>> {
         let guid = uuid::Uuid::new_v4().as_bytes().to_vec();
-        sqlx::query!(
-            "insert into peer(guid, id, uuid, pk, info) values(?, ?, ?, ?, ?)",
-            guid,
-            id,
-            uuid,
-            pk,
-            info
-        )
+        sqlx::query("insert into peer(guid, id, uuid, pk, info) values(?, ?, ?, ?, ?)")
+        .bind(&guid).bind(id).bind(uuid).bind(pk).bind(info)
         .execute(self.pool.get().await?.deref_mut())
         .await?;
         Ok(guid)
@@ -529,13 +531,8 @@ impl Database {
         pk: &[u8],
         info: &str,
     ) -> ResultType<()> {
-        sqlx::query!(
-            "update peer set id=?, pk=?, info=? where guid=?",
-            id,
-            pk,
-            info,
-            guid
-        )
+        sqlx::query("update peer set id=?, pk=?, info=? where guid=?")
+        .bind(id).bind(pk).bind(info).bind(guid)
         .execute(self.pool.get().await?.deref_mut())
         .await?;
         Ok(())

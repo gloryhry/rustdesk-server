@@ -37,6 +37,7 @@ pub struct ApiState {
     native_oauth: NativeOAuthStore,
     provider_admin: Arc<OAuthProviderAdmin>,
     pub tag_lock: Arc<hbb_common::tokio::sync::Mutex<()>>,
+    web_root: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -249,9 +250,11 @@ fn build_router(
         provider_admin: Arc::new(provider_admin),
         native_oauth: NativeOAuthStore::new(Arc::new(move || native_clock.now())),
         tag_lock: Arc::new(hbb_common::tokio::sync::Mutex::new(())),
+        web_root: web_root.clone(),
     });
     Router::new()
         .route("/health/live", get(health_live))
+        .route("/health/ready", get(health_ready))
         .route("/api/", get(api_index))
         .route("/api/version", get(api_version))
         .route("/api/heartbeat", post(heartbeat).layer(RequestBodyLimitLayer::new(crate::device_registry::REPORT_MAX_BYTES)))
@@ -390,6 +393,14 @@ pub async fn build_service(
 
 async fn health_live() -> impl IntoResponse {
     Json(json!({ "status": "ok" }))
+}
+
+async fn health_ready(Extension(state): Extension<Arc<ApiState>>) -> Response {
+    let ready = crate::deployment::check_web_assets(std::path::Path::new(&state.web_root)).is_ok()
+        && matches!(hbb_common::tokio::time::timeout(Duration::from_secs(2),state.auth.db().check_api_readiness()).await,Ok(Ok(())));
+    let status = if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    let mut response = (status,Json(json!({"status":if ready { "ready" } else { "unavailable" }}))).into_response();
+    response.headers_mut().insert(header::CACHE_CONTROL,HeaderValue::from_static("no-store")); response
 }
 
 async fn api_index() -> impl IntoResponse {

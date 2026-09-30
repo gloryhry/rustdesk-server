@@ -255,21 +255,6 @@ jobs:
         with:
           submodules: recursive
         
-      - name: Download binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: binaries-linux-${{ matrix.job.name }}
-          path: docker/rootfs/usr/bin
-
-      - name: Download web assets
-        uses: actions/download-artifact@v4
-        with:
-          name: rustdesk-api-web
-          path: docker/rootfs/usr/share/rustdesk-api-web
-
-      - name: Make binaries executable
-        run: chmod -v a+x docker/rootfs/usr/bin/*
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       
@@ -308,7 +293,9 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: "./docker"
+          context: .
+          file: docker/Dockerfile
+          target: supervisor
           platforms: ${{ matrix.job.docker_platform }}
           push: true
           provenance: false
@@ -429,15 +416,6 @@ jobs:
         with:
           submodules: recursive
         
-      - name: Download binaries
-        uses: actions/download-artifact@v4
-        with:
-          name: binaries-linux-${{ matrix.job.name }}
-          path: docker-classic/
-
-      - name: Make binaries executable
-        run: chmod -v a+x docker-classic/*
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       
@@ -476,7 +454,9 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: "./docker-classic"
+          context: .
+          file: docker/Dockerfile
+          target: runtime
           platforms: ${{ matrix.job.docker_platform }}
           push: true
           provenance: false
