@@ -1102,20 +1102,14 @@ impl Database {
     ) -> ResultType<()> {
         let mut conn = self.pool.get().await?;
         let mut tx = conn.begin().await?;
-        sqlx::query(
-            "insert into api_address_book_entry(id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay) values(?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(user_id, peer_id) do update set id = excluded.id, username = excluded.username, hostname = excluded.hostname, alias = excluded.alias, platform = excluded.platform, tags = excluded.tags, force_always_relay = excluded.force_always_relay, updated_at = current_timestamp",
-        )
-        .bind(&entry.id)
-        .bind(&entry.user_id)
-        .bind(&entry.peer_id)
-        .bind(&entry.username)
-        .bind(&entry.hostname)
-        .bind(&entry.alias)
-        .bind(&entry.platform)
-        .bind(&entry.tags)
-        .bind(entry.force_always_relay)
-        .execute(&mut tx)
-        .await?;
+        let updated = sqlx::query("update api_address_book_entry set peer_id=?,username=?,hostname=?,alias=?,platform=?,tags=?,force_always_relay=?,updated_at=current_timestamp where user_id=? and id=?")
+            .bind(&entry.peer_id).bind(&entry.username).bind(&entry.hostname).bind(&entry.alias).bind(&entry.platform)
+            .bind(&entry.tags).bind(entry.force_always_relay).bind(&entry.user_id).bind(&entry.id).execute(&mut tx).await?;
+        if updated.rows_affected()==0 {
+            sqlx::query("insert into api_address_book_entry(id,user_id,peer_id,username,hostname,alias,platform,tags,force_always_relay) values(?,?,?,?,?,?,?,?,?)")
+                .bind(&entry.id).bind(&entry.user_id).bind(&entry.peer_id).bind(&entry.username).bind(&entry.hostname)
+                .bind(&entry.alias).bind(&entry.platform).bind(&entry.tags).bind(entry.force_always_relay).execute(&mut tx).await?;
+        }
         sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
             .bind(&entry.user_id).bind(snapshot).execute(&mut tx).await?;
         tx.commit().await?;

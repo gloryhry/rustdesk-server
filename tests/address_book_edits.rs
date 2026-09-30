@@ -107,3 +107,31 @@ async fn failed_delete_snapshot_write_rolls_back_index_deletion() {
     assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_address_book_entry where peer_id='123456'").fetch_one(&pool).await.unwrap(),1);
     pool.close().await;
 }
+
+#[tokio::test]
+async fn changing_peer_id_keeps_entry_identity_and_saved_fields_and_allows_partial_edit_by_entry_id() {
+    let (app,token) = fixture().await;
+    let entry = value(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Before rename"}),&token).await).await;
+    let id = entry["data"]["id"].as_str().unwrap();
+    let response = auth(&app,"POST","/api/ab/peer",json!({"id":id,"peer_id":"654321","alias":"After rename"}),&token).await;
+    assert_eq!(response.status(),StatusCode::OK);
+    let changed = value(response).await; assert_eq!(changed["data"]["id"],id); assert_eq!(changed["data"]["peerId"],"654321");
+    let peers = book(&app,&token).await["peers"].as_array().unwrap().clone(); assert_eq!(peers.len(),1);
+    assert_eq!(peers[0]["id"],"654321"); assert_eq!(peers[0]["entryId"],id); assert_eq!(peers[0]["hash"],"saved-hash"); assert_eq!(peers[0]["extension"],json!({"nested":[1,2]}));
+    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"id":id,"note":"Only note"}),&token).await.status(),StatusCode::OK);
+    assert_eq!(book(&app,&token).await["peers"][0]["note"],"Only note");
+}
+
+#[tokio::test]
+async fn duplicate_target_and_foreign_entry_identity_cannot_change_address_book_data() {
+    let (app,token) = fixture().await;
+    let entry = value(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456"}),&token).await).await;
+    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"654321","alias":"Existing"}),&token).await.status(),StatusCode::OK);
+    let before = book(&app,&token).await;
+    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"id":entry["data"]["id"],"peer_id":"654321","alias":"Conflict"}),&token).await.status(),StatusCode::CONFLICT);
+    assert_eq!(book(&app,&token).await,before);
+    app.send(request("POST","/api/register",json!({"username":"other","password":"other-password"}))).await;
+    let other = value(app.send(request("POST","/api/login",json!({"username":"other","password":"other-password"}))).await).await["access_token"].as_str().unwrap().to_owned();
+    assert_eq!(auth(&app,"POST","/api/ab/peer",json!({"id":entry["data"]["id"],"peer_id":"foreign","alias":"Attack"}),&other).await.status(),StatusCode::NOT_FOUND);
+    assert_eq!(book(&app,&other).await["peers"],json!([])); assert_eq!(book(&app,&token).await,before);
+}

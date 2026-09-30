@@ -155,6 +155,7 @@ pub struct DeviceGroupMemberRequest {
 #[derive(Debug, Deserialize)]
 pub struct AddressBookEntryRequest {
     pub id: Option<String>,
+    #[serde(default)]
     pub peer_id: String,
     #[serde(default)]
     pub username: Option<String>,
@@ -1880,21 +1881,12 @@ async fn post_address_book_entries(
 async fn upsert_address_book_entry(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
-    Json(mut request): Json<AddressBookEntryRequest>,
+    Json(request): Json<AddressBookEntryRequest>,
 ) -> Response {
     let principal = match authorize(&state, &headers).await {
         Ok(principal) => principal,
         Err(err) => return auth_error_response(err, true),
     };
-    if request.peer_id.trim().is_empty() {
-        if let Some(id) = request.id.take() {
-            request.peer_id = id;
-        }
-    }
-    let peer_id = request.peer_id.trim();
-    if peer_id.is_empty() || peer_id.chars().count() > 128 {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_peer_id" }))).into_response();
-    }
     if request.extra.keys().any(|key|matches!(key.as_str(),"peerId"|"entryId"|"guid"|"user_id"|"createdAt"|"updatedAt")) {
         return invalid_list_query("reserved_address_book_field");
     }
@@ -1903,23 +1895,45 @@ async fn upsert_address_book_entry(
         Ok(document) => document,
         Err(_) => return auth_error_response(AuthError::Internal, false),
     };
-    let indexed = match state.auth.db().get_api_address_book_entry(&principal.user_id,peer_id).await {
-        Ok(entry) => entry,
-        Err(_) => return auth_error_response(AuthError::Internal,false),
+    let entries = match state.auth.db().list_api_address_book_entries(&principal.user_id).await {
+        Ok(entries) => entries, Err(_) => return auth_error_response(AuthError::Internal,false),
     };
+    let indexed = entries.iter().find(|entry|request.id.as_ref().map_or(entry.peer_id==request.peer_id.trim(),|id|entry.id==*id)).cloned();
     let snapshot = document.get("peers").and_then(serde_json::Value::as_array)
-        .and_then(|peers|peers.iter().find(|peer|snapshot_peer_id(peer)==Some(peer_id)))
+        .and_then(|peers|peers.iter().find(|peer| {
+            if let Some(id) = request.id.as_deref() {
+                let stable = peer.get("entryId").or_else(||peer.get("guid")).and_then(serde_json::Value::as_str);
+                stable==Some(id) || (stable.is_none() && snapshot_peer_id(peer)==Some(id))
+            } else { snapshot_peer_id(peer)==Some(request.peer_id.trim()) }
+        }))
         .and_then(|peer| {
             let mut entry = address_book_entry_from_snapshot(&principal.user_id,peer)?;
             if peer.get("entryId").or_else(||peer.get("guid")).is_none() { entry.id = uuid::Uuid::new_v4().to_string(); }
             Some(entry)
         });
-    let mut entry = indexed.or(snapshot).unwrap_or_else(||crate::database::ApiAddressBookEntry {
-        id:uuid::Uuid::new_v4().to_string(),user_id:principal.user_id,peer_id:peer_id.to_owned(),
+    let existing = indexed.or(snapshot);
+    if request.id.is_some() && existing.is_none() {
+        return (StatusCode::NOT_FOUND,Json(json!({"error":"address_book_entry_not_found"}))).into_response();
+    }
+    let peer_id = if request.peer_id.trim().is_empty() { existing.as_ref().map(|entry|entry.peer_id.clone()).unwrap_or_default() }
+        else { request.peer_id.trim().to_owned() };
+    if peer_id.is_empty() || peer_id.chars().count()>128 { return invalid_list_query("invalid_peer_id"); }
+    let mut entry = existing.unwrap_or_else(||crate::database::ApiAddressBookEntry {
+        id:uuid::Uuid::new_v4().to_string(),user_id:principal.user_id,peer_id:peer_id.clone(),
         username:String::new(),hostname:String::new(),alias:String::new(),platform:String::new(),
         tags:"[]".to_owned(),force_always_relay:0,created_at:String::new(),updated_at:String::new(),
     });
-    if let Some(id) = request.id { entry.id = id; }
+    if entry.peer_id != peer_id {
+        let duplicate = entries.iter().any(|other|other.peer_id==peer_id && other.id!=entry.id)
+            || document.get("peers").and_then(serde_json::Value::as_array).is_some_and(|peers|peers.iter().any(|peer|snapshot_peer_id(peer)==Some(peer_id.as_str())));
+        if duplicate { return (StatusCode::CONFLICT,Json(json!({"error":"address_book_entry_conflict"}))).into_response(); }
+        if let Some(peer) = document.get_mut("peers").and_then(serde_json::Value::as_array_mut)
+            .and_then(|peers|peers.iter_mut().find(|peer|snapshot_peer_id(peer)==Some(entry.peer_id.as_str()))).and_then(serde_json::Value::as_object_mut) {
+            peer.insert("id".to_owned(),json!(peer_id)); peer.insert("peerId".to_owned(),json!(peer_id));
+            if peer.contains_key("peer_id") { peer.insert("peer_id".to_owned(),json!(peer_id)); }
+        }
+        entry.peer_id = peer_id.clone();
+    }
     if let Some(username) = request.username { entry.username = username; }
     if let Some(hostname) = request.hostname { entry.hostname = hostname; }
     if let Some(alias) = request.alias { entry.alias = alias; }
@@ -1939,7 +1953,7 @@ async fn upsert_address_book_entry(
     }
     merge_address_book_entry(&mut document,&entry);
     if let Some(peer) = document.get_mut("peers").and_then(serde_json::Value::as_array_mut)
-        .and_then(|peers|peers.iter_mut().find(|peer|snapshot_peer_id(peer)==Some(peer_id))).and_then(serde_json::Value::as_object_mut) {
+        .and_then(|peers|peers.iter_mut().find(|peer|snapshot_peer_id(peer)==Some(peer_id.as_str()))).and_then(serde_json::Value::as_object_mut) {
         peer.extend(request.extra);
     } else { return invalid_list_query("invalid_address_book_peers"); }
     let snapshot = match serde_json::to_string(&document) {

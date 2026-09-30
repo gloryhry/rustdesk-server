@@ -497,3 +497,10 @@ whole-document replacement behavior.
 Web entry deletion also accepts entries present only in a legacy snapshot.
 Existence is checked within the authenticated account's complete document;
 missing/repeated deletion returns 404. Snapshot and index deletion are atomic.
+
+Web entry `id` is immutable once assigned; `peer_id` is the editable RustDesk ID.
+An edit with `id` resolves only within its account and may omit `peer_id` to
+keep the current value. A new target already used by another entry returns 409
+without changes; an unknown/foreign entry ID returns 404. Imported entries
+without entry identity acquire a stable ID when first edited. The snapshot
+Peer key and index are changed in one transaction, preserving extension fields.
