@@ -265,7 +265,7 @@ fn build_router(
         .route("/api/user/info", get(current_user))
         .route("/api/users", get(list_users))
         .route("/api/peers", get(list_official_peers))
-        .route("/api/device-group/accessible", get(list_device_groups))
+        .route("/api/device-group/accessible", get(list_accessible_device_groups))
         .route("/api/admin/user/current", get(admin_current_user))
         .route("/api/admin/user/list", get(admin_user_list))
         .route("/api/admin/session/list", get(admin_session_list))
@@ -577,24 +577,27 @@ async fn current_user(
     }
 }
 
-async fn list_users(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-) -> Response {
-    let principal = match authorize(&state, &headers).await {
+async fn list_users(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Query(query): Query<crate::pagination::ListQuery>) -> Response {
+    let principal = match authorize(&state,&headers).await {
         Ok(principal) => principal,
-        Err(err) => return auth_error_response(err, true),
+        Err(error) => return auth_error_response(error,true),
     };
+    let page = match query.parse() { Ok(page) => page, Err(error) => return invalid_list_query(error) };
     if !principal.user.is_admin {
-        return (StatusCode::OK, Json(json!({ "code": 0, "data": [principal.user] }))).into_response();
+        let visible = page.status.map_or(true,|status|principal.user.status==status)
+            && page.name.as_ref().map_or(true,|name|principal.user.name.to_lowercase().contains(&name.to_lowercase()));
+        let total = usize::from(visible);
+        let data = if visible && page.offset==0 { vec![principal.user] } else { Vec::new() };
+        return Json(crate::pagination::Page { total,data,code:0 }).into_response();
     }
-    match state.auth.db().list_api_users().await {
-        Ok(users) => {
-            let users = users.into_iter().map(admin_user_response).collect::<Vec<_>>();
-            (StatusCode::OK, Json(json!({ "code": 0, "data": users }))).into_response()
-        }
-        Err(_) => auth_error_response(AuthError::Internal, false),
+    match state.auth.db().paged_api_users(&page).await {
+        Ok(users) => Json(crate::pagination::Page { total:users.total,data:users.data.into_iter().map(admin_user_response).collect::<Vec<_>>(),code:0 }).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal,false),
     }
+}
+
+fn invalid_list_query(message: &str) -> Response {
+    (StatusCode::BAD_REQUEST,Json(json!({"error":message}))).into_response()
 }
 
 async fn admin_current_user(
@@ -1024,16 +1027,14 @@ async fn logout_authorized(state: &ApiState, principal: Principal) -> Response {
     }
 }
 
-async fn list_official_peers(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap) -> Response {
+async fn list_official_peers(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Query(query): Query<crate::pagination::ListQuery>) -> Response {
     let principal = match authorize(&state,&headers).await {
         Ok(principal) => principal,
         Err(error) => return auth_error_response(error,true),
     };
-    match state.auth.db().official_peers(&principal.user_id,principal.user.is_admin).await {
-        Ok(records) => {
-            let peers = records.into_iter().map(crate::official_peer::OfficialPeer::from).collect::<Vec<_>>();
-            Json(json!({"code":0,"data":peers})).into_response()
-        }
+    let page = match query.parse() { Ok(page) => page, Err(error) => return invalid_list_query(error) };
+    match state.auth.db().official_peers(&principal.user_id,principal.user.is_admin,&page).await {
+        Ok(records) => Json(crate::pagination::Page { total:records.total,data:records.data.into_iter().map(crate::official_peer::OfficialPeer::from).collect::<Vec<_>>(),code:0 }).into_response(),
         Err(_) => auth_error_response(AuthError::Internal,false),
     }
 }
@@ -1277,6 +1278,19 @@ async fn delete_group(
         )
             .into_response(),
         Err(_) => auth_error_response(AuthError::Internal, false),
+    }
+}
+
+async fn list_accessible_device_groups(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Query(query): Query<crate::pagination::ListQuery>) -> Response {
+    let principal = match authorize(&state,&headers).await {
+        Ok(principal) => principal,
+        Err(error) => return auth_error_response(error,true),
+    };
+    let page = match query.parse() { Ok(page) => page, Err(error) => return invalid_list_query(error) };
+    if page.status.is_some() { return invalid_list_query("device_groups_have_no_status_filter"); }
+    match state.auth.db().paged_accessible_device_groups(&principal.user_id,&page).await {
+        Ok(groups) => Json(groups).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal,false),
     }
 }
 

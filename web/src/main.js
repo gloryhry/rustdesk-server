@@ -1523,7 +1523,7 @@ async function loadGroups() {
   try {
     const [result, userResult] = await Promise.all([
       api('/api/groups'),
-      api('/api/users')
+      apiAllPages('/api/users')
     ]);
     const value = result.data?.list || result.data || result.list || result;
     const users = userResult.data?.list || userResult.data || userResult.list || userResult;
@@ -1943,6 +1943,20 @@ async function logout() {
     setNotice('error', error.message);
   }
   render();
+}
+
+async function apiAllPages(path) {
+  const data = [];
+  let total = 0;
+  for (let current = 1; ; current += 1) {
+    const separator = path.includes('?') ? '&' : '?';
+    const page = await api(`${path}${separator}current=${current}&pageSize=100`);
+    if (!Number.isSafeInteger(page?.total) || page.total < 0 || !Array.isArray(page.data)) throw new Error(t('requestFailed'));
+    if (current === 1) total = page.total;
+    if (page.total !== total || (page.data.length === 0 && data.length < total)) throw new Error(t('requestFailed'));
+    data.push(...page.data);
+    if (data.length >= total) return { total, data };
+  }
 }
 
 async function api(path, options = {}) {

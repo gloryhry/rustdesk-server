@@ -465,3 +465,17 @@ for management deletion and group membership. Do not pass a native PeerPayload
 break the native object shape: available name/OS fields provide a safe fallback
 and `info_error` explicitly reports the corruption. Reads never rewrite or discard
 the original stored information, which remains available to administrators.
+
+### Official list pagination (RustDesk 1.4.9)
+
+`GET /api/users`, `/api/peers`, and `/api/device-group/accessible` return
+root `total` and `data`. `current` defaults to 1; `pageSize` defaults to 100
+and must be between 1 and 100. Invalid or overflowing parameters return 400;
+pages past the end return empty data with the filtered total. Sorting is stable
+by name/ID (users and groups) or RustDesk ID/internal ID (peers).
+Authorization is applied before counting, and `accessible` never broadens scope.
+Users/peers accept management `status=0|1`; groups have no status filter.
+An optional `name` filter matches literal substrings in account name, group name,
+or Peer ID/managed device name. `%` and `_` are not wildcards.
+The Web group selector reads all account pages; management-specific list routes
+retain their existing complete responses.
