@@ -9,6 +9,7 @@ const messages = {
     brand: 'RustDesk API',
     login: '登录',
     register: '注册',
+    providerReadOnly: '环境变量（只读）',
     username: '用户名',
     email: '邮箱',
     password: '密码',
@@ -37,8 +38,8 @@ const messages = {
      clientId: 'Client ID',
      clientSecret: 'Client Secret（留空则保持不变）',
      tokenEndpoint: '令牌端点',
-     issuerEndpoint: 'Issuer（可选）',
-     jwksEndpoint: 'JWKS（可选）',
+     issuerEndpoint: 'Issuer（OIDC 必填）',
+     jwksEndpoint: 'JWKS（OIDC 必填）',
      scopes: 'Scopes',
      providerEnabled: '已启用',
      providerDisabled: '已禁用',
@@ -119,6 +120,7 @@ const messages = {
     brand: 'RustDesk API',
     login: 'Sign in',
     register: 'Register',
+    providerReadOnly: 'Environment (read only)',
     username: 'Username',
     email: 'Email',
     password: 'Password',
@@ -148,8 +150,8 @@ const messages = {
      clientId: 'Client ID',
      clientSecret: 'Client secret (leave blank to keep)',
      tokenEndpoint: 'Token endpoint',
-     issuerEndpoint: 'Issuer (optional)',
-     jwksEndpoint: 'JWKS (optional)',
+     issuerEndpoint: 'Issuer (required for OIDC)',
+     jwksEndpoint: 'JWKS (required for OIDC)',
      scopes: 'Scopes',
      providerEnabled: 'Enabled',
      providerDisabled: 'Disabled',
@@ -642,10 +644,18 @@ function oauthView() {
   const form = element('form', 'panel-form oauth-provider-form');
   form.id = 'oauth-provider-form';
   const draft = state.oauthDraft || {};
+  const kindLabel = element('label', 'field');
+  kindLabel.append(element('span', '', 'OAuth / OIDC'));
+  const kind = document.createElement('select'); kind.id = 'oauth-kind'; kind.name = 'kind';
+  for (const value of ['oauth2', 'oidc']) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'oidc' ? 'OIDC' : 'OAuth2'; kind.append(option); }
+  kind.value = draft.kind || 'oidc';
+  kind.disabled = Boolean(editing); kindLabel.append(kind); form.append(kindLabel);
   [['name', t('providerName'), 'text'], ['client_id', t('clientId'), 'text'], ['client_secret', t('clientSecret'), 'password'], ['authorization_url', t('authorizationEndpoint'), 'url'], ['token_url', t('tokenEndpoint'), 'url'], ['userinfo_url', t('userInfoEndpoint'), 'url'], ['issuer_url', t('issuerEndpoint'), 'url'], ['jwks_url', t('jwksEndpoint'), 'url'], ['scopes', t('scopes'), 'text']].forEach(([key, label, type]) => {
     const input = field(`oauth-${key}`, label, type, 'off', key === 'name' || key === 'client_id' || key === 'authorization_url' || key === 'token_url' || key === 'userinfo_url');
     input.querySelector('input').name = key;
     input.querySelector('input').value = draft[key] || '';
+    input.querySelector('input').readOnly = Boolean(editing) && !['client_secret', 'scopes'].includes(key);
+    if (key === 'client_secret') input.querySelector('input').required = !editing;
     form.append(input);
   });
   const enabled = element('label', 'checkbox-field');
@@ -660,8 +670,8 @@ function oauthView() {
   [t('provider'), t('authorizationEndpoint'), t('userInfoEndpoint'), t('status'), t('actions')].forEach(label => row.append(element('th', '', label))); head.append(row); table.append(head);
   const body = document.createElement('tbody');
   state.oauthProviders.forEach(provider => {
-    const item = document.createElement('tr'); item.append(element('td', 'strong-cell', provider.name || '—')); item.append(element('td', '', provider.authorization_url || '—')); item.append(element('td', '', provider.userinfo_url || '—')); item.append(element('td', '', provider.enabled === false ? t('providerDisabled') : t('providerEnabled')));
-    const cell = document.createElement('td'); const edit = button('', t('editProvider'), 'secondary'); edit.dataset.editOauth = provider.id || provider.name; cell.append(edit); const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary'); toggle.dataset.toggleOauth = provider.id || provider.name; toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true'; cell.append(toggle); const remove = button('', t('delete'), 'secondary'); remove.dataset.deleteOauth = provider.id || provider.name; cell.append(remove); item.append(cell); body.append(item);
+    const item = document.createElement('tr'); item.append(element('td', 'strong-cell', provider.name || '—')); item.append(element('td', '', provider.authorization_url || '—')); item.append(element('td', '', provider.userinfo_url || '—')); item.append(element('td', '', provider.read_only ? t('providerReadOnly') : (provider.enabled === false ? t('providerDisabled') : t('providerEnabled'))));
+    const cell = document.createElement('td'); const edit = button('', t('editProvider'), 'secondary'); edit.dataset.editOauth = provider.id || provider.name; edit.disabled = Boolean(provider.read_only); cell.append(edit); const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary'); toggle.dataset.toggleOauth = provider.id || provider.name; toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true'; toggle.disabled = Boolean(provider.read_only); cell.append(toggle); const remove = button('', t('delete'), 'secondary'); remove.dataset.deleteOauth = provider.id || provider.name; remove.disabled = Boolean(provider.read_only); cell.append(remove); item.append(cell); body.append(item);
   });
   if (!state.oauthProviders.length) { const empty = document.createElement('tr'); const cell = element('td', 'empty-cell', t('noProviders')); cell.colSpan = 5; empty.append(cell); body.append(empty); }
   table.append(body); tableWrap.append(table); view.append(tableWrap); return view;
@@ -1656,8 +1666,9 @@ async function loadOauthProviders() {
 }
 
 async function saveOauthProvider(event) {
-  event.preventDefault(); state.busy = true; render();
-  const data = Object.fromEntries(new FormData(event.currentTarget)); data.enabled = event.currentTarget.elements.enabled.checked;
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget)); data.enabled = event.currentTarget.elements.enabled.checked; data.kind = event.currentTarget.elements.kind.value;
+  state.busy = true; render();
   const editing = state.oauthDraft?.id; if (editing) data.id = editing;
   try { await api(editing ? '/api/admin/oauth/providers/update' : '/api/admin/oauth/providers', { method: 'POST', body: JSON.stringify(data) }); state.oauthDraft = null; setNotice('success', t('providerSaved')); await loadOauthProviders(); } catch (error) { setNotice('error', error.message); state.busy = false; render(); }
 }

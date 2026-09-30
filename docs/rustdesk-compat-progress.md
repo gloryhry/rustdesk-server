@@ -13,7 +13,7 @@
 | 03 | #4 | Google 与通用 OIDC 配置 | 已完成 |
 | 04 | #5 | 强制 OIDC 身份令牌验证 | 已完成 |
 | 05 | #3 | 原生 OAuth 发起与轮询 | 已完成 |
-| 06 | #15 | OAuth provider 管理与持久化 | 待处理 |
+| 06 | #15 | OAuth provider 管理与持久化 | 已完成 |
 | 07 | #18 | CORS、Cookie 会话和 CSRF | 待处理 |
 | 08 | #7 | 设备报告、绑定和注册时间 | 待处理 |
 | 09 | #9 | 官方设备 DTO | 待处理 |
@@ -78,6 +78,17 @@
 - 响应：成功 AuthBody 为根对象，包含官方必需 user.info；密码登录同步补齐该字段。保留 provider 别名，冲突明确拒绝。
 - 测试：按官方 1.4.9 类型和时序解析，覆盖错误浏览器、设备不匹配、重放、并发轮询、拒绝、OIDC 失败、入口与领取隔离、容量与精确过期边界。
 - 验收：根包 59 项测试及全部目标检查通过，数据库和锁文件校验值不变。
+
+### 06 / 原 #15
+
+- 复现：管理员 POST 创建 provider 在修复前返回 405，回归要求 201。
+- 修改：补齐管理员 CRUD；SQLite 版本化事务迁移、稳定 provider ID、不可变身份命名空间和删除名称保留；环境 provider 只读。
+- 密钥：独立 `API_OAUTH_CONFIG_KEY`（base64 32 字节），secretbox 认证加密绑定身份命名空间；不返回明文或密文，空白编辑保留密钥；缺少/错误密钥和 JWT 密钥复用均失败关闭。
+- 并发：先验证完整待替换配置再持久化，原子替换运行时；管理操作与原生授权失效共用锁，处理中 token 交换必须复核版本；SQLite 锁升级冲突整笔回滚重试。
+- 测试：12 项 HTTP/临时数据库回归覆盖权限、完整 CRUD、重启、密文与篡改、复制密文拒绝、密钥轮换、历史关联、并发迁移及等待/处理中/未领取授权撤销。
+- Web：系统 Chrome 真实 API 端到端测试通过创建、编辑、启停、刷新、删除和环境只读；`npm run build` 通过；`npm audit --omit=dev --audit-level=low` 为 0 漏洞，安装后的全依赖审计亦为 0。
+- 验收：根包 71 项测试及 `cargo check --locked --offline --all-targets` 通过；现有数据库与锁文件校验值保持不变。
+- 浏览器命令：`RUSTDESK_API_BINARY=/tmp/rustdesk-review-target/debug/rustdesk-api npm run test:browser -- oauth-admin.spec.js`（web 目录）。
 
 ## 完成与发布边界
 

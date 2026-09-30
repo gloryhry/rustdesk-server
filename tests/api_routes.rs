@@ -41,6 +41,7 @@ async fn test_app() -> (axum::Router, PathBuf) {
         String::new(),
         LdapConfig::disabled(),
         CookiePolicy::default(),
+        None,
     )
     .await
     .expect("test router should initialize");

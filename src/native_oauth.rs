@@ -93,6 +93,12 @@ impl NativeOAuthStore {
             matches!(&flow.status, Status::Authorizing(value) if value == state))
     }
 
+    pub async fn invalidate(&self, provider: &str) {
+        for flow in self.flows.lock().await.values_mut().filter(|flow| flow.provider == provider) {
+            flow.status = Status::Failed("oauth_provider_changed");
+        }
+    }
+
     pub async fn poll(&self, code: &str, id: &str, uuid: &str) -> Result<ExternalIdentity, &'static str> {
         let mut flows = self.flows.lock().await;
         let flow = flows.get(code).ok_or("invalid_native_authorization")?;

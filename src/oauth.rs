@@ -2,7 +2,7 @@ use hbb_common::tokio;
 use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
 use reqwest::Url;
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -11,24 +11,32 @@ pub enum OAuthProviderKind {
     Oidc,
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct OAuthProviderConfig {
     pub kind: OAuthProviderKind,
     pub name: String,
     pub client_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub client_secret: String,
     pub authorization_url: String,
     pub token_url: String,
     pub userinfo_url: String,
+    #[serde(default)]
     pub issuer_url: String,
+    #[serde(default)]
     pub jwks_url: String,
+    #[serde(default)]
     pub scopes: String,
 }
 
 impl OAuthProviderConfig {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.name.is_empty() || self.client_id.is_empty() || self.client_secret.is_empty() {
+        if self.name.is_empty() || self.name.len() > 64 || !self.name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            || self.client_id.is_empty() || self.client_id.len() > 512 || self.client_secret.is_empty() || self.client_secret.len() > 8192 {
             return Err("provider name and both client credentials are required");
+        }
+        if self.scopes.len() > 2048 || [&self.authorization_url, &self.token_url, &self.userinfo_url, &self.issuer_url, &self.jwks_url].iter().any(|url| url.len() > 4096) {
+            return Err("provider configuration exceeds size limits");
         }
         if !valid_provider_endpoint(&self.authorization_url) || !valid_provider_endpoint(&self.token_url)
             || !valid_provider_endpoint(&self.userinfo_url)
@@ -58,9 +66,16 @@ impl OAuthProviderConfig {
 
 #[derive(Clone)]
 pub struct OAuthRuntime {
-    providers: Arc<HashMap<String, OAuthProviderConfig>>,
+    providers: Arc<RwLock<HashMap<String, RuntimeProvider>>>,
     pending: Arc<tokio::sync::Mutex<HashMap<String, PendingState>>>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+}
+
+#[derive(Clone)]
+pub(crate) struct RuntimeProvider {
+    pub config: OAuthProviderConfig,
+    pub namespace: String,
+    pub revision: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +84,7 @@ pub enum OAuthFlowKind { Browser, Native }
 struct PendingState {
     flow: OAuthFlowKind,
     provider: String,
+    revision: String,
     redirect_uri: String,
     code_verifier: String,
     nonce: String,
@@ -107,7 +123,8 @@ pub struct OAuthProviderView {
 
 #[derive(Debug, Clone)]
 pub struct ExternalIdentity {
-    pub flow: OAuthFlowKind,
+    pub provider_name: String,
+    pub revision: String,    pub flow: OAuthFlowKind,
     pub provider: String,
     pub subject: String,
     pub username: String,
@@ -131,10 +148,10 @@ impl OAuthRuntime {
         let providers = configs
             .into_iter()
             .filter(|config| config.validate().is_ok())
-            .map(|config| (config.name.clone(), config))
+            .map(|config| (config.name.clone(), RuntimeProvider { namespace: config.name.clone(), config, revision: uuid::Uuid::new_v4().to_string() }))
             .collect();
         Self {
-            providers: Arc::new(providers),
+            providers: Arc::new(RwLock::new(providers)),
             pending: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             clock,
         }
@@ -152,27 +169,39 @@ impl OAuthRuntime {
     }
 
     pub fn provider_names(&self) -> Vec<String> {
-        let mut names = self.providers.keys().cloned().collect::<Vec<_>>();
+        let mut names = self.providers.read().map(|providers| providers.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
         names.sort();
         names
     }
 
     pub fn provider_views(&self) -> Vec<OAuthProviderView> {
-        let mut providers = self
-            .providers
-            .values()
-            .map(|config| OAuthProviderView {
-                kind: config.kind,
-                issuer_url: config.issuer_url.clone(),
-                jwks_url: config.jwks_url.clone(),
-                name: config.name.clone(),
-                authorization_url: config.authorization_url.clone(),
-                userinfo_url: config.userinfo_url.clone(),
-                scopes: config.scopes.clone(),
-            })
-            .collect::<Vec<_>>();
+        let mut providers = self.providers.read().map(|providers| providers.values().map(|provider| {
+            let config = &provider.config;
+            OAuthProviderView {
+                kind: config.kind, issuer_url: config.issuer_url.clone(), jwks_url: config.jwks_url.clone(),
+                name: config.name.clone(), authorization_url: config.authorization_url.clone(),
+                userinfo_url: config.userinfo_url.clone(), scopes: config.scopes.clone(),
+            }
+        }).collect::<Vec<_>>()).unwrap_or_default();
         providers.sort_by(|left, right| left.name.cmp(&right.name));
         providers
+    }
+
+    pub(crate) fn configs(&self) -> Result<Vec<OAuthProviderConfig>, OAuthError> {
+        Ok(self.providers.read().map_err(|_| OAuthError::Remote)?.values().map(|provider| provider.config.clone()).collect())
+    }
+
+    pub(crate) async fn replace(&self, replacements: Vec<RuntimeProvider>) -> Result<(), OAuthError> {
+        let mut pending = self.pending.lock().await;
+        let mut providers = self.providers.write().map_err(|_| OAuthError::Remote)?;
+        *providers = replacements.into_iter().map(|provider| (provider.config.name.clone(), provider)).collect();
+        pending.retain(|_, state| providers.get(&state.provider).is_some_and(|provider| provider.revision == state.revision));
+        Ok(())
+    }
+
+    pub(crate) fn identity_is_current(&self, identity: &ExternalIdentity) -> bool {
+        self.providers.read().is_ok_and(|providers| providers.get(&identity.provider_name)
+            .is_some_and(|provider| provider.namespace == identity.provider && provider.revision == identity.revision))
     }
 
     pub async fn begin(&self, provider: &str, redirect_uri: &str, browser_binding: &str) -> Result<Url, OAuthError> {
@@ -206,10 +235,9 @@ impl OAuthRuntime {
         if browser_binding.is_empty() || browser_binding.len() > 128 {
             return Err(OAuthError::InvalidState);
         }
-        let config = self
-            .providers
-            .get(provider)
-            .ok_or(OAuthError::NotConfigured)?;
+        let configured = self.providers.read().map_err(|_| OAuthError::Remote)?
+            .get(provider).cloned().ok_or(OAuthError::NotConfigured)?;
+        let config = &configured.config;
         let state = uuid::Uuid::new_v4().to_string();
         let nonce = uuid::Uuid::new_v4().to_string();
         let code_verifier = format!(
@@ -235,6 +263,7 @@ impl OAuthRuntime {
             PendingState {
                 flow,
                 provider: provider.to_owned(),
+                revision: configured.revision.clone(),
                 redirect_uri: redirect_uri.to_owned(),
                 code_verifier,
                 nonce: nonce.clone(),
@@ -294,10 +323,10 @@ impl OAuthRuntime {
         let code_verifier = pending.code_verifier;
         let nonce = pending.nonce;
         let device = pending.device;
-        let config = self
-            .providers
-            .get(&provider)
-            .ok_or(OAuthError::NotConfigured)?;
+        let configured = self.providers.read().map_err(|_| OAuthError::Remote)?
+            .get(&provider).cloned().ok_or(OAuthError::NotConfigured)?;
+        if configured.revision != pending.revision { return Err(OAuthError::InvalidState); }
+        let config = &configured.config;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
@@ -375,14 +404,18 @@ impl OAuthRuntime {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_owned();
-        Ok(ExternalIdentity {
+        let identity = ExternalIdentity {
             flow: pending.flow,
-            provider,
+            provider_name: provider,
+            provider: configured.namespace,
+            revision: configured.revision,
             subject,
             username,
             email,
             device,
-        })
+        };
+        if !self.identity_is_current(&identity) { return Err(OAuthError::InvalidState); }
+        Ok(identity)
     }
 }
 

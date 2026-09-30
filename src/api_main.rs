@@ -69,6 +69,14 @@ fn main() -> ResultType<()> {
     } else {
         api::CookiePolicy::default()
     };
+    let provider_key = match common::get_arg_opt("API_OAUTH_CONFIG_KEY") {
+        Some(value) => {
+            let bytes = base64::decode(&value)?;
+            if bytes == secret.as_bytes() { bail!("API_OAUTH_CONFIG_KEY must be independent from API_JWT_SECRET"); }
+            Some(hbbs::oauth_admin::ProviderSecretKey::from_bytes(&bytes).map_err(|message| hbb_common::anyhow::anyhow!(message))?)
+        }
+        None => None,
+    };
     start(
         bind_addr,
         db_url,
@@ -82,6 +90,7 @@ fn main() -> ResultType<()> {
         oauth_redirect_url,
         ldap,
         cookie_policy,
+        provider_key,
     )
 }
 
@@ -99,6 +108,7 @@ async fn start(
     oauth_redirect_url: String,
     ldap: hbbs::ldap::LdapConfig,
     cookie_policy: api::CookiePolicy,
+    provider_key: Option<hbbs::oauth_admin::ProviderSecretKey>,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
     let router = api::build_service(
@@ -113,6 +123,7 @@ async fn start(
         oauth_redirect_url,
         ldap,
         cookie_policy,
+        provider_key,
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;

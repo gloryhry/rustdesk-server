@@ -73,6 +73,7 @@ in the inherited process environment.
 | `API_BOOTSTRAP_ADMIN_PASSWORD` | *(unset)* | Optional bootstrap administrator password. Never log or commit this value. |
 | `API_PUBLIC_URL` | listener URL | Public URL returned to authenticated Web Clients. Set this explicitly behind a proxy. |
 | `API_WEB_ROOT` | `./web/dist` | Directory containing built Web Admin/Web Client assets served by `rustdesk-api`. |
+| `API_OAUTH_CONFIG_KEY` | *(required for database providers)* | Independent base64-encoded 32-byte key for authenticated encryption of provider client secrets. Keep it outside the database and separate from the JWT signing key. Missing/wrong keys fail closed when database providers exist. Back up this key with the matching database; changing it requires an explicit re-encryption procedure. |
 | `API_OAUTH_REDIRECT_URL` | *(unset)* | Exact HTTPS callback URL registered with the OAuth provider, for example `https://api.example.com/api/oidc/callback`. OAuth login remains unavailable until this is set. Browser callbacks also require the initiating flow cookie; state is single-use and expires after 300 seconds. Native login returns a separate polling code and browser-launch URL; the callback does not log the browser in. Only the initiating code/id/uuid tuple can claim the result once. Pending native flows are limited to 10000 and expire after 300 seconds; a restart invalidates unfinished flows. |
 | `API_GITHUB_CLIENT_ID` / `API_GITHUB_CLIENT_SECRET` | *(unset)* | Optional GitHub OAuth2 application credentials. Both credentials are required when enabled; no ID token is required. The secret must remain server-side. |
 | `API_GOOGLE_CLIENT_ID` / `API_GOOGLE_CLIENT_SECRET` | *(unset)* | Optional Google OIDC application credentials. Both credentials are required when enabled; issuer is https://accounts.google.com and JWKS is https://www.googleapis.com/oauth2/v3/certs. The secret must remain server-side. |
@@ -334,3 +335,39 @@ ExecStart=/usr/bin/hbbs
 
 Ports 21118/21119 are only needed for the web client; you can omit them
 otherwise.
+
+### Persisted OAuth provider management
+
+Administrators can list/create providers with `GET`/`POST /api/admin/oauth/providers`,
+edit with `POST /api/admin/oauth/providers/update`, change enabled state with
+`POST /api/admin/oauth/providers/toggle`, and delete with
+`POST /api/admin/oauth/providers/delete`. Edits, toggles and deletes use the stable
+`id` from the list. Provider requests include `kind` (`oauth2` or `oidc`), `name`,
+`client_id`, the authorization/token/userinfo endpoints, scopes and `enabled`.
+OIDC also requires issuer/JWKS URLs and the `openid` scope. Creation requires a
+secret; an empty or whitespace-only edit preserves the existing secret.
+Responses expose only `secret_configured`, never the secret or ciphertext.
+Environment providers are marked `source=environment, read_only=true` and cannot
+be modified through these APIs.
+
+Migration version 1 reserves historical provider names and stores stable IDs and
+identity namespaces. SQLite transactions serialize migrations; failed lock
+upgrades retry the whole transaction. Provider names and identity authority
+(type, client ID and identity endpoints) are immutable, including after deletion.
+Use a new name for a new authority. Secret/scope edits preserve account links.
+Successful mutations replace the runtime configuration atomically and invalidate
+older pending and unclaimed native authorizations; disabling also blocks new
+flows immediately. A restart preserves configurations but invalidates unfinished
+OAuth flows. Run only one API process per registry database: runtime replacement
+is process-local; hbbs/hbbr may share the database.
+
+Before upgrading a real database, stop writers and create a consistent SQLite
+backup with its encrypted-configuration key; rehearse migration on a copy. A
+rollback must restore the matching program version, database backup and key.
+Neither tests nor local commits here migrate a production database.
+
+For browser acceptance, build `rustdesk-api`, run `npm ci && npm run build` in
+`web`, then set `RUSTDESK_API_BINARY` to its absolute path and run
+`npm run test:browser`. The harness uses a temporary database, random loopback
+port and temporary keys. `PLAYWRIGHT_CHROME` optionally selects a local Chrome
+executable (default `/usr/bin/google-chrome`); it does not download a browser.

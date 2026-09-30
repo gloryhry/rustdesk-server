@@ -379,6 +379,89 @@ impl Database {
         )
         .execute(conn.deref_mut())
         .await?;
+        drop(conn);
+        self.apply_api_migrations().await?;
+        Ok(())
+    }
+
+    async fn apply_api_migrations(&self) -> ResultType<()> {
+        let deadline = hbb_common::tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            match self.apply_api_migrations_once().await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    let busy = error.downcast_ref::<SqlxError>().and_then(|error| match error {
+                        SqlxError::Database(error) => error.code(),
+                        _ => None,
+                    }).and_then(|code| code.parse::<u32>().ok()).is_some_and(|code| matches!(code & 255, 5 | 6));
+                    // Deferred SQLite transactions can lose a read-to-write upgrade race.
+                    // The failed transaction has rolled back; retry the entire version check.
+                    if !busy || hbb_common::tokio::time::Instant::now() >= deadline { return Err(error); }
+                    hbb_common::tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            }
+        }
+    }
+
+    async fn apply_api_migrations_once(&self) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        sqlx::query("create table if not exists api_schema_lock (id integer primary key)").execute(&mut tx).await?;
+        sqlx::query("insert or ignore into api_schema_lock(id) values(1)").execute(&mut tx).await?;
+        // Acquire SQLite's writer lock before reading migration versions. The transaction rolls back on cancellation.
+        sqlx::query("update api_schema_lock set id = id where id = 1").execute(&mut tx).await?;
+        sqlx::query("create table if not exists api_schema_migration(version integer primary key, name text not null, applied_at text not null default current_timestamp)").execute(&mut tx).await?;
+        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version = 1").fetch_optional(&mut tx).await?;
+        if applied.is_none() {
+            sqlx::query("create table api_oauth_provider (
+                id text primary key, name text not null unique, namespace text not null unique,
+                authority text not null, source text not null, config text not null,
+                encrypted_secret text not null, enabled integer not null, deleted integer not null,
+                revision text not null)").execute(&mut tx).await?;
+            // Reserve historical identity names so a new database provider cannot take over old identities.
+            sqlx::query("insert into api_oauth_provider(id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision)
+                select 'legacy:' || provider,provider,provider,'','legacy','{}','',0,1,'legacy' from api_identity group by provider").execute(&mut tx).await?;
+            sqlx::query("insert into api_schema_migration(version,name) values(1,'oauth_provider_registry')").execute(&mut tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub(crate) async fn oauth_provider_records(&self) -> ResultType<Vec<crate::oauth_admin::ProviderRecord>> {
+        Ok(sqlx::query_as("select id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision from api_oauth_provider order by name")
+            .fetch_all(self.pool.get().await?.deref_mut()).await?)
+    }
+
+    pub(crate) async fn insert_oauth_provider(&self, row: &crate::oauth_admin::ProviderRecord) -> ResultType<()> {
+        sqlx::query("insert into api_oauth_provider(id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision) values(?,?,?,?,?,?,?,?,?,?)")
+            .bind(&row.id).bind(&row.name).bind(&row.namespace).bind(&row.authority).bind(&row.source)
+            .bind(&row.config).bind(&row.encrypted_secret).bind(row.enabled).bind(row.deleted).bind(&row.revision)
+            .execute(self.pool.get().await?.deref_mut()).await?;
+        Ok(())
+    }
+
+    pub(crate) async fn update_oauth_provider(&self, row: &crate::oauth_admin::ProviderRecord, previous: &str) -> ResultType<bool> {
+        Ok(sqlx::query("update api_oauth_provider set config=?, encrypted_secret=?, enabled=?, deleted=?, revision=? where id=? and revision=?")
+            .bind(&row.config).bind(&row.encrypted_secret).bind(row.enabled).bind(row.deleted).bind(&row.revision)
+            .bind(&row.id).bind(previous).execute(self.pool.get().await?.deref_mut()).await?.rows_affected() == 1)
+    }
+
+    pub(crate) async fn register_environment_provider(&self, row: &crate::oauth_admin::ProviderRecord) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        // INSERT obtains the writer lock before examining an existing registry entry.
+        sqlx::query("insert or ignore into api_oauth_provider(id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision) values(?,?,?,?,?,?,?,?,?,?)")
+            .bind(&row.id).bind(&row.name).bind(&row.namespace).bind(&row.authority).bind(&row.source)
+            .bind(&row.config).bind(&row.encrypted_secret).bind(row.enabled).bind(row.deleted).bind(&row.revision)
+            .execute(&mut tx).await?;
+        let existing: crate::oauth_admin::ProviderRecord = sqlx::query_as("select id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision from api_oauth_provider where name=?")
+            .bind(&row.name).fetch_one(&mut tx).await?;
+        if existing.source != "legacy" && (existing.source != "environment" || existing.authority != row.authority) {
+            hbb_common::bail!("OAuth environment provider name or identity authority conflicts with registry");
+        }
+        sqlx::query("update api_oauth_provider set source='environment',authority=?,config=?,enabled=1,deleted=0,revision=? where id=?")
+            .bind(&row.authority).bind(&row.config).bind(&row.revision).bind(&existing.id).execute(&mut tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 

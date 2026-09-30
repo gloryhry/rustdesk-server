@@ -3,6 +3,7 @@ use crate::ldap::LdapConfig;
 pub use crate::browser_security::CookiePolicy;
 use crate::oauth::{OAuthError, OAuthRuntime, OAuthFlowKind};
 use crate::native_oauth::NativeOAuthStore;
+use crate::oauth_admin::{AdminError, OAuthProviderAdmin, ProviderRequest, ProviderSecretKey};
 use axum::{
     error_handling::HandleErrorLayer,
     extract::{Extension, Json, Path, Query},
@@ -31,6 +32,7 @@ pub struct ApiState {
     pub ldap: Arc<hbb_common::tokio::sync::RwLock<LdapConfig>>,
     pub cookie_policy: CookiePolicy,
     native_oauth: NativeOAuthStore,
+    provider_admin: Arc<OAuthProviderAdmin>,
     pub tag_lock: Arc<hbb_common::tokio::sync::Mutex<()>>,
 }
 
@@ -226,7 +228,7 @@ pub struct AdminUserResponse {
     pub created_at: String,
 }
 
-pub fn build_router(
+fn build_router(
     auth: AuthService,
     registration_enabled: bool,
     public_server_config: PublicServerConfig,
@@ -235,6 +237,7 @@ pub fn build_router(
     oauth_redirect_url: String,
     ldap: LdapConfig,
     cookie_policy: CookiePolicy,
+    provider_admin: OAuthProviderAdmin,
 ) -> Router {
     let native_clock = oauth.clone();
     let state = Arc::new(ApiState {
@@ -245,6 +248,7 @@ pub fn build_router(
         oauth_redirect_url,
         ldap: Arc::new(hbb_common::tokio::sync::RwLock::new(ldap)),
         cookie_policy,
+        provider_admin: Arc::new(provider_admin),
         native_oauth: NativeOAuthStore::new(Arc::new(move || native_clock.now())),
         tag_lock: Arc::new(hbb_common::tokio::sync::Mutex::new(())),
     });
@@ -278,7 +282,10 @@ pub fn build_router(
         .route("/api/admin/user/list", get(admin_user_list))
         .route("/api/admin/session/list", get(admin_session_list))
         .route("/api/admin/session/revoke", post(admin_session_revoke))
-        .route("/api/admin/oauth/providers", get(admin_oauth_providers))
+        .route("/api/admin/oauth/providers", get(admin_oauth_providers).post(admin_oauth_create))
+        .route("/api/admin/oauth/providers/update", post(admin_oauth_update))
+        .route("/api/admin/oauth/providers/toggle", post(admin_oauth_toggle))
+        .route("/api/admin/oauth/providers/delete", post(admin_oauth_delete))
         .route("/api/admin/user/create", post(admin_user_create))
         .route("/api/admin/user/update", post(admin_user_status))
         .route("/api/admin/user/changePwd", post(admin_user_password))
@@ -343,7 +350,16 @@ pub async fn build_service(
     oauth_redirect_url: String,
     ldap: LdapConfig,
     cookie_policy: CookiePolicy,
+    provider_key: Option<ProviderSecretKey>,
 ) -> Result<Router, AuthError> {
+    if provider_key.as_ref().is_some_and(|key| key.matches(secret.as_bytes())) {
+        return Err(AuthError::InvalidInput("OAuth configuration key must be independent from JWT secret"));
+    }
+    let provider_admin = OAuthProviderAdmin::initialize(db.clone(), oauth.clone(), provider_key)
+        .await.map_err(|error| {
+            hbb_common::log::error!("OAuth provider registry initialization failed: {error:?}");
+            AuthError::Internal
+        })?;
     let auth = AuthService::new(db, secret, token_ttl)?;
     if let Some((username, password)) = bootstrap_admin {
         auth.ensure_bootstrap_admin(&username, &password).await?;
@@ -357,6 +373,7 @@ pub async fn build_service(
         oauth_redirect_url,
         ldap,
         cookie_policy,
+        provider_admin,
     ))
 }
 
@@ -655,15 +672,79 @@ async fn admin_oauth_providers(
     if !principal.user.is_admin {
         return admin_required_response();
     }
-    (
-        StatusCode::OK,
-        Json(json!({
-            "code": 0,
-            "data": state.oauth.provider_views(),
-            "redirect_url_configured": !state.oauth_redirect_url.is_empty()
-        })),
-    )
-        .into_response()
+    match state.provider_admin.list().await {
+        Ok(providers) => Json(json!({"code":0,"data":providers,"redirect_url_configured":!state.oauth_redirect_url.is_empty()})).into_response(),
+        Err(error) => provider_admin_error(error),
+    }
+}
+
+async fn admin_oauth_create(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<ProviderRequest>) -> Response {
+    if let Err(response) = require_admin(&state, &headers).await { return response; }
+    let _guard = state.provider_admin.lock().await;
+    match state.provider_admin.create(request).await {
+        Ok(provider) => (StatusCode::CREATED, Json(provider)).into_response(),
+        Err(error) => provider_admin_error(error),
+    }
+}
+
+async fn admin_oauth_update(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<ProviderRequest>) -> Response {
+    if let Err(response) = require_admin(&state, &headers).await { return response; }
+    let _guard = state.provider_admin.lock().await;
+    match state.provider_admin.update(request).await {
+        Ok(provider) => {
+            state.native_oauth.invalidate(&provider.config.name).await;
+            Json(provider).into_response()
+        }
+        Err(error) => provider_admin_error(error),
+    }
+}
+
+#[derive(Deserialize)]
+struct ProviderToggleRequest { id: String, enabled: bool }
+
+async fn admin_oauth_toggle(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<ProviderToggleRequest>) -> Response {
+    if let Err(response) = require_admin(&state, &headers).await { return response; }
+    let _guard = state.provider_admin.lock().await;
+    match state.provider_admin.toggle(&request.id, request.enabled).await {
+        Ok(provider) => {
+            state.native_oauth.invalidate(&provider.config.name).await;
+            Json(provider).into_response()
+        }
+        Err(error) => provider_admin_error(error),
+    }
+}
+
+async fn admin_oauth_delete(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<UserIdRequest>) -> Response {
+    if let Err(response) = require_admin(&state, &headers).await { return response; }
+    let _guard = state.provider_admin.lock().await;
+    match state.provider_admin.delete(&request.id).await {
+        Ok(name) => {
+            state.native_oauth.invalidate(&name).await;
+            Json(serde_json::Value::Null).into_response()
+        }
+        Err(error) => provider_admin_error(error),
+    }
+}
+
+async fn require_admin(state: &ApiState, headers: &HeaderMap) -> Result<(), Response> {
+    match authorize(state, headers).await {
+        Ok(principal) if principal.user.is_admin => Ok(()),
+        Ok(_) => Err(admin_required_response()),
+        Err(error) => Err(auth_error_response(error, true)),
+    }
+}
+
+fn provider_admin_error(error: AdminError) -> Response {
+    let (status, message) = match error {
+        AdminError::Invalid(message) => (StatusCode::BAD_REQUEST, message),
+        AdminError::Conflict => (StatusCode::CONFLICT, "oauth_provider_conflict"),
+        AdminError::NotFound => (StatusCode::NOT_FOUND, "oauth_provider_not_found"),
+        AdminError::ReadOnly => (StatusCode::FORBIDDEN, "environment_provider_is_read_only"),
+        AdminError::KeyMissing => (StatusCode::SERVICE_UNAVAILABLE, "oauth_configuration_key_missing"),
+        AdminError::Encryption => (StatusCode::INTERNAL_SERVER_ERROR, "oauth_secret_decryption_failed"),
+        AdminError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "oauth_provider_storage_failed"),
+    };
+    (status, Json(json!({"error":message}))).into_response()
 }
 
 async fn admin_user_list(
@@ -2136,6 +2217,7 @@ async fn oauth_login_post(
     Extension(state): Extension<Arc<ApiState>>,
     Json(request): Json<OAuthAuthRequest>,
 ) -> Response {
+    let _guard = state.provider_admin.lock().await;
     if state.oauth_redirect_url.is_empty() { return oauth_error_response(OAuthError::NotConfigured); }
     let op = request.op.strip_prefix("oidc/").unwrap_or(&request.op);
     let provider_alias = request.provider.strip_prefix("oidc/").unwrap_or(&request.provider);
@@ -2196,6 +2278,8 @@ async fn oauth_auth_query(
         Ok(identity) => identity,
         Err(error) => return Json(json!({"error":error})).into_response(),
     };
+    let _guard = state.provider_admin.lock().await;
+    if !state.oauth.identity_is_current(&identity) { return native_error("oauth_provider_changed"); }
     match state.auth.login_external(&identity.provider, &identity.subject, &identity.username, &identity.email,
         LoginDevice { id: identity.device.id, uuid: identity.device.uuid, name: identity.device.name,
             os: identity.device.os, device_type: identity.device.device_type }).await
@@ -2255,12 +2339,14 @@ async fn oauth_callback(
             return oauth_error_response(err);
         }
     };
-    if !query.provider.is_empty() && query.provider != identity.provider {
+    if !query.provider.is_empty() && query.provider != identity.provider_name {
         if identity.flow == OAuthFlowKind::Native {
             let _ = state.native_oauth.finish(&query.state, Err("conflicting_oauth_provider")).await;
         }
         return oauth_error_response(OAuthError::InvalidState);
     }
+    let _guard = state.provider_admin.lock().await;
+    if !state.oauth.identity_is_current(&identity) { return oauth_error_response(OAuthError::InvalidState); }
     if identity.flow == OAuthFlowKind::Native {
         let response = match state.native_oauth.finish(&query.state, Ok(identity)).await {
             Ok(()) => (StatusCode::OK, "Authorization complete. Return to RustDesk.").into_response(),
