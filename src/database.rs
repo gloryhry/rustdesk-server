@@ -18,11 +18,11 @@ impl deadpool::managed::Manager for DbPool {
     type Type = SqliteConnection;
     type Error = SqlxError;
     async fn create(&self) -> Result<SqliteConnection, SqlxError> {
-        let mut opt = SqliteConnectOptions::from_str(&self.url)?
+        let opt = SqliteConnectOptions::from_str(&self.url)?
             .create_if_missing(true)
             .foreign_keys(true)
-            .busy_timeout(Duration::from_secs(5));
-        opt.log_statements(log::LevelFilter::Debug);
+            .busy_timeout(Duration::from_secs(5))
+            .log_statements(log::LevelFilter::Debug);
         SqliteConnection::connect_with(&opt).await
     }
     async fn recycle(
@@ -411,24 +411,24 @@ impl Database {
     async fn apply_api_migrations_once(&self) -> ResultType<()> {
         let mut conn = self.pool.get().await?;
         let mut tx = conn.begin().await?;
-        sqlx::query("create table if not exists api_schema_lock (id integer primary key)").execute(&mut tx).await?;
-        sqlx::query("insert or ignore into api_schema_lock(id) values(1)").execute(&mut tx).await?;
+        sqlx::query("create table if not exists api_schema_lock (id integer primary key)").execute(&mut *tx).await?;
+        sqlx::query("insert or ignore into api_schema_lock(id) values(1)").execute(&mut *tx).await?;
         // Acquire SQLite's writer lock before reading migration versions. The transaction rolls back on cancellation.
-        sqlx::query("update api_schema_lock set id = id where id = 1").execute(&mut tx).await?;
-        sqlx::query("create table if not exists api_schema_migration(version integer primary key, name text not null, applied_at text not null default current_timestamp)").execute(&mut tx).await?;
-        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version = 1").fetch_optional(&mut tx).await?;
+        sqlx::query("update api_schema_lock set id = id where id = 1").execute(&mut *tx).await?;
+        sqlx::query("create table if not exists api_schema_migration(version integer primary key, name text not null, applied_at text not null default current_timestamp)").execute(&mut *tx).await?;
+        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version = 1").fetch_optional(&mut *tx).await?;
         if applied.is_none() {
             sqlx::query("create table api_oauth_provider (
                 id text primary key, name text not null unique, namespace text not null unique,
                 authority text not null, source text not null, config text not null,
                 encrypted_secret text not null, enabled integer not null, deleted integer not null,
-                revision text not null)").execute(&mut tx).await?;
+                revision text not null)").execute(&mut *tx).await?;
             // Reserve historical identity names so a new database provider cannot take over old identities.
             sqlx::query("insert into api_oauth_provider(id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision)
-                select 'legacy:' || provider,provider,provider,'','legacy','{}','',0,1,'legacy' from api_identity group by provider").execute(&mut tx).await?;
-            sqlx::query("insert into api_schema_migration(version,name) values(1,'oauth_provider_registry')").execute(&mut tx).await?;
+                select 'legacy:' || provider,provider,provider,'','legacy','{}','',0,1,'legacy' from api_identity group by provider").execute(&mut *tx).await?;
+            sqlx::query("insert into api_schema_migration(version,name) values(1,'oauth_provider_registry')").execute(&mut *tx).await?;
         }
-        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version = 2").fetch_optional(&mut tx).await?;
+        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version = 2").fetch_optional(&mut *tx).await?;
         if applied.is_none() {
             sqlx::query("alter table api_device add column peer_guid blob;
                 alter table api_device add column verified integer not null default 0;
@@ -444,9 +444,9 @@ impl Database {
                     device_id text not null, peer_id text not null, owner_id text not null, pk_fingerprint text not null,
                     recorded_at_ms integer not null);
                 insert into api_schema_migration(version,name) values(2,'untrusted_device_reports_and_verified_bindings')")
-                .execute(&mut tx).await?;
+                .execute(&mut *tx).await?;
         }
-        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version=3").fetch_optional(&mut tx).await?;
+        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version=3").fetch_optional(&mut *tx).await?;
         if applied.is_none() { crate::address_book_store::migrate(&mut tx).await?; }
         tx.commit().await?;
         Ok(())
@@ -490,14 +490,14 @@ impl Database {
         sqlx::query("insert or ignore into api_oauth_provider(id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision) values(?,?,?,?,?,?,?,?,?,?)")
             .bind(&row.id).bind(&row.name).bind(&row.namespace).bind(&row.authority).bind(&row.source)
             .bind(&row.config).bind(&row.encrypted_secret).bind(row.enabled).bind(row.deleted).bind(&row.revision)
-            .execute(&mut tx).await?;
+            .execute(&mut *tx).await?;
         let existing: crate::oauth_admin::ProviderRecord = sqlx::query_as("select id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision from api_oauth_provider where name=?")
-            .bind(&row.name).fetch_one(&mut tx).await?;
+            .bind(&row.name).fetch_one(&mut *tx).await?;
         if existing.source != "legacy" && (existing.source != "environment" || existing.authority != row.authority) {
             hbb_common::bail!("OAuth environment provider name or identity authority conflicts with registry");
         }
         sqlx::query("update api_oauth_provider set source='environment',authority=?,config=?,enabled=1,deleted=0,revision=? where id=?")
-            .bind(&row.authority).bind(&row.config).bind(&row.revision).bind(&existing.id).execute(&mut tx).await?;
+            .bind(&row.authority).bind(&row.config).bind(&row.revision).bind(&existing.id).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -688,7 +688,7 @@ impl Database {
         let mut tx = conn.begin().await?;
         let count_sql = format!("select count(*) {base}");
         let total: i64 = sqlx::query_scalar(&count_sql).bind(allow_all).bind(viewer).bind(page.status).bind(page.status)
-            .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut tx).await?;
+            .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut *tx).await?;
         let data_sql = format!("select p.id as peer_id,d.user_id,u.username as user_name,d.name,d.os,d.info as legacy_info,t.sysinfo as reported_info,
             d.status,coalesce(r.registered_at_ms,0) as registered_at_ms,
             (coalesce(r.registered_at_ms,0)>? and coalesce(r.registered_at_ms,0)<=?) as online,
@@ -696,7 +696,7 @@ impl Database {
             {base} order by p.id,d.id limit ? offset ?");
         let data = sqlx::query_as(&data_sql).bind(now-crate::device_registry::REGISTRATION_TIMEOUT_MS).bind(now).bind(viewer)
             .bind(allow_all).bind(viewer).bind(page.status).bind(page.status)
-            .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut tx).await?;
+            .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(crate::pagination::Page { total:usize::try_from(total)?,data,code:0 })
     }
@@ -705,10 +705,10 @@ impl Database {
         let mut conn = self.pool.get().await?;
         let mut tx = conn.begin().await?;
         let total: i64 = sqlx::query_scalar("select count(*) from api_user where (? is null or status=?) and (? is null or username like ? escape '\\')")
-            .bind(page.status).bind(page.status).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut tx).await?;
+            .bind(page.status).bind(page.status).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut *tx).await?;
         let data = sqlx::query_as("select id,username,email,nickname,avatar,password_hash,is_admin,status,token_version,created_at,updated_at
             from api_user where (? is null or status=?) and (? is null or username like ? escape '\\') order by username,id limit ? offset ?")
-            .bind(page.status).bind(page.status).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut tx).await?;
+            .bind(page.status).bind(page.status).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(crate::pagination::Page { total:usize::try_from(total)?,data,code:0 })
     }
@@ -717,9 +717,9 @@ impl Database {
         let mut conn = self.pool.get().await?;
         let mut tx = conn.begin().await?;
         let total: i64 = sqlx::query_scalar("select count(*) from api_device_group where created_by=? and (? is null or name like ? escape '\\')")
-            .bind(viewer).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut tx).await?;
+            .bind(viewer).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut *tx).await?;
         let data = sqlx::query_as("select id,name,created_by,created_at from api_device_group where created_by=? and (? is null or name like ? escape '\\') order by name,id limit ? offset ?")
-            .bind(viewer).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut tx).await?;
+            .bind(viewer).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(crate::pagination::Page { total:usize::try_from(total)?,data,code:0 })
     }
@@ -749,15 +749,15 @@ impl Database {
     pub async fn delete_api_device(&self, id: &str, actor: &str) -> ResultType<bool> {
         let mut conn = self.pool.get().await?;
         let mut tx = conn.begin().await?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await?;
         let row: Option<(String,String,Option<Vec<u8>>)> = sqlx::query_as("select d.user_id,coalesce(p.id,''),d.verified_pk from api_device d left join peer p on p.guid=d.peer_guid where d.id=?")
-            .bind(id).fetch_optional(&mut tx).await?;
+            .bind(id).fetch_optional(&mut *tx).await?;
         let (owner,peer_id,pk) = match row { Some(row) => row, None => return Ok(false) };
         let fingerprint = pk.map(|pk|crate::device_registry::key_fingerprint(&pk)).unwrap_or_default();
         sqlx::query("insert into api_device_binding_audit(id,actor_id,action,device_id,peer_id,owner_id,pk_fingerprint,recorded_at_ms) values(?,?,'delete',?,?,?,?,?)")
             .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(id).bind(peer_id).bind(owner).bind(fingerprint).bind(crate::device_registry::now_ms())
-            .execute(&mut tx).await?;
-        sqlx::query("delete from api_device where id=?").bind(id).execute(&mut tx).await?;
+            .execute(&mut *tx).await?;
+        sqlx::query("delete from api_device where id=?").bind(id).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -1129,7 +1129,7 @@ impl Database {
                 registered_at_ms=case when peer_registration.uuid=excluded.uuid and peer_registration.pk=excluded.pk
                     then max(peer_registration.registered_at_ms,excluded.registered_at_ms) else excluded.registered_at_ms end")
                 .bind(observation.registered_at_ms).bind(&observation.guid).bind(&observation.uuid).bind(&observation.pk)
-                .execute(&mut tx).await?;
+                .execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -1145,29 +1145,29 @@ impl Database {
         let serialized = serde_json::to_string(value).map_err(|_| RegistryError::Storage)?;
         let mut conn = self.pool.get().await.map_err(|_| RegistryError::Storage)?;
         let mut tx = conn.begin().await.map_err(|_| RegistryError::Storage)?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let current: Option<(Vec<u8>,Vec<u8>)> = sqlx::query_as("select guid,pk from peer where id=? and uuid=?")
-            .bind(&id).bind(&uuid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(&id).bind(&uuid).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let (guid,pk) = current.ok_or(RegistryError::NotFound)?;
         let existing: Option<(Vec<u8>,Vec<u8>,Option<String>,i64,i64)> = sqlx::query_as("select uuid,pk,sysinfo,sysinfo_at_ms,heartbeat_at_ms from api_device_report where peer_guid=?")
-            .bind(&guid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(&guid).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let same_identity = existing.as_ref().is_some_and(|(old_uuid,old_pk,_,_,_)| *old_uuid == uuid && *old_pk == pk);
         if let Some((_,_,_,sysinfo_at,heartbeat_at)) = existing.as_ref().filter(|_| same_identity) {
             let previous = if heartbeat { *heartbeat_at } else { *sysinfo_at };
             if previous > 0 && now.saturating_sub(previous) < REPORT_INTERVAL_MS { return Err(RegistryError::RateLimited); }
         }
         if existing.is_none() {
-            let count: i64 = sqlx::query_scalar("select count(*) from api_device_report").fetch_one(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            let count: i64 = sqlx::query_scalar("select count(*) from api_device_report").fetch_one(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
             if count >= MAX_REPORTS { return Err(RegistryError::Capacity); }
         }
         if !same_identity {
             sqlx::query("insert into api_device_report(peer_guid,uuid,pk) values(?,?,?) on conflict(peer_guid) do update set
                 uuid=excluded.uuid,pk=excluded.pk,sysinfo=null,sysinfo_at_ms=0,heartbeat=null,heartbeat_at_ms=0")
-                .bind(&guid).bind(&uuid).bind(&pk).execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+                .bind(&guid).bind(&uuid).bind(&pk).execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         }
         let sql = if heartbeat { "update api_device_report set heartbeat=?,heartbeat_at_ms=? where peer_guid=?" }
             else { "update api_device_report set sysinfo=?,sysinfo_at_ms=? where peer_guid=?" };
-        sqlx::query(sql).bind(serialized).bind(now).bind(&guid).execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query(sql).bind(serialized).bind(now).bind(&guid).execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let needs_sysinfo = heartbeat && (!same_identity || existing.as_ref().map_or(true,|(_,_,sysinfo,_,_)| sysinfo.is_none()));
         tx.commit().await.map_err(|_| RegistryError::Storage)?;
         Ok(needs_sysinfo)
@@ -1199,19 +1199,19 @@ impl Database {
         }
         let mut conn = self.pool.get().await.map_err(|_| RegistryError::Storage)?;
         let mut tx = conn.begin().await.map_err(|_| RegistryError::Storage)?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let peer: Option<(Vec<u8>,Vec<u8>,Vec<u8>)> = sqlx::query_as("select guid,uuid,pk from peer where id=?")
-            .bind(&request.peer_id).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(&request.peer_id).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let (guid,uuid,pk) = peer.ok_or(RegistryError::NotFound)?;
         if pk.len()!=32 || key_fingerprint(&pk)!=request.pk_fingerprint { return Err(RegistryError::Conflict); }
         let user: Option<String> = sqlx::query_scalar("select id from api_user where id=? and status=1")
-            .bind(&request.user_id).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(&request.user_id).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         if user.is_none() { return Err(RegistryError::NotFound); }
         let device: Option<String> = sqlx::query_scalar("select id from api_device where peer_guid=? and verified=1")
-            .bind(&guid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(&guid).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let canonical_uuid = base64::encode(&uuid);
         let legacy: Option<(String,Option<Vec<u8>>,i64)> = sqlx::query_as("select id,peer_guid,verified from api_device where user_id=? and uuid=?")
-            .bind(&request.user_id).bind(&canonical_uuid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(&request.user_id).bind(&canonical_uuid).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         if legacy.as_ref().is_some_and(|(_,old_guid,verified)| *verified==1 && old_guid.as_ref()!=Some(&guid)) { return Err(RegistryError::Conflict); }
         let legacy = legacy.map(|(id,_,_)|id);
         if device.is_some() && legacy.is_some() && device!=legacy { return Err(RegistryError::Conflict); }
@@ -1221,10 +1221,10 @@ impl Database {
             on conflict(id) do update set user_id=excluded.user_id,uuid=excluded.uuid,peer_guid=excluded.peer_guid,
                 verified=1,verified_uuid=excluded.verified_uuid,verified_pk=excluded.verified_pk,updated_at=current_timestamp")
             .bind(&id).bind(&request.user_id).bind(&canonical_uuid).bind(&guid).bind(&uuid).bind(&pk)
-            .execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         sqlx::query("insert into api_device_binding_audit(id,actor_id,action,device_id,peer_id,owner_id,pk_fingerprint,recorded_at_ms) values(?,?,'bind',?,?,?,?,?)")
             .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(&id).bind(&request.peer_id).bind(&request.user_id).bind(&request.pk_fingerprint).bind(now_ms())
-            .execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         tx.commit().await.map_err(|_| RegistryError::Storage)?;
         Ok(id)
     }
@@ -1233,14 +1233,14 @@ impl Database {
         use crate::device_registry::{RegistryError,key_fingerprint,now_ms};
         let mut conn = self.pool.get().await.map_err(|_| RegistryError::Storage)?;
         let mut tx = conn.begin().await.map_err(|_| RegistryError::Storage)?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let device: Option<(String,String,Vec<u8>)> = sqlx::query_as("select coalesce(p.id,''),d.user_id,d.verified_pk from api_device d left join peer p on p.guid=d.peer_guid where d.id=? and d.verified=1")
-            .bind(id).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .bind(id).fetch_optional(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         let (peer_id,owner,pk) = device.ok_or(RegistryError::NotFound)?;
-        sqlx::query("update api_device set verified=0,updated_at=current_timestamp where id=?").bind(id).execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_device set verified=0,updated_at=current_timestamp where id=?").bind(id).execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         sqlx::query("insert into api_device_binding_audit(id,actor_id,action,device_id,peer_id,owner_id,pk_fingerprint,recorded_at_ms) values(?,?,'unbind',?,?,?,?,?)")
             .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(id).bind(peer_id).bind(owner).bind(key_fingerprint(&pk)).bind(now_ms())
-            .execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            .execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
         tx.commit().await.map_err(|_| RegistryError::Storage)?;
         Ok(())
     }

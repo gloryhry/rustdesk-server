@@ -11,7 +11,7 @@
 | #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 已完成 |
 | #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 已完成 |
 | #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 待处理 |
-| #28 | libsqlite3-sys 0.24.2 / RUSTSEC-2022-0090; sqlx 0.6.0 / RUSTSEC-2024-0363; rustls 0.20.4 / RUSTSEC-2024-0336; webpki 0.22.0 / RUSTSEC-2023-0052 | 待处理 |
+| #28 | libsqlite3-sys 0.24.2 / RUSTSEC-2022-0090; sqlx 0.6.0 / RUSTSEC-2024-0363; rustls 0.20.4 / RUSTSEC-2024-0336; webpki 0.22.0 / RUSTSEC-2023-0052 | 已完成 |
 | #29 | h2 0.3.26 / RUSTSEC-2026-0258; rustls-webpki 0.101.7 / RUSTSEC-2026-0098; rustls-webpki 0.101.7 / RUSTSEC-2026-0099; rustls-webpki 0.101.7 / RUSTSEC-2026-0104 | 待处理 |
 | #30 | quick-xml 0.39.4 / RUSTSEC-2026-0194; quick-xml 0.39.4 / RUSTSEC-2026-0195 | 待处理 |
 | #31 | users 0.11.0 / RUSTSEC-2025-0040 | 待处理 |
@@ -49,3 +49,9 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ## #26 验收
 
 定向 DoS 公告基线失败；tokio-tungstenite/tungstenite 统一到已由 hbb_common 使用的 0.26.2，旧 0.17 路径移除后通过，剩余 12 条。适配二进制 Bytes 类型，hbbr 发送不再复制为 Vec。真实 hbbs WebSocket 握手、RustDesk protobuf 二进制响应在升级前后都通过；保留既有 RegisterPk 在 WS 上返回 NOT_SUPPORT 的规则，未据此宣称 WS 公钥注册兼容。根包 143 项和 locked 全目标检查通过；锁文件 SHA-256 为 def89a18bbc6e2cf3a46139d889bdfe588f01287d18737a57f06780001b85c6b，用户数据库未变。
+
+## #28 验收
+
+四条数据库/旧 TLS 公告的定向审计基线失败；SQLx 0.8.6、libsqlite3-sys 0.30.1 升级并移除旧 rustls/webpki 路径后通过，剩余 8 条。仅启用 runtime-tokio/sqlite/derive，避免未使用的 MySQL/RSA 引入 RUSTSEC-2023-0071，该公告也纳入定向检查。适配消费型连接选项和事务连接解引用；既有 FromRow 与 SQLite 事务语义保留。ed25519 1.5.3 修正旧版本过宽 signature 依赖导致的解析编译冲突。
+
+根包 144 项测试与 locked 全目标检查通过，覆盖历史迁移、并发启动、地址簿 CAS、失败回滚及 10,000 条 Peer 并发读写。沙箱内网络绑定测试失败后，在允许隔离回环端口的环境完整重跑通过。Cargo.lock SHA-256：2e79b9b3dd92f7927efa3dce2243f3781f8aa3f03e08ab9f6f0284632c5b1637；用户数据库保持基线。

@@ -24,12 +24,12 @@ async fn seed(app: &TestApp, count: usize, owner: &str) {
     let mut tx = pool.begin().await.unwrap();
     for index in 0..count {
         let id = format!("item-{index:03}");
-        sqlx::query("insert into api_user(id,username,password_hash) values(?,?,'not-used')").bind(&id).bind(&id).execute(&mut tx).await.unwrap();
+        sqlx::query("insert into api_user(id,username,password_hash) values(?,?,'not-used')").bind(&id).bind(&id).execute(&mut *tx).await.unwrap();
         let guid = id.as_bytes();
-        sqlx::query("insert into peer(guid,id,uuid,pk,info) values(?,?,?,?,'{}')").bind(guid).bind(&id).bind(guid).bind(guid).execute(&mut tx).await.unwrap();
+        sqlx::query("insert into peer(guid,id,uuid,pk,info) values(?,?,?,?,'{}')").bind(guid).bind(&id).bind(guid).bind(guid).execute(&mut *tx).await.unwrap();
         sqlx::query("insert into api_device(id,user_id,uuid,name,peer_guid,verified,verified_uuid,verified_pk) values(?,?,?,?,?,1,?,?)")
-            .bind(&id).bind(owner).bind(&id).bind(&id).bind(guid).bind(guid).bind(guid).execute(&mut tx).await.unwrap();
-        sqlx::query("insert into api_device_group(id,name,created_by) values(?,?,?)").bind(&id).bind(&id).bind(owner).execute(&mut tx).await.unwrap();
+            .bind(&id).bind(owner).bind(&id).bind(&id).bind(guid).bind(guid).bind(guid).execute(&mut *tx).await.unwrap();
+        sqlx::query("insert into api_device_group(id,name,created_by) values(?,?,?)").bind(&id).bind(&id).bind(owner).execute(&mut *tx).await.unwrap();
     }
     tx.commit().await.unwrap(); pool.close().await;
 }

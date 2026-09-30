@@ -30,7 +30,7 @@ impl AddressBookStore {
             return Ok(Book { guid,revision,document });
         }
         let mut tx = conn.begin().await.map_err(|_|BookError::Storage)?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_|BookError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await.map_err(|_|BookError::Storage)?;
         let book = initialize(&mut tx,user).await.map_err(|error|BookError::Invalid(error.to_string()))?;
         tx.commit().await.map_err(|_|BookError::Storage)?;
         Ok(book)
@@ -41,9 +41,9 @@ impl AddressBookStore {
         canonical(&mut document)?;
         let mut conn = self.db.book_connection().await.map_err(|_|BookError::Storage)?;
         let mut tx = conn.begin().await.map_err(|_|BookError::Storage)?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_|BookError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await.map_err(|_|BookError::Storage)?;
         let current: Option<(Option<String>,i64,String)> = sqlx::query_as("select guid,revision,data from api_address_book_snapshot where user_id=?")
-            .bind(user).fetch_optional(&mut tx).await.map_err(|_|BookError::Storage)?;
+            .bind(user).fetch_optional(&mut *tx).await.map_err(|_|BookError::Storage)?;
         let (guid,revision,previous) = if let Some((Some(guid),revision,data)) = current {
             if uuid::Uuid::parse_str(&guid).is_err() || revision<1 { return Err(invalid("invalid_address_book_metadata")); }
             let mut previous = parse(&data)?;
@@ -77,7 +77,7 @@ impl AddressBookStore {
         if data.len()>2*1024*1024 { return Err(invalid("address_book_too_large")); }
         let revision = revision.checked_add(1).ok_or(BookError::Storage)?;
         sqlx::query("update api_address_book_snapshot set data=?,revision=?,updated_at=current_timestamp where user_id=?")
-            .bind(data).bind(revision).bind(user).execute(&mut tx).await.map_err(|_|BookError::Storage)?;
+            .bind(data).bind(revision).bind(user).execute(&mut *tx).await.map_err(|_|BookError::Storage)?;
         rebuild_index(&mut tx,user,&document).await.map_err(|_|BookError::Storage)?;
         tx.commit().await.map_err(|_|BookError::Storage)?;
         Ok(Book { guid,revision,document })
@@ -85,8 +85,8 @@ impl AddressBookStore {
     pub async fn rebuild(&self, user: &str) -> Result<(),BookError> {
         let mut conn = self.db.book_connection().await.map_err(|_|BookError::Storage)?;
         let mut tx = conn.begin().await.map_err(|_|BookError::Storage)?;
-        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_|BookError::Storage)?;
-        let data: String = sqlx::query_scalar("select data from api_address_book_snapshot where user_id=?").bind(user).fetch_one(&mut tx).await.map_err(|_|BookError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut *tx).await.map_err(|_|BookError::Storage)?;
+        let data: String = sqlx::query_scalar("select data from api_address_book_snapshot where user_id=?").bind(user).fetch_one(&mut *tx).await.map_err(|_|BookError::Storage)?;
         let mut document = parse(&data)?; let original = document.clone(); canonical(&mut document)?;
         if document!=original { return Err(invalid("address_book_requires_repair")); }
         rebuild_index(&mut tx,user,&document).await.map_err(|_|BookError::Storage)?;
@@ -147,7 +147,7 @@ fn canonical(document: &mut Map<String,Value>) -> Result<(),BookError> {
 }
 
 async fn rebuild_index(tx: &mut Transaction<'_,Sqlite>, user: &str, document: &Map<String,Value>) -> ResultType<()> {
-    sqlx::query("delete from api_address_book_entry where user_id=?").bind(user).execute(&mut *tx).await?;
+    sqlx::query("delete from api_address_book_entry where user_id=?").bind(user).execute(&mut **tx).await?;
     let peers = document.get("peers").and_then(Value::as_array).ok_or_else(||anyhow::anyhow!("invalid_address_book_peers"))?;
     for peer in peers {
         let tags = peer.get("tags").and_then(Value::as_array).into_iter().flatten().filter_map(|tag|tag.as_str().or_else(||tag.get("name").and_then(Value::as_str))).collect::<Vec<_>>();
@@ -156,7 +156,7 @@ async fn rebuild_index(tx: &mut Transaction<'_,Sqlite>, user: &str, document: &M
             .bind(text("entryId")).bind(user).bind(text("peerId")).bind(text("username")).bind(text("hostname"))
             .bind(text("alias")).bind(text("platform")).bind(serde_json::to_string(&tags)?)
             .bind(i64::from(peer.get("forceAlwaysRelay").and_then(Value::as_bool).unwrap_or(false)))
-            .bind(text("createdAt")).bind(text("updatedAt")).execute(&mut *tx).await?;
+            .bind(text("createdAt")).bind(text("updatedAt")).execute(&mut **tx).await?;
     }
     Ok(())
 }
@@ -164,21 +164,21 @@ async fn rebuild_index(tx: &mut Transaction<'_,Sqlite>, user: &str, document: &M
 pub(crate) async fn migrate(tx: &mut Transaction<'_,Sqlite>) -> ResultType<()> {
     sqlx::query("alter table api_address_book_snapshot add column guid text;
         alter table api_address_book_snapshot add column revision integer not null default 0;
-        create unique index api_address_book_guid on api_address_book_snapshot(guid)").execute(&mut *tx).await?;
-    let users: Vec<String> = sqlx::query_scalar("select id from api_user order by id").fetch_all(&mut *tx).await?;
+        create unique index api_address_book_guid on api_address_book_snapshot(guid)").execute(&mut **tx).await?;
+    let users: Vec<String> = sqlx::query_scalar("select id from api_user order by id").fetch_all(&mut **tx).await?;
     for user in users { initialize(tx,&user).await.map_err(|error|anyhow::anyhow!("Address book migration account {user}: {error}"))?; }
-    sqlx::query("insert into api_schema_migration(version,name) values(3,'authoritative_personal_address_books')").execute(&mut *tx).await?;
+    sqlx::query("insert into api_schema_migration(version,name) values(3,'authoritative_personal_address_books')").execute(&mut **tx).await?;
     Ok(())
 }
 
 async fn initialize(tx: &mut Transaction<'_,Sqlite>, user: &str) -> ResultType<Book> {
-    let row: Option<(String,Option<String>,i64,String)> = sqlx::query_as("select data,guid,revision,updated_at from api_address_book_snapshot where user_id=?").bind(user).fetch_optional(&mut *tx).await?;
+    let row: Option<(String,Option<String>,i64,String)> = sqlx::query_as("select data,guid,revision,updated_at from api_address_book_snapshot where user_id=?").bind(user).fetch_optional(&mut **tx).await?;
     let (mut document,snapshot_time) = if let Some((data,_,_,time)) = &row { (parse(data)?,time.as_str()) } else { (Map::new(),"") };
     if let Some((_,Some(guid),revision,_)) = row.as_ref() { if uuid::Uuid::parse_str(guid).is_err() || *revision<1 { return Err(invalid("invalid_address_book_metadata").into()); } canonical(&mut document)?; return Ok(Book { guid:guid.clone(),revision:*revision,document }); }
     let mut validated = document.clone(); canonical(&mut validated)?;
     address_book_codec::normalize_relays(&mut document).map_err(invalid)?;
     let snapshot_time = if snapshot_time.is_empty() { None } else { Some(timestamp(snapshot_time)?) };
-    let indexed: Vec<ApiAddressBookEntry> = sqlx::query_as("select id,user_id,peer_id,username,hostname,alias,platform,tags,force_always_relay,created_at,updated_at from api_address_book_entry where user_id=? order by id").bind(user).fetch_all(&mut *tx).await?;
+    let indexed: Vec<ApiAddressBookEntry> = sqlx::query_as("select id,user_id,peer_id,username,hostname,alias,platform,tags,force_always_relay,created_at,updated_at from api_address_book_entry where user_id=? order by id").bind(user).fetch_all(&mut **tx).await?;
     let peers = document.entry("peers".to_owned()).or_insert_with(||json!([])).as_array_mut().ok_or_else(||invalid("invalid_address_book_peers"))?;
     for entry in indexed {
         let index_time = timestamp(&entry.updated_at)?;
@@ -199,7 +199,7 @@ async fn initialize(tx: &mut Transaction<'_,Sqlite>, user: &str) -> ResultType<B
     canonical(&mut document)?;
     let guid = uuid::Uuid::new_v4().to_string(); let revision = 1;
     sqlx::query("insert into api_address_book_snapshot(user_id,data,guid,revision) values(?,?,?,?) on conflict(user_id) do update set data=excluded.data,guid=excluded.guid,revision=excluded.revision")
-        .bind(user).bind(serde_json::to_string(&document)?).bind(&guid).bind(revision).execute(&mut *tx).await?;
+        .bind(user).bind(serde_json::to_string(&document)?).bind(&guid).bind(revision).execute(&mut **tx).await?;
     rebuild_index(tx,user,&document).await?;
     Ok(Book { guid,revision,document })
 }
