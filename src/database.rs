@@ -105,6 +105,10 @@ pub struct ApiDevice {
     pub last_seen_at: String,
     pub created_at: String,
     pub updated_at: String,
+    pub peer_id: String,
+    pub verified: bool,
+    pub registered_at_ms: i64,
+    pub online: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, sqlx::FromRow)]
@@ -423,6 +427,24 @@ impl Database {
                 select 'legacy:' || provider,provider,provider,'','legacy','{}','',0,1,'legacy' from api_identity group by provider").execute(&mut tx).await?;
             sqlx::query("insert into api_schema_migration(version,name) values(1,'oauth_provider_registry')").execute(&mut tx).await?;
         }
+        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version = 2").fetch_optional(&mut tx).await?;
+        if applied.is_none() {
+            sqlx::query("alter table api_device add column peer_guid blob;
+                alter table api_device add column verified integer not null default 0;
+                alter table api_device add column verified_uuid blob;
+                alter table api_device add column verified_pk blob;
+                create unique index api_device_verified_peer on api_device(peer_guid) where verified=1;
+                create table peer_registration(peer_guid blob primary key, uuid blob not null, pk blob not null, registered_at_ms integer not null,
+                    foreign key(peer_guid) references peer(guid) on delete cascade);
+                create table api_device_report(peer_guid blob primary key, uuid blob not null, pk blob not null,
+                    sysinfo text, sysinfo_at_ms integer not null default 0, heartbeat text, heartbeat_at_ms integer not null default 0,
+                    foreign key(peer_guid) references peer(guid) on delete cascade);
+                create table api_device_binding_audit(id text primary key, actor_id text not null, action text not null,
+                    device_id text not null, peer_id text not null, owner_id text not null, pk_fingerprint text not null,
+                    recorded_at_ms integer not null);
+                insert into api_schema_migration(version,name) values(2,'untrusted_device_reports_and_verified_bindings')")
+                .execute(&mut tx).await?;
+        }
         tx.commit().await?;
         Ok(())
     }
@@ -631,7 +653,7 @@ impl Database {
         info: &str,
     ) -> ResultType<()> {
         sqlx::query(
-            "insert into api_device(id, user_id, uuid, name, os, device_type, info) values(?, ?, ?, ?, ?, ?, ?) on conflict(user_id, uuid) do update set id = excluded.id, name = excluded.name, os = excluded.os, device_type = excluded.device_type, info = excluded.info, status = 1, last_seen_at = current_timestamp, updated_at = current_timestamp",
+            "insert into api_device(id, user_id, uuid, name, os, device_type, info) values(?, ?, ?, ?, ?, ?, ?) on conflict(user_id, uuid) do update set name = excluded.name, os = excluded.os, device_type = excluded.device_type, info = excluded.info, updated_at = current_timestamp where api_device.verified=0",
         )
         .bind(id)
         .bind(user_id)
@@ -655,28 +677,41 @@ impl Database {
     }
 
     pub async fn list_api_devices(&self, user_id: &str) -> ResultType<Vec<ApiDevice>> {
-        Ok(sqlx::query_as::<_, ApiDevice>(
-            "select id, user_id, uuid, name, os, device_type, info, status, last_seen_at, created_at, updated_at from api_device where user_id = ? order by last_seen_at desc",
-        )
-        .bind(user_id)
-        .fetch_all(self.pool.get().await?.deref_mut())
-        .await?)
+        self.api_devices(Some(user_id)).await
     }
 
     pub async fn list_all_api_devices(&self) -> ResultType<Vec<ApiDevice>> {
-        Ok(sqlx::query_as::<_, ApiDevice>(
-            "select id, user_id, uuid, name, os, device_type, info, status, last_seen_at, created_at, updated_at from api_device order by last_seen_at desc",
-        )
-        .fetch_all(self.pool.get().await?.deref_mut())
-        .await?)
+        self.api_devices(None).await
     }
 
-    pub async fn delete_api_device(&self, id: &str) -> ResultType<bool> {
-        let result = sqlx::query("delete from api_device where id = ?")
-            .bind(id)
-            .execute(self.pool.get().await?.deref_mut())
-            .await?;
-        Ok(result.rows_affected() > 0)
+    async fn api_devices(&self, user_id: Option<&str>) -> ResultType<Vec<ApiDevice>> {
+        let now = crate::device_registry::now_ms();
+        Ok(sqlx::query_as::<_,ApiDevice>("select d.id,d.user_id,d.uuid,d.name,d.os,d.device_type,d.info,d.status,d.last_seen_at,d.created_at,d.updated_at,
+            coalesce(p.id,'') as peer_id, coalesce((d.verified=1 and p.pk=d.verified_pk and p.uuid=d.verified_uuid),0) as verified,
+            coalesce(r.registered_at_ms,0) as registered_at_ms,
+            (coalesce(r.registered_at_ms,0)>? and coalesce(r.registered_at_ms,0)<=?) as online
+            from api_device d left join peer p on p.guid=d.peer_guid
+            left join peer_registration r on r.peer_guid=p.guid and r.uuid=p.uuid and r.pk=p.pk
+            where (? is null or (d.user_id=? and d.verified=1 and p.pk=d.verified_pk and p.uuid=d.verified_uuid))
+            order by d.id")
+            .bind(now-crate::device_registry::REGISTRATION_TIMEOUT_MS).bind(now).bind(user_id).bind(user_id)
+            .fetch_all(self.pool.get().await?.deref_mut()).await?)
+    }
+
+    pub async fn delete_api_device(&self, id: &str, actor: &str) -> ResultType<bool> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await?;
+        let row: Option<(String,String,Option<Vec<u8>>)> = sqlx::query_as("select d.user_id,coalesce(p.id,''),d.verified_pk from api_device d left join peer p on p.guid=d.peer_guid where d.id=?")
+            .bind(id).fetch_optional(&mut tx).await?;
+        let (owner,peer_id,pk) = match row { Some(row) => row, None => return Ok(false) };
+        let fingerprint = pk.map(|pk|crate::device_registry::key_fingerprint(&pk)).unwrap_or_default();
+        sqlx::query("insert into api_device_binding_audit(id,actor_id,action,device_id,peer_id,owner_id,pk_fingerprint,recorded_at_ms) values(?,?,'delete',?,?,?,?,?)")
+            .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(id).bind(peer_id).bind(owner).bind(fingerprint).bind(crate::device_registry::now_ms())
+            .execute(&mut tx).await?;
+        sqlx::query("delete from api_device where id=?").bind(id).execute(&mut tx).await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     pub async fn update_api_user_password(&self, id: &str, password_hash: &str) -> ResultType<()> {
@@ -810,7 +845,7 @@ impl Database {
         allow_all_devices: bool,
     ) -> ResultType<Vec<ApiDeviceGroupMember>> {
         Ok(sqlx::query_as::<_, ApiDeviceGroupMember>(
-            "select m.group_id, m.device_id from api_device_group_device m inner join api_device_group g on g.id = m.group_id inner join api_device d on d.id = m.device_id where g.created_by = ? and (? = 1 or d.user_id = ?) order by m.group_id, m.device_id",
+            "select m.group_id, m.device_id from api_device_group_device m inner join api_device_group g on g.id = m.group_id inner join api_device d on d.id = m.device_id where g.created_by = ? and (? = 1 or (d.user_id = ? and d.verified=1 and exists(select 1 from peer p where p.guid=d.peer_guid and p.pk=d.verified_pk and p.uuid=d.verified_uuid))) order by m.group_id, m.device_id",
         )
         .bind(user_id)
         .bind(if allow_all_devices { 1 } else { 0 })
@@ -827,7 +862,7 @@ impl Database {
         allow_all_devices: bool,
     ) -> ResultType<bool> {
         let result = sqlx::query(
-            "insert into api_device_group_device(group_id, device_id) select g.id, d.id from api_device_group g inner join api_device d on d.id = ? where g.id = ? and g.created_by = ? and (? = 1 or d.user_id = ?) on conflict(group_id, device_id) do update set device_id = excluded.device_id",
+            "insert into api_device_group_device(group_id, device_id) select g.id, d.id from api_device_group g inner join api_device d on d.id = ? where g.id = ? and g.created_by = ? and (? = 1 or (d.user_id = ? and d.verified=1 and exists(select 1 from peer p where p.guid=d.peer_guid and p.pk=d.verified_pk and p.uuid=d.verified_uuid))) on conflict(group_id, device_id) do update set device_id = excluded.device_id",
         )
         .bind(device_id)
         .bind(group_id)
@@ -1134,5 +1169,133 @@ mod tests {
         }
         drop(db);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+impl Database {
+    pub async fn save_peer_registrations(&self, observations: &[crate::device_registry::RegistrationObservation]) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        for observation in observations {
+            sqlx::query("insert into peer_registration(peer_guid,uuid,pk,registered_at_ms)
+                select guid,uuid,pk,? from peer where guid=? and uuid=? and pk=?
+                on conflict(peer_guid) do update set uuid=excluded.uuid,pk=excluded.pk,
+                registered_at_ms=case when peer_registration.uuid=excluded.uuid and peer_registration.pk=excluded.pk
+                    then max(peer_registration.registered_at_ms,excluded.registered_at_ms) else excluded.registered_at_ms end")
+                .bind(observation.registered_at_ms).bind(&observation.guid).bind(&observation.uuid).bind(&observation.pk)
+                .execute(&mut tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub(crate) async fn save_device_report(&self, value: &serde_json::Value, heartbeat: bool) -> Result<bool,crate::device_registry::RegistryError> {
+        use crate::device_registry::{report_identity,now_ms,RegistryError,REPORT_INTERVAL_MS,MAX_REPORTS};
+        let (id,uuid) = report_identity(value)?;
+        // Unknown IDs and mismatched UUIDs never acquire a SQLite writer lock.
+        let peer = self.get_peer(&id).await.map_err(|_| RegistryError::Storage)?.ok_or(RegistryError::NotFound)?;
+        if peer.uuid != uuid { return Err(RegistryError::NotFound); }
+        let now = now_ms();
+        let serialized = serde_json::to_string(value).map_err(|_| RegistryError::Storage)?;
+        let mut conn = self.pool.get().await.map_err(|_| RegistryError::Storage)?;
+        let mut tx = conn.begin().await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let current: Option<(Vec<u8>,Vec<u8>)> = sqlx::query_as("select guid,pk from peer where id=? and uuid=?")
+            .bind(&id).bind(&uuid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let (guid,pk) = current.ok_or(RegistryError::NotFound)?;
+        let existing: Option<(Vec<u8>,Vec<u8>,Option<String>,i64,i64)> = sqlx::query_as("select uuid,pk,sysinfo,sysinfo_at_ms,heartbeat_at_ms from api_device_report where peer_guid=?")
+            .bind(&guid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let same_identity = existing.as_ref().is_some_and(|(old_uuid,old_pk,_,_,_)| *old_uuid == uuid && *old_pk == pk);
+        if let Some((_,_,_,sysinfo_at,heartbeat_at)) = existing.as_ref().filter(|_| same_identity) {
+            let previous = if heartbeat { *heartbeat_at } else { *sysinfo_at };
+            if previous > 0 && now.saturating_sub(previous) < REPORT_INTERVAL_MS { return Err(RegistryError::RateLimited); }
+        }
+        if existing.is_none() {
+            let count: i64 = sqlx::query_scalar("select count(*) from api_device_report").fetch_one(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+            if count >= MAX_REPORTS { return Err(RegistryError::Capacity); }
+        }
+        if !same_identity {
+            sqlx::query("insert into api_device_report(peer_guid,uuid,pk) values(?,?,?) on conflict(peer_guid) do update set
+                uuid=excluded.uuid,pk=excluded.pk,sysinfo=null,sysinfo_at_ms=0,heartbeat=null,heartbeat_at_ms=0")
+                .bind(&guid).bind(&uuid).bind(&pk).execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        }
+        let sql = if heartbeat { "update api_device_report set heartbeat=?,heartbeat_at_ms=? where peer_guid=?" }
+            else { "update api_device_report set sysinfo=?,sysinfo_at_ms=? where peer_guid=?" };
+        sqlx::query(sql).bind(serialized).bind(now).bind(&guid).execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let needs_sysinfo = heartbeat && (!same_identity || existing.as_ref().map_or(true,|(_,_,sysinfo,_,_)| sysinfo.is_none()));
+        tx.commit().await.map_err(|_| RegistryError::Storage)?;
+        Ok(needs_sysinfo)
+    }
+
+    pub(crate) async fn registered_devices(&self, peer_id: Option<&str>) -> ResultType<Vec<crate::device_registry::RegisteredDeviceView>> {
+        use crate::device_registry::{RegisteredDeviceView,now_ms,REGISTRATION_TIMEOUT_MS,key_fingerprint};
+        let rows: Vec<(String,Vec<u8>,Vec<u8>,i64,Option<String>,Option<String>,i64,Option<String>,Option<String>)> = sqlx::query_as(
+            "select p.id,p.uuid,p.pk,coalesce(r.registered_at_ms,0),d.id,d.user_id,
+                coalesce((d.verified=1 and d.verified_pk=p.pk and d.verified_uuid=p.uuid),0),t.sysinfo,t.heartbeat
+                from peer p left join peer_registration r on r.peer_guid=p.guid and r.pk=p.pk and r.uuid=p.uuid
+                left join api_device d on d.peer_guid=p.guid and d.verified=1
+                left join api_device_report t on t.peer_guid=p.guid and t.pk=p.pk and t.uuid=p.uuid where (? is null or p.id=?) order by p.id limit 100")
+            .bind(peer_id).bind(peer_id).fetch_all(self.pool.get().await?.deref_mut()).await?;
+        let now = now_ms();
+        rows.into_iter().map(|(peer_id,uuid,pk,registered_at_ms,device_id,owner_id,verified,sysinfo,heartbeat)| {
+            Ok(RegisteredDeviceView { peer_id,uuid:base64::encode(uuid),pk_fingerprint:key_fingerprint(&pk),registered_at_ms,
+                online:registered_at_ms > now-REGISTRATION_TIMEOUT_MS && registered_at_ms <= now,
+                device_id,owner_id,verified:verified==1,
+                untrusted_sysinfo:sysinfo.map(|value|serde_json::from_str(&value)).transpose()?,
+                untrusted_heartbeat:heartbeat.map(|value|serde_json::from_str(&value)).transpose()? })
+        }).collect()
+    }
+
+    pub(crate) async fn bind_api_device(&self, actor: &str, request: &crate::device_registry::BindDeviceRequest) -> Result<String,crate::device_registry::RegistryError> {
+        use crate::device_registry::{RegistryError,key_fingerprint,now_ms};
+        if request.peer_id.is_empty() || request.peer_id.len()>128 || request.user_id.len()>128 || request.pk_fingerprint.len()>128 {
+            return Err(RegistryError::Invalid("invalid_device_binding"));
+        }
+        let mut conn = self.pool.get().await.map_err(|_| RegistryError::Storage)?;
+        let mut tx = conn.begin().await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let peer: Option<(Vec<u8>,Vec<u8>,Vec<u8>)> = sqlx::query_as("select guid,uuid,pk from peer where id=?")
+            .bind(&request.peer_id).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let (guid,uuid,pk) = peer.ok_or(RegistryError::NotFound)?;
+        if pk.len()!=32 || key_fingerprint(&pk)!=request.pk_fingerprint { return Err(RegistryError::Conflict); }
+        let user: Option<String> = sqlx::query_scalar("select id from api_user where id=? and status=1")
+            .bind(&request.user_id).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        if user.is_none() { return Err(RegistryError::NotFound); }
+        let device: Option<String> = sqlx::query_scalar("select id from api_device where peer_guid=? and verified=1")
+            .bind(&guid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let canonical_uuid = base64::encode(&uuid);
+        let legacy: Option<(String,Option<Vec<u8>>,i64)> = sqlx::query_as("select id,peer_guid,verified from api_device where user_id=? and uuid=?")
+            .bind(&request.user_id).bind(&canonical_uuid).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        if legacy.as_ref().is_some_and(|(_,old_guid,verified)| *verified==1 && old_guid.as_ref()!=Some(&guid)) { return Err(RegistryError::Conflict); }
+        let legacy = legacy.map(|(id,_,_)|id);
+        if device.is_some() && legacy.is_some() && device!=legacy { return Err(RegistryError::Conflict); }
+        let id = device.or(legacy).unwrap_or_else(||uuid::Uuid::new_v4().to_string());
+        // Account association is created only by this explicit, fingerprint-checked administrator operation.
+        sqlx::query("insert into api_device(id,user_id,uuid,peer_guid,verified,verified_uuid,verified_pk) values(?,?,?,?,1,?,?)
+            on conflict(id) do update set user_id=excluded.user_id,uuid=excluded.uuid,peer_guid=excluded.peer_guid,
+                verified=1,verified_uuid=excluded.verified_uuid,verified_pk=excluded.verified_pk,updated_at=current_timestamp")
+            .bind(&id).bind(&request.user_id).bind(&canonical_uuid).bind(&guid).bind(&uuid).bind(&pk)
+            .execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("insert into api_device_binding_audit(id,actor_id,action,device_id,peer_id,owner_id,pk_fingerprint,recorded_at_ms) values(?,?,'bind',?,?,?,?,?)")
+            .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(&id).bind(&request.peer_id).bind(&request.user_id).bind(&request.pk_fingerprint).bind(now_ms())
+            .execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        tx.commit().await.map_err(|_| RegistryError::Storage)?;
+        Ok(id)
+    }
+
+    pub(crate) async fn unbind_api_device(&self, actor: &str, id: &str) -> Result<(),crate::device_registry::RegistryError> {
+        use crate::device_registry::{RegistryError,key_fingerprint,now_ms};
+        let mut conn = self.pool.get().await.map_err(|_| RegistryError::Storage)?;
+        let mut tx = conn.begin().await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("update api_schema_lock set id=id where id=1").execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let device: Option<(String,String,Vec<u8>)> = sqlx::query_as("select coalesce(p.id,''),d.user_id,d.verified_pk from api_device d left join peer p on p.guid=d.peer_guid where d.id=? and d.verified=1")
+            .bind(id).fetch_optional(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        let (peer_id,owner,pk) = device.ok_or(RegistryError::NotFound)?;
+        sqlx::query("update api_device set verified=0,updated_at=current_timestamp where id=?").bind(id).execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        sqlx::query("insert into api_device_binding_audit(id,actor_id,action,device_id,peer_id,owner_id,pk_fingerprint,recorded_at_ms) values(?,?,'unbind',?,?,?,?,?)")
+            .bind(uuid::Uuid::new_v4().to_string()).bind(actor).bind(id).bind(peer_id).bind(owner).bind(key_fingerprint(&pk)).bind(now_ms())
+            .execute(&mut tx).await.map_err(|_| RegistryError::Storage)?;
+        tx.commit().await.map_err(|_| RegistryError::Storage)?;
+        Ok(())
     }
 }

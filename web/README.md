@@ -156,3 +156,5 @@ cargo check --locked --all-targets
 跨源部署须在 API 设置 `API_ALLOWED_ORIGINS=https://web.example.com`，只接受精确 Origin（含端口），不支持通配。Web 构建设置 `VITE_API_BASE=https://api.example.com`。默认适合同站跨源；跨站须显式设置 `API_COOKIE_CROSS_SITE=1` 并使用 HTTPS。浏览器仍可能限制第三方 Cookie，此时页面会提示 Cookie 会话不可用，建议通过同源反向代理部署。Cookie 修改请求必须同时通过 Origin 和 `X-CSRF-Token` 校验；原生 Bearer 客户端不受浏览器 CSRF 协议影响。
 
 浏览器回归：构建 API 和 Web 后运行 `RUSTDESK_API_BINARY=/absolute/path/rustdesk-api npm run test:browser`。测试使用独立临时数据库、随机端口和系统 Chrome，涵盖允许/拒绝跨源、登录恢复、修改、注销及第三方 Cookie 限制。
+
+管理员设备页面分别展示未认证报告和已核验归属。先通过已有可信渠道从受控设备核对公钥，再选择账户并填写 SHA-256 指纹进行绑定；报告中的用户名或 UUID 不能作为归属证明。支持按 RustDesk ID 查询登记记录和解除绑定。历史关联保留为待核验，普通用户只看到公钥及 UUID 仍与登记记录匹配的已核验设备。

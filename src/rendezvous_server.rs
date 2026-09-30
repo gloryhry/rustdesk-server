@@ -47,7 +47,7 @@ enum Data {
     RelayServers(RelayServers),
 }
 
-const REG_TIMEOUT: i64 = 30_000;
+const REG_TIMEOUT: i64 = crate::device_registry::REGISTRATION_TIMEOUT_MS;
 type TcpStreamSink = SplitSink<Framed<TcpStream, BytesCodec>, Bytes>;
 type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, tungstenite::Message>;
 enum Sink {
@@ -445,6 +445,11 @@ impl RendezvousServer {
                     }
                     if changed {
                         self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+                    } else {
+                        let mut peer = peer.write().await;
+                        peer.socket_addr = addr;
+                        peer.last_reg_time = Instant::now();
+                        self.pm.observe_registration(&peer);
                     }
                     let mut msg_out = RendezvousMessage::new();
                     msg_out.set_register_pk_response(RegisterPkResponse {
@@ -608,6 +613,7 @@ impl RendezvousServer {
             if !request_pk {
                 old.socket_addr = socket_addr;
                 old.last_reg_time = Instant::now();
+                self.pm.observe_registration(&old);
             }
             let ip_change = if ip_change && old.reg_pk.0 <= 2 {
                 Some(if old.socket_addr.port() == 0 {

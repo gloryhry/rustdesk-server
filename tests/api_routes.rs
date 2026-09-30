@@ -96,6 +96,8 @@ fn cookie_from(response: &axum::response::Response) -> String {
 #[tokio::test]
 async fn api_routes_support_auth_groups_and_cookie_sessions() {
     let (app, database_path) = test_app().await;
+    Database::new(database_path.to_str().unwrap()).await.unwrap()
+        .insert_peer("client-a",b"uuid-a",&[3;32],"{}").await.unwrap();
 
     let health = send(
         &app,
@@ -143,11 +145,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
 
     let heartbeat = send(
         &app,
-        Request::builder()
-            .method("POST")
-            .uri("/api/heartbeat")
-            .body(Body::empty())
-            .expect("heartbeat request should build"),
+        json_request("POST","/api/heartbeat",r#"{"id":"client-a","uuid":"dXVpZC1h","ver":1004009}"#),
     )
     .await;
     assert_eq!(heartbeat.status(), StatusCode::OK);
@@ -198,7 +196,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         authenticated_json_request(
             "POST",
             "/api/sysinfo",
-            r#"{"id":"client-a","uuid":"uuid-a","name":"Office laptop","os":"Linux","type":"desktop","info":"{}"}"#,
+            r#"{"id":"client-a","uuid":"dXVpZC1h","hostname":"Office laptop","os":"Linux"}"#,
             &cookie,
             csrf,
         ),
@@ -219,7 +217,8 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     let peers_list_body = to_bytes(peers_list.into_body())
         .await
         .expect("peers list response should read");
-    assert!(String::from_utf8_lossy(&peers_list_body).contains("Office laptop"));
+    let peers: serde_json::Value = serde_json::from_slice(&peers_list_body).unwrap();
+    assert_eq!(peers["data"],serde_json::json!([]), "unsigned reports never grant account ownership");
 
     let current_user = send(
         &app,

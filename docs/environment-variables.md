@@ -397,3 +397,52 @@ that the Cookie session is unavailable. Prefer serving Web and /api through the
 same HTTPS reverse proxy when this occurs. CORS does not bypass browser Cookie
 policies. A failed logout keeps the error visible rather than claiming server
 session revocation succeeded.
+
+### Unsigned device reports and explicit ownership
+
+Official 1.4.9 sends `POST /api/sysinfo` and `/api/heartbeat` without a Bearer.
+Both require `id` and a base64 UUID that decodes to the UUID of a registered hbbs
+Peer. Unknown IDs or mismatched UUIDs return the exact text `ID_NOT_FOUND`.
+Malformed identities fail with 400; only a committed sysinfo report returns
+`SYSINFO_UPDATED`. Heartbeats return a `sysinfo` marker when a matching sysinfo
+report is absent, including after the registered key/UUID changes.
+`/api/sysinfo_ver` returns `unsigned-report-v1` so existing clients refresh their
+old report cache. The full JSON is retained as untrusted telemetry, including
+unknown fields; username, UUID and any claimed owner/status/key cannot prove
+ownership or change the account association, public key, management status or
+observed online time.
+
+Each report body is limited to 64 KiB. Sysinfo and heartbeat each allow one write
+per matching Peer every 5 seconds; concurrent duplicates receive 429. At most
+10000 report rows are stored; new rows above that limit fail with 503 rather than
+claim success. There is no unbounded in-memory report cache. Storage failures
+return 500 and roll back. API reports do not refresh trusted registration time.
+
+Administrators inspect `GET /api/admin/device/registry`, which returns up to 100
+registered Peers in stable ID order; use `?peer_id=...` to inspect a specific ID.
+It separates `untrusted_sysinfo`/`untrusted_heartbeat` from `pk_fingerprint`, owner
+and hbbs observations. In the Web device page, select the account and independently
+verify the public key from the controlled device over an existing trusted channel
+before typing its `sha256:<hex>` fingerprint. Copying a report's username/UUID is
+not such verification. `POST /api/admin/device/bind` takes `peer_id`, `user_id`
+and `pk_fingerprint`; it rechecks the currently registered key transactionally.
+`POST /api/admin/device/unbind` takes the stable device `id`. Bind, unbind and
+administrator deletion store an audit record in the same transaction; if audit
+storage fails, ownership changes roll back. Account transfers retain the stable
+internal device ID and reject conflicting verified records.
+
+Migration version 2 retains historical API devices and group membership data,
+marking old associations pending verification. Ordinary users cannot list or add
+unverified devices to their groups. Existing links whose registered key/UUID has
+changed are also hidden until an administrator verifies them again. Reports alone
+cannot upgrade these links. No real database is migrated by the local test suite.
+
+hbbs observes successful registrations and uses a bounded queue of 4096 events;
+the background worker persists at most 256 per transaction, with three bounded
+retries on storage failure. A full queue never blocks the network loop. Dropped
+or failed observations leave API online state conservative. Registration records
+match the Peer GUID, UUID and key, preserve the newest observation and survive
+API restarts. API online status expires after the existing hbbs timeout of
+30000 milliseconds. This means hbbs observed a registration under its existing
+protocol rules; it is separate from API ownership verification and remote-control
+or relay authorization. Build and deploy the updated hbbs together with the API.

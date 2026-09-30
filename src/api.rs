@@ -202,22 +202,6 @@ pub struct LdapConfigRequest {
     pub timeout_seconds: u64,
 }
 
-#[derive(Debug, Default, Deserialize)]
-pub struct DeviceReportRequest {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub uuid: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub os: String,
-    #[serde(default, rename = "type")]
-    pub device_type: String,
-    #[serde(default)]
-    pub info: String,
-}
-
 #[derive(Debug, serde::Serialize)]
 pub struct AdminUserResponse {
     pub id: String,
@@ -259,8 +243,8 @@ fn build_router(
         .route("/health/live", get(health_live))
         .route("/api/", get(api_index))
         .route("/api/version", get(api_version))
-        .route("/api/heartbeat", post(heartbeat))
-        .route("/api/sysinfo", post(sysinfo))
+        .route("/api/heartbeat", post(heartbeat).layer(RequestBodyLimitLayer::new(crate::device_registry::REPORT_MAX_BYTES)))
+        .route("/api/sysinfo", post(sysinfo).layer(RequestBodyLimitLayer::new(crate::device_registry::REPORT_MAX_BYTES)))
         .route("/api/sysinfo_ver", post(sysinfo_version))
         .route("/api/login", post(login))
         .route("/api/admin/login", post(admin_login))
@@ -324,6 +308,9 @@ fn build_router(
         .route("/api/device-groups/members/delete", post(remove_device_group_member))
         .route("/api/devices", get(list_devices))
         .route("/api/admin/device/list", get(admin_device_list))
+        .route("/api/admin/device/registry", get(admin_device_registry))
+        .route("/api/admin/device/bind", post(admin_device_bind))
+        .route("/api/admin/device/unbind", post(admin_device_unbind))
         .route("/api/admin/device/delete", post(admin_device_delete))
         .route("/api/server-config", post(server_config))
         .route("/api/server-config-v2", post(server_config_v2))
@@ -400,56 +387,36 @@ async fn api_version() -> impl IntoResponse {
     Json(json!({ "code": 0, "data": env!("CARGO_PKG_VERSION") }))
 }
 
-async fn heartbeat() -> impl IntoResponse {
-    Json(json!({}))
+async fn heartbeat(Extension(state): Extension<Arc<ApiState>>, Json(report): Json<serde_json::Value>) -> Response {
+    match state.auth.db().save_device_report(&report,true).await {
+        Ok(true) => Json(json!({"sysinfo":true})).into_response(),
+        Ok(false) => Json(json!({})).into_response(),
+        Err(error) => device_registry_error(error),
+    }
 }
 
-async fn sysinfo(
-    Extension(state): Extension<Arc<ApiState>>,
-    headers: HeaderMap,
-    payload: Option<Json<DeviceReportRequest>>,
-) -> Response {
-    if let (Ok(principal), Some(Json(report))) = (authorize(&state, &headers).await, payload) {
-        if report.id.len() > 128
-            || report.uuid.len() > 128
-            || report.name.len() > 256
-            || report.os.len() > 128
-            || report.device_type.len() > 64
-            || report.info.len() > 64 * 1024
-        {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "device_info_too_large" })),
-            )
-                .into_response();
-        }
-        let device_id = if report.id.is_empty() {
-            uuid::Uuid::new_v4().to_string()
-        } else {
-            format!("{}:{}", principal.user_id, report.id)
-        };
-        if let Err(_) = state
-            .auth
-            .db()
-            .upsert_api_device(
-                &device_id,
-                &principal.user_id,
-                &report.uuid,
-                &report.name,
-                &report.os,
-                &report.device_type,
-                &report.info,
-            )
-            .await
-        {
-            return auth_error_response(AuthError::Internal, false);
-        }
+async fn sysinfo(Extension(state): Extension<Arc<ApiState>>, Json(report): Json<serde_json::Value>) -> Response {
+    match state.auth.db().save_device_report(&report,false).await {
+        Ok(_) => (StatusCode::OK,"SYSINFO_UPDATED").into_response(),
+        Err(error) => device_registry_error(error),
     }
-    (StatusCode::OK, "SYSINFO_UPDATED").into_response()
+}
+
+fn device_registry_error(error: crate::device_registry::RegistryError) -> Response {
+    use crate::device_registry::RegistryError;
+    let (status,message) = match error {
+        RegistryError::NotFound => return (StatusCode::OK,"ID_NOT_FOUND").into_response(),
+        RegistryError::Invalid(message) => (StatusCode::BAD_REQUEST,message),
+        RegistryError::Conflict => (StatusCode::CONFLICT,"device_binding_conflict"),
+        RegistryError::RateLimited => (StatusCode::TOO_MANY_REQUESTS,"device_report_rate_limited"),
+        RegistryError::Capacity => (StatusCode::SERVICE_UNAVAILABLE,"device_report_capacity"),
+        RegistryError::Storage => (StatusCode::INTERNAL_SERVER_ERROR,"device_registry_storage_failed"),
+    };
+    (status,Json(json!({"error":message}))).into_response()
 }
 
 async fn sysinfo_version() -> impl IntoResponse {
-    (StatusCode::OK, env!("CARGO_PKG_VERSION"))
+    (StatusCode::OK, "unsigned-report-v1")
 }
 
 async fn login(
@@ -1076,6 +1043,43 @@ async fn list_devices(
     }
 }
 
+#[derive(Default,Deserialize)]
+struct RegisteredQuery { peer_id: Option<String> }
+
+async fn admin_device_registry(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Query(query): Query<RegisteredQuery>) -> Response {
+    if let Err(response) = require_admin(&state,&headers).await { return response; }
+    match state.auth.db().registered_devices(query.peer_id.as_deref()).await {
+        Ok(devices) => Json(json!({"data":devices})).into_response(),
+        Err(_) => device_registry_error(crate::device_registry::RegistryError::Storage),
+    }
+}
+
+async fn admin_device_bind(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<crate::device_registry::BindDeviceRequest>) -> Response {
+    let principal = match authorize(&state,&headers).await {
+        Ok(principal) if principal.user.is_admin => principal,
+        Ok(_) => return admin_required_response(),
+        Err(error) => return auth_error_response(error,true),
+    };
+    match state.auth.db().bind_api_device(&principal.user_id,&request).await {
+        Ok(id) => Json(json!({"id":id})).into_response(),
+        Err(crate::device_registry::RegistryError::NotFound) => (StatusCode::NOT_FOUND,Json(json!({"error":"device_or_user_not_found"}))).into_response(),
+        Err(error) => device_registry_error(error),
+    }
+}
+
+async fn admin_device_unbind(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap, Json(request): Json<UserIdRequest>) -> Response {
+    let principal = match authorize(&state,&headers).await {
+        Ok(principal) if principal.user.is_admin => principal,
+        Ok(_) => return admin_required_response(),
+        Err(error) => return auth_error_response(error,true),
+    };
+    match state.auth.db().unbind_api_device(&principal.user_id,&request.id).await {
+        Ok(()) => Json(serde_json::Value::Null).into_response(),
+        Err(crate::device_registry::RegistryError::NotFound) => (StatusCode::NOT_FOUND,Json(json!({"error":"verified_device_not_found"}))).into_response(),
+        Err(error) => device_registry_error(error),
+    }
+}
+
 async fn admin_device_list(
     Extension(state): Extension<Arc<ApiState>>,
     headers: HeaderMap,
@@ -1105,7 +1109,7 @@ async fn admin_device_delete(
     if !principal.user.is_admin {
         return admin_required_response();
     }
-    match state.auth.db().delete_api_device(&request.id).await {
+    match state.auth.db().delete_api_device(&request.id,&principal.user_id).await {
         Ok(true) => (StatusCode::OK, Json(serde_json::Value::Null)).into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,

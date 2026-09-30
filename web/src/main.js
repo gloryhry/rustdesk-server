@@ -52,6 +52,15 @@ const messages = {
     sessionId: '会话 ID',
     noSessions: '暂无会话',
     devices: '设备',
+    deviceRegistry: '已登记设备与未认证报告',
+    untrustedReport: '未认证报告，仅供参考',
+    verifiedBinding: '已核验归属',
+    pendingBinding: '待核验归属',
+    fingerprint: '公钥指纹（从设备独立核对后填写）',
+    bindDevice: '确认绑定',
+    unbindDevice: '解除绑定',
+    online: '在线',
+    offline: '离线',
     groups: '用户组',
     deviceGroups: '设备组',
     groupName: '组名称',
@@ -165,6 +174,15 @@ const messages = {
     sessionId: 'Session ID',
     noSessions: 'No sessions found',
     devices: 'Devices',
+    deviceRegistry: 'Registered devices and unsigned reports',
+    untrustedReport: 'Unsigned report, for reference only',
+    verifiedBinding: 'Verified ownership',
+    pendingBinding: 'Ownership pending verification',
+    fingerprint: 'Public key fingerprint (verify independently on device)',
+    bindDevice: 'Confirm binding',
+    unbindDevice: 'Unbind',
+    online: 'Online',
+    offline: 'Offline',
     groups: 'User groups',
     deviceGroups: 'Device groups',
     groupName: 'Group name',
@@ -264,6 +282,9 @@ const state = {
   oauthRedirectConfigured: false,
   oauthDraft: null,
   devices: [],
+  registeredDevices: [],
+  registryUsers: [],
+  registrySearch: '',
   groups: [],
   groupMemberships: [],
   groupUsers: [],
@@ -707,7 +728,7 @@ function devicesView() {
       row.append(element('td', 'strong-cell', device.name || device.id || '—'));
       row.append(element('td', '', device.uuid || '—'));
       row.append(element('td', '', [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
-      row.append(element('td', '', Number(device.status) === 1 ? t('enabled') : t('disabled')));
+      row.append(element('td', '', `${Number(device.status) === 1 ? t('enabled') : t('disabled')} / ${device.verified ? t('verifiedBinding') : t('pendingBinding')}`));
       if (state.user.is_admin) {
         const remove = button('', t('deleteDevice'), 'secondary');
         remove.dataset.deleteDevice = device.id;
@@ -722,7 +743,35 @@ function devicesView() {
   table.append(body);
   tableWrap.append(table);
   view.append(tableWrap);
+  if (state.user.is_admin) view.append(deviceRegistryView());
   return view;
+}
+
+function deviceRegistryView() {
+  const section = element('section', 'tags-panel');
+  section.append(element('h2', '', t('deviceRegistry')));
+  const search = element('form', 'inline-form'); search.id = 'registry-search';
+  const query = document.createElement('input'); query.name = 'peer_id'; query.placeholder = t('peerId'); query.value = state.registrySearch;
+  const searchButton = button('', t('refresh'), 'secondary'); searchButton.type = 'submit'; search.append(query, searchButton); section.append(search);
+  for (const peer of state.registeredDevices) {
+    const panel = element('section', 'panel-form'); panel.dataset.registryPeer = peer.peer_id;
+    panel.append(element('strong', '', `${peer.peer_id} / ${peer.online ? t('online') : t('offline')}`));
+    panel.append(element('p', '', `UUID: ${peer.uuid}`));
+    panel.append(element('code', '', peer.pk_fingerprint));
+    panel.append(element('p', '', `${t('untrustedReport')}: ${peer.untrusted_sysinfo?.hostname || peer.untrusted_sysinfo?.device_name || '—'}`));
+    panel.append(element('p', '', peer.verified ? t('verifiedBinding') : t('pendingBinding')));
+    const form = element('form', 'inline-form'); form.dataset.bindPeer = peer.peer_id;
+    const owner = document.createElement('select'); owner.name = 'user_id'; owner.required = true;
+    const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = t('account'); owner.append(placeholder);
+    for (const user of state.registryUsers) { const option = document.createElement('option'); option.value = user.id; option.textContent = user.name || user.id; owner.append(option); }
+    owner.value = peer.owner_id || '';
+    const fingerprint = document.createElement('input'); fingerprint.name = 'pk_fingerprint'; fingerprint.required = true; fingerprint.placeholder = t('fingerprint');
+    const submit = button('', t('bindDevice'), 'primary'); submit.type = 'submit'; submit.disabled = state.busy;
+    form.append(owner, fingerprint, submit); panel.append(form);
+    if (peer.device_id && peer.verified) { const unbind = button('', t('unbindDevice'), 'secondary'); unbind.dataset.unbindDevice = peer.device_id; panel.append(unbind); }
+    section.append(panel);
+  }
+  return section;
 }
 
 function groupsView() {
@@ -1089,6 +1138,9 @@ function bindEvents() {
     node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
   });
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
+  document.querySelector('#registry-search')?.addEventListener('submit', event => { event.preventDefault(); state.registrySearch = new FormData(event.currentTarget).get('peer_id') || ''; loadDevices(); });
+  document.querySelectorAll('[data-bind-peer]').forEach(form => form.addEventListener('submit', bindRegisteredDevice));
+  document.querySelectorAll('[data-unbind-device]').forEach(node => node.addEventListener('click', () => unbindRegisteredDevice(node.dataset.unbindDevice)));
   document.querySelectorAll('[data-delete-device]').forEach(node => {
     node.addEventListener('click', () => deleteDevice(node.dataset.deleteDevice));
   });
@@ -1413,10 +1465,12 @@ async function loadDevices() {
   state.busy = true;
   render();
   try {
-    const result = await api('/api/devices');
+    const [result, registry, users] = await Promise.all([api('/api/devices'), state.user.is_admin ? api(`/api/admin/device/registry?peer_id=${encodeURIComponent(state.registrySearch)}`.replace(/\?peer_id=$/, '')) : null, state.user.is_admin ? api('/api/admin/user/list') : null]);
     if (request !== state.devicesRequest || state.activeView !== 'devices') return;
     const value = result.data?.list || result.data || result.list || result;
     state.devices = Array.isArray(value) ? value : [];
+    state.registeredDevices = registry?.data || [];
+    state.registryUsers = users?.data || [];
     setNotice(null, null);
   } catch (error) {
     if (request === state.devicesRequest && state.user) setNotice('error', error.message);
@@ -1429,6 +1483,20 @@ async function loadDevices() {
       render();
     }
   }
+}
+
+async function bindRegisteredDevice(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget)); data.peer_id = event.currentTarget.dataset.bindPeer;
+  state.busy = true; render();
+  try { await api('/api/admin/device/bind', { method: 'POST', body: JSON.stringify(data) }); await loadDevices(); }
+  catch (error) { state.busy = false; setNotice('error', error.message); render(); }
+}
+
+async function unbindRegisteredDevice(id) {
+  state.busy = true; render();
+  try { await api('/api/admin/device/unbind', { method: 'POST', body: JSON.stringify({ id }) }); await loadDevices(); }
+  catch (error) { state.busy = false; setNotice('error', error.message); render(); }
 }
 
 async function deleteDevice(id) {
@@ -1914,6 +1982,9 @@ function clearSession() {
   state.oauthLoginProviders = [];
   state.oauthRedirectConfigured = false;
   state.devices = [];
+  state.registeredDevices = [];
+  state.registryUsers = [];
+  state.registrySearch = '';
   state.groups = [];
   state.groupMemberships = [];
   state.groupUsers = [];

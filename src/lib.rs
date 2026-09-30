@@ -11,3 +11,5 @@ mod native_oauth;
 pub mod ldap;
 mod peer;
 mod version;
+
+pub mod device_registry;

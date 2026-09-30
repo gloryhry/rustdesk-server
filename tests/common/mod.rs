@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 pub mod oidc;
+pub mod rendezvous;
 
 use axum::{body::Body, http::{header, Request, StatusCode}, response::Response, Router};
 use hbbs::{api::{build_service, CookiePolicy, PublicServerConfig}, database::Database,

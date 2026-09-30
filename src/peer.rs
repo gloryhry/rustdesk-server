@@ -63,6 +63,7 @@ pub(crate) type LockPeer = Arc<RwLock<Peer>>;
 pub(crate) struct PeerMap {
     map: Arc<RwLock<HashMap<String, LockPeer>>>,
     pub(crate) db: database::Database,
+    registrations: crate::device_registry::RegistrationWriter,
 }
 
 impl PeerMap {
@@ -82,10 +83,9 @@ impl PeerMap {
             db
         });
         log::info!("DB_URL={}", db);
-        let pm = Self {
-            map: Default::default(),
-            db: database::Database::new(&db).await?,
-        };
+        let db = database::Database::new(&db).await?;
+        let (registrations,_task) = crate::device_registry::RegistrationWriter::start(db.clone(),4096);
+        let pm = Self { map: Default::default(), db, registrations };
         Ok(pm)
     }
 
@@ -129,7 +129,16 @@ impl PeerMap {
             }
             log::info!("pk updated instead of insert");
         }
+        self.observe_registration(&*peer.read().await);
         register_pk_response::Result::OK
+    }
+
+    pub(crate) fn observe_registration(&self, peer: &Peer) {
+        if peer.guid.is_empty() { return; }
+        self.registrations.observe(crate::device_registry::RegistrationObservation {
+            guid: peer.guid.clone(), uuid: peer.uuid.to_vec(), pk: peer.pk.to_vec(),
+            registered_at_ms: crate::device_registry::now_ms(),
+        });
     }
 
     #[inline]
