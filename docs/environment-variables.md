@@ -483,3 +483,13 @@ retain their existing complete responses.
 `/api/users.data[].id` is the stable API account ID for both administrators and
 ordinary users. The latter still see only themselves. Web group membership
 uses this ID, and usernames are never accepted as substitute member IDs.
+
+### Address book partial edits
+
+The Web entry API (`POST /api/ab/peer`) treats omitted editable fields as
+unchanged. Explicit empty strings/arrays clear the relevant values. Stored
+hash/password, RDP settings, note, and unknown JSON fields survive edits and
+appear in the Web entry response. Identity and server timestamp fields are
+reserved. The document snapshot and structured entry update commit together;
+a failed write leaves both unchanged. Full legacy `/api/ab` upload retains its
+whole-document replacement behavior.

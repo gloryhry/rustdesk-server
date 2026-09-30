@@ -1103,7 +1103,10 @@ impl Database {
     pub async fn upsert_api_address_book_entry(
         &self,
         entry: &ApiAddressBookEntry,
+        snapshot: &str,
     ) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
         sqlx::query(
             "insert into api_address_book_entry(id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay) values(?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(user_id, peer_id) do update set id = excluded.id, username = excluded.username, hostname = excluded.hostname, alias = excluded.alias, platform = excluded.platform, tags = excluded.tags, force_always_relay = excluded.force_always_relay, updated_at = current_timestamp",
         )
@@ -1116,8 +1119,11 @@ impl Database {
         .bind(&entry.platform)
         .bind(&entry.tags)
         .bind(entry.force_always_relay)
-        .execute(self.pool.get().await?.deref_mut())
+        .execute(&mut tx)
         .await?;
+        sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
+            .bind(&entry.user_id).bind(snapshot).execute(&mut tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 

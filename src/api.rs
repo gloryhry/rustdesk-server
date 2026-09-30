@@ -157,17 +157,19 @@ pub struct AddressBookEntryRequest {
     pub id: Option<String>,
     pub peer_id: String,
     #[serde(default)]
-    pub username: String,
+    pub username: Option<String>,
     #[serde(default)]
-    pub hostname: String,
+    pub hostname: Option<String>,
     #[serde(default)]
-    pub alias: String,
+    pub alias: Option<String>,
     #[serde(default)]
-    pub platform: String,
+    pub platform: Option<String>,
     #[serde(default)]
-    pub tags: Vec<String>,
+    pub tags: Option<Vec<String>>,
     #[serde(default)]
-    pub force_always_relay: bool,
+    pub force_always_relay: Option<bool>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String,serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1568,13 +1570,10 @@ fn merge_address_book_entry(
         None => return,
     };
     let value = snapshot_peer_value(entry);
-    if let Some(existing) = peers.iter_mut().find(|peer| {
-        peer.get("peerId")
-            .or_else(|| peer.get("id"))
-            .and_then(serde_json::Value::as_str)
-            == Some(entry.peer_id.as_str())
-    }) {
-        *existing = value;
+    if let Some(existing) = peers.iter_mut().find(|peer| snapshot_peer_id(peer)==Some(entry.peer_id.as_str())) {
+        if let (Some(existing),Some(fields)) = (existing.as_object_mut(),value.as_object()) {
+            existing.extend(fields.clone());
+        }
     } else {
         peers.push(value);
     }
@@ -1595,6 +1594,18 @@ fn remove_address_book_entry_from_document(
                 != Some(key)
         });
     }
+}
+
+fn entry_response_with_snapshot(document: &serde_json::Map<String,serde_json::Value>, entry: &crate::database::ApiAddressBookEntry) -> serde_json::Value {
+    let mut value = document.get("peers").and_then(serde_json::Value::as_array)
+        .and_then(|peers|peers.iter().find(|peer|snapshot_peer_id(peer)==Some(entry.peer_id.as_str())))
+        .and_then(serde_json::Value::as_object).cloned().unwrap_or_default();
+    if let Some(fields) = address_book_entry_response(entry).as_object() { value.extend(fields.clone()); }
+    serde_json::Value::Object(value)
+}
+
+fn snapshot_peer_id(peer: &serde_json::Value) -> Option<&str> {
+    peer.get("peerId").or_else(||peer.get("peer_id")).or_else(||peer.get("id")).and_then(serde_json::Value::as_str)
 }
 
 async fn get_address_book(
@@ -1813,9 +1824,12 @@ async fn list_address_book_entries(
             } else {
                 entries
             };
+            let document = match address_book_document(&state,&principal.user_id).await {
+                Ok(document) => document, Err(_) => return auth_error_response(AuthError::Internal,false),
+            };
             let entries = entries
                 .iter()
-                .map(address_book_entry_response)
+                .map(|entry|entry_response_with_snapshot(&document,entry))
                 .collect::<Vec<_>>();
             (StatusCode::OK, Json(json!({ "code": 0, "data": entries }))).into_response()
         }
@@ -1884,89 +1898,67 @@ async fn upsert_address_book_entry(
     if peer_id.is_empty() || peer_id.chars().count() > 128 {
         return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_peer_id" }))).into_response();
     }
-    let tags = request
-        .tags
-        .into_iter()
-        .map(|tag| tag.trim().to_owned())
-        .filter(|tag| !tag.is_empty() && tag.chars().count() <= 64)
-        .collect::<Vec<_>>();
-    if tags.len() > 64
-        || request.username.chars().count() > 256
-        || request.hostname.chars().count() > 256
-        || request.alias.chars().count() > 256
-        || request.platform.chars().count() > 128
-    {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_address_book_entry" }))).into_response();
+    if request.extra.keys().any(|key|matches!(key.as_str(),"peerId"|"entryId"|"guid"|"user_id"|"createdAt"|"updatedAt")) {
+        return invalid_list_query("reserved_address_book_field");
     }
     let _tag_guard = state.tag_lock.lock().await;
-    let entry_id = if let Some(id) = request.id {
-        id
-    } else {
-        match state
-            .auth
-            .db()
-            .get_api_address_book_entry(&principal.user_id, peer_id)
-            .await
-        {
-            Ok(Some(existing)) => existing.id,
-            Ok(None) => uuid::Uuid::new_v4().to_string(),
-            Err(_) => return auth_error_response(AuthError::Internal, false),
-        }
-    };
-    if entry_id.is_empty() || entry_id.chars().count() > 128 {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "invalid_address_book_entry" }))).into_response();
-    }
-    let entry = crate::database::ApiAddressBookEntry {
-        id: entry_id,
-        user_id: principal.user_id,
-        peer_id: peer_id.to_owned(),
-        username: request.username,
-        hostname: request.hostname,
-        alias: request.alias,
-        platform: request.platform,
-        tags: serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_owned()),
-        force_always_relay: if request.force_always_relay { 1 } else { 0 },
-        created_at: String::new(),
-        updated_at: String::new(),
-    };
-    let mut document = match address_book_document(&state, &entry.user_id).await {
+    let mut document = match address_book_document(&state, &principal.user_id).await {
         Ok(document) => document,
         Err(_) => return auth_error_response(AuthError::Internal, false),
     };
-    merge_address_book_entry(&mut document, &entry);
-    let snapshot = match serde_json::to_string(&document) {
-        Ok(snapshot) => snapshot,
-        Err(_) => return auth_error_response(AuthError::Internal, false),
+    let indexed = match state.auth.db().get_api_address_book_entry(&principal.user_id,peer_id).await {
+        Ok(entry) => entry,
+        Err(_) => return auth_error_response(AuthError::Internal,false),
     };
-    match state.auth.db().upsert_api_address_book_entry(&entry).await {
-        Ok(()) => match state
-            .auth
-            .db()
-            .upsert_api_address_book(&entry.user_id, &snapshot)
-            .await
-        {
-            Ok(()) => match state
-                .auth
-                .db()
-                .get_api_address_book_entry(&entry.user_id, &entry.peer_id)
-                .await
-            {
-                Ok(Some(saved)) => (
-                    StatusCode::OK,
-                    Json(json!({ "code": 0, "data": address_book_entry_response(&saved) })),
-                )
-                    .into_response(),
-                Ok(None) => auth_error_response(AuthError::Internal, false),
-                Err(_) => auth_error_response(AuthError::Internal, false),
-            },
-            Err(_) => auth_error_response(AuthError::Internal, false),
+    let snapshot = document.get("peers").and_then(serde_json::Value::as_array)
+        .and_then(|peers|peers.iter().find(|peer|snapshot_peer_id(peer)==Some(peer_id)))
+        .and_then(|peer| {
+            let mut entry = address_book_entry_from_snapshot(&principal.user_id,peer)?;
+            if peer.get("entryId").or_else(||peer.get("guid")).is_none() { entry.id = uuid::Uuid::new_v4().to_string(); }
+            Some(entry)
+        });
+    let mut entry = indexed.or(snapshot).unwrap_or_else(||crate::database::ApiAddressBookEntry {
+        id:uuid::Uuid::new_v4().to_string(),user_id:principal.user_id,peer_id:peer_id.to_owned(),
+        username:String::new(),hostname:String::new(),alias:String::new(),platform:String::new(),
+        tags:"[]".to_owned(),force_always_relay:0,created_at:String::new(),updated_at:String::new(),
+    });
+    if let Some(id) = request.id { entry.id = id; }
+    if let Some(username) = request.username { entry.username = username; }
+    if let Some(hostname) = request.hostname { entry.hostname = hostname; }
+    if let Some(alias) = request.alias { entry.alias = alias; }
+    if let Some(platform) = request.platform { entry.platform = platform; }
+    if let Some(tags) = request.tags {
+        if tags.len()>64 || tags.iter().any(|tag|tag.trim().is_empty() || tag.chars().count()>64) {
+            return invalid_list_query("invalid_address_book_tags");
+        }
+        entry.tags = match serde_json::to_string(&tags.into_iter().map(|tag|tag.trim().to_owned()).collect::<Vec<_>>()) {
+            Ok(tags) => tags, Err(_) => return auth_error_response(AuthError::Internal,false),
+        };
+    }
+    if let Some(relay) = request.force_always_relay { entry.force_always_relay = i64::from(relay); }
+    if entry.id.is_empty() || entry.id.chars().count()>128 || entry.username.chars().count()>256
+        || entry.hostname.chars().count()>256 || entry.alias.chars().count()>256 || entry.platform.chars().count()>128 {
+        return invalid_list_query("invalid_address_book_entry");
+    }
+    merge_address_book_entry(&mut document,&entry);
+    if let Some(peer) = document.get_mut("peers").and_then(serde_json::Value::as_array_mut)
+        .and_then(|peers|peers.iter_mut().find(|peer|snapshot_peer_id(peer)==Some(peer_id))).and_then(serde_json::Value::as_object_mut) {
+        peer.extend(request.extra);
+    } else { return invalid_list_query("invalid_address_book_peers"); }
+    let snapshot = match serde_json::to_string(&document) {
+        Ok(snapshot) if snapshot.len()<=2*1024*1024 => snapshot,
+        Ok(_) => return (StatusCode::PAYLOAD_TOO_LARGE,Json(json!({"error":"address_book_too_large"}))).into_response(),
+        Err(_) => return auth_error_response(AuthError::Internal,false),
+    };
+    match state.auth.db().upsert_api_address_book_entry(&entry,&snapshot).await {
+        Ok(()) => match state.auth.db().get_api_address_book_entry(&entry.user_id,&entry.peer_id).await {
+            Ok(Some(saved)) => Json(json!({"code":0,"data":entry_response_with_snapshot(&document,&saved)})).into_response(),
+            _ => auth_error_response(AuthError::Internal,false),
         },
         Err(err) if err.to_string().to_lowercase().contains("constraint") => (
-            StatusCode::CONFLICT,
-            Json(json!({ "error": "address_book_entry_conflict" })),
-        )
-            .into_response(),
-        Err(_) => auth_error_response(AuthError::Internal, false),
+            StatusCode::CONFLICT,Json(json!({"error":"address_book_entry_conflict"})),
+        ).into_response(),
+        Err(_) => auth_error_response(AuthError::Internal,false),
     }
 }
 
