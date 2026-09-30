@@ -493,3 +493,7 @@ appear in the Web entry response. Identity and server timestamp fields are
 reserved. The document snapshot and structured entry update commit together;
 a failed write leaves both unchanged. Full legacy `/api/ab` upload retains its
 whole-document replacement behavior.
+
+Web entry deletion also accepts entries present only in a legacy snapshot.
+Existence is checked within the authenticated account's complete document;
+missing/repeated deletion returns 404. Snapshot and index deletion are atomic.

@@ -70,3 +70,40 @@ async fn identical_imported_peer_ids_in_different_accounts_have_independent_edit
     assert!(first["data"]["id"].is_string()); assert!(second["data"]["id"].is_string()); assert_ne!(first["data"]["id"],second["data"]["id"]);
     assert_eq!(book(&app,&token).await["peers"][0]["alias"],"First"); assert_eq!(book(&app,&other).await["peers"][0]["alias"],"Second");
 }
+
+#[tokio::test]
+async fn snapshot_only_entry_can_be_deleted_from_both_read_paths_and_repeated_delete_is_explicit() {
+    let (app,token) = fixture().await;
+    assert_eq!(auth(&app,"DELETE","/api/ab/peer/123456",json!({}),&token).await.status(),StatusCode::OK);
+    assert_eq!(book(&app,&token).await["peers"],json!([]));
+    assert_eq!(value(auth(&app,"GET","/api/ab/peers",json!({}),&token).await).await["data"],json!([]));
+    assert_eq!(auth(&app,"DELETE","/api/ab/peer/123456",json!({}),&token).await.status(),StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn deleting_own_snapshot_peer_does_not_delete_another_accounts_identical_peer() {
+    let (app,token) = fixture().await;
+    app.send(request("POST","/api/register",json!({"username":"other","password":"other-password"}))).await;
+    let other = value(app.send(request("POST","/api/login",json!({"username":"other","password":"other-password"}))).await).await["access_token"].as_str().unwrap().to_owned();
+    let imported = book(&app,&token).await;
+    assert_eq!(auth(&app,"POST","/api/ab",json!({"data":imported.to_string()}),&other).await.status(),StatusCode::OK);
+    let entry = value(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Other"}),&other).await).await;
+    let before = book(&app,&other).await;
+    assert_eq!(auth(&app,"POST","/api/ab/peer/delete",json!({"id":entry["data"]["id"]}),&token).await.status(),StatusCode::NOT_FOUND);
+    assert_eq!(auth(&app,"POST","/api/ab/peer/delete",json!({"id":"123456"}),&token).await.status(),StatusCode::OK);
+    assert_eq!(book(&app,&other).await,before);
+}
+
+#[tokio::test]
+async fn failed_delete_snapshot_write_rolls_back_index_deletion() {
+    let (app,token) = fixture().await;
+    let entry = value(auth(&app,"POST","/api/ab/peer",json!({"peer_id":"123456","alias":"Indexed"}),&token).await).await;
+    let before = book(&app,&token).await;
+    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
+    sqlx::query("create trigger reject_delete_snapshot before update on api_address_book_snapshot begin select raise(abort,'test-only failure'); end").execute(&pool).await.unwrap();
+    let path = format!("/api/ab/peer/{}",entry["data"]["id"].as_str().unwrap());
+    assert_eq!(auth(&app,"DELETE",&path,json!({}),&token).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(book(&app,&token).await,before);
+    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_address_book_entry where peer_id='123456'").fetch_one(&pool).await.unwrap(),1);
+    pool.close().await;
+}

@@ -1588,10 +1588,7 @@ fn remove_address_book_entry_from_document(
         .and_then(serde_json::Value::as_array_mut)
     {
         peers.retain(|peer| {
-            peer.get("peerId")
-                .or_else(|| peer.get("id"))
-                .and_then(serde_json::Value::as_str)
-                != Some(key)
+            snapshot_peer_id(peer) != Some(key)
         });
     }
 }
@@ -1967,34 +1964,18 @@ async fn remove_address_book_entry(
     user_id: &str,
     key: &str,
 ) -> Result<bool, AuthError> {
-    let entries = state
-        .auth
-        .db()
-        .list_api_address_book_entries(user_id)
-        .await
-        .map_err(|_| AuthError::Internal)?;
-    let peer_id = entries
-        .iter()
-        .find(|entry| entry.id == key || entry.peer_id == key)
-        .map(|entry| entry.peer_id.clone());
-    let deleted = state
-        .auth
-        .db()
-        .delete_api_address_book_entry_by_key(key, user_id)
-        .await
-        .map_err(|_| AuthError::Internal)?;
-    if deleted {
-        let mut document = address_book_document(state, user_id).await?;
-        remove_address_book_entry_from_document(&mut document, peer_id.as_deref().unwrap_or(key));
-        let snapshot = serde_json::to_string(&document).map_err(|_| AuthError::Internal)?;
-        state
-            .auth
-            .db()
-            .upsert_api_address_book(user_id, &snapshot)
-            .await
-            .map_err(|_| AuthError::Internal)?;
-    }
-    Ok(deleted)
+    let entries = state.auth.db().list_api_address_book_entries(user_id).await.map_err(|_|AuthError::Internal)?;
+    let mut document = address_book_document(state,user_id).await?;
+    let indexed_peer = entries.iter().find(|entry|entry.id==key || entry.peer_id==key).map(|entry|entry.peer_id.clone());
+    let snapshot_peer = document.get("peers").and_then(serde_json::Value::as_array)
+        .and_then(|peers|peers.iter().find(|peer|snapshot_peer_id(peer)==Some(key)
+            || peer.get("entryId").or_else(||peer.get("guid")).and_then(serde_json::Value::as_str)==Some(key)))
+        .and_then(snapshot_peer_id).map(str::to_owned);
+    let peer_id = match indexed_peer.or(snapshot_peer) { Some(peer_id) => peer_id, None => return Ok(false) };
+    remove_address_book_entry_from_document(&mut document,&peer_id);
+    let snapshot = serde_json::to_string(&document).map_err(|_|AuthError::Internal)?;
+    state.auth.db().delete_address_book_peer_and_snapshot(user_id,&peer_id,&snapshot).await.map_err(|_|AuthError::Internal)?;
+    Ok(true)
 }
 
 async fn delete_address_book_entry(

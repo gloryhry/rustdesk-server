@@ -1084,20 +1084,15 @@ impl Database {
         .await?)
     }
 
-    pub async fn delete_api_address_book_entry_by_key(
-        &self,
-        key: &str,
-        user_id: &str,
-    ) -> ResultType<bool> {
-        let result = sqlx::query(
-            "delete from api_address_book_entry where user_id = ? and (id = ? or peer_id = ?)",
-        )
-        .bind(user_id)
-        .bind(key)
-        .bind(key)
-        .execute(self.pool.get().await?.deref_mut())
-        .await?;
-        Ok(result.rows_affected() > 0)
+    pub async fn delete_address_book_peer_and_snapshot(&self, user_id: &str, peer_id: &str, snapshot: &str) -> ResultType<()> {
+        let mut conn = self.pool.get().await?;
+        let mut tx = conn.begin().await?;
+        sqlx::query("delete from api_address_book_entry where user_id=? and peer_id=?")
+            .bind(user_id).bind(peer_id).execute(&mut tx).await?;
+        sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
+            .bind(user_id).bind(snapshot).execute(&mut tx).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn upsert_api_address_book_entry(
