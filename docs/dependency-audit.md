@@ -5,7 +5,7 @@
 | 新编号 | 依赖 / 公告 | 状态 |
 | --- | --- | --- |
 | #21 | axum-core 0.2.4 / RUSTSEC-2022-0055 | 已完成 |
-| #22 | crossbeam-epoch 0.9.8 / RUSTSEC-2026-0204 | 待处理 |
+| #22 | crossbeam-epoch 0.9.8 / RUSTSEC-2026-0204 | 已完成 |
 | #23 | openssl 0.10.68 / RUSTSEC-2025-0022; openssl 0.10.68 / RUSTSEC-2025-0004 | 待处理 |
 | #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 待处理 |
 | #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 待处理 |
@@ -29,3 +29,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ```
 
 定向脚本不忽略未修复公告，输出其他待处理数量；最终必须运行无 ignore 的完整 `cargo audit`。当前依赖为 axum 0.5.17 / axum-core 0.2.9。提取器默认 2 MiB 限制之外，服务已有更严格的 1 MiB 全局限制；本服务已存在缓解，不能把依赖公告直接等同于可在此服务无限分配内存。
+
+## #22 验收
+
+基线定向审计失败；仅更新 crossbeam-epoch 0.9.8 → 0.9.20 后 RUSTSEC-2026-0204 回归通过，其余 17 条仍待处理。根包 142 项测试和 locked 全目标检查通过；本项没有 API/Web 行为变化。锁文件校验为 077708abe05066773e13ee13f9c8d68ae6c6d6d06e08867799fb0736f7ba1c19，用户数据库保持基线。
