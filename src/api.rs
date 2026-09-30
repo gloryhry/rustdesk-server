@@ -2098,7 +2098,7 @@ fn cookie_value<'a>(value: Option<&'a HeaderValue>, name: &str) -> Option<&'a st
 fn with_auth_cookie(policy: &CookiePolicy, mut response: Response, token: &str, expires_in: u64) -> Response {
     let cookie = policy.cookie("rustdesk_api_token", token, expires_in);
     if let Ok(value) = HeaderValue::from_str(&cookie) {
-        response.headers_mut().insert(header::SET_COOKIE, value);
+        response.headers_mut().append(header::SET_COOKIE, value);
     }
     response
 }
@@ -2114,12 +2114,14 @@ async fn oauth_login(
     if state.oauth_redirect_url.is_empty() {
         return oauth_error_response(OAuthError::NotConfigured);
     }
+    let binding = uuid::Uuid::new_v4().to_string();
     match state
         .oauth
-        .begin(&query.provider, &state.oauth_redirect_url)
+        .begin_with_device(&query.provider, &state.oauth_redirect_url, crate::oauth::OAuthDevice::default(), &binding)
         .await
     {
-        Ok(url) => Redirect::temporary(url.as_str()).into_response(),
+        Ok((url, flow)) => with_oauth_binding(&state.cookie_policy,
+            Redirect::temporary(url.as_str()).into_response(), &flow, &binding, 300),
         Err(err) => oauth_error_response(err),
     }
 }
@@ -2156,12 +2158,13 @@ async fn oauth_begin_response(
         os: device_info.os,
         device_type: device_info.device_type,
     };
+    let binding = uuid::Uuid::new_v4().to_string();
     match state
         .oauth
-        .begin_with_device(&provider, &state.oauth_redirect_url, device)
+        .begin_with_device(&provider, &state.oauth_redirect_url, device, &binding)
         .await
     {
-        Ok((url, state_value)) => (
+        Ok((url, state_value)) => with_oauth_binding(&state.cookie_policy, (
             StatusCode::OK,
             Json(json!({
                 "code": 0,
@@ -2170,7 +2173,7 @@ async fn oauth_begin_response(
                 "data": { "state": state_value, "url": url.as_str() }
             })),
         )
-            .into_response(),
+            .into_response(), &state_value, &binding, 300),
         Err(err) => oauth_error_response(err),
     }
 }
@@ -2190,12 +2193,15 @@ async fn oauth_callback(
     if state.oauth_redirect_url.is_empty() {
         return oauth_error_response(OAuthError::NotConfigured);
     }
+    let binding_name = oauth_binding_name(&query.state);
+    let binding = cookie_value(headers.get(header::COOKIE), &binding_name).unwrap_or_default();
     let identity = match state
         .oauth
         .complete(
             &query.code,
             &query.state,
             &state.oauth_redirect_url,
+            binding,
         )
         .await
     {
@@ -2205,7 +2211,7 @@ async fn oauth_callback(
     if !query.provider.is_empty() && query.provider != identity.provider {
         return oauth_error_response(OAuthError::InvalidState);
     }
-    match state
+    let response = match state
         .auth
         .login_external(
             &identity.provider,
@@ -2241,7 +2247,21 @@ async fn oauth_callback(
             }
         }
         Err(err) => auth_error_response(err, false),
+    };
+    with_oauth_binding(&state.cookie_policy, response, &query.state, "", 0)
+}
+
+fn oauth_binding_name(state: &str) -> String {
+    // Invalid state never reaches a successful callback, but keep header names bounded.
+    let suffix = state.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect::<String>();
+    format!("rustdesk_oauth_{suffix}")
+}
+
+fn with_oauth_binding(policy: &CookiePolicy, mut response: Response, state: &str, binding: &str, max_age: u64) -> Response {
+    if let Ok(value) = HeaderValue::from_str(&policy.cookie(&oauth_binding_name(state), binding, max_age)) {
+        response.headers_mut().append(header::SET_COOKIE, value);
     }
+    response
 }
 
 fn oauth_error_response(error: OAuthError) -> Response {

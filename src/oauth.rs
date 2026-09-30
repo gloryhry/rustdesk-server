@@ -21,6 +21,7 @@ pub struct OAuthProviderConfig {
 pub struct OAuthRuntime {
     providers: Arc<HashMap<String, OAuthProviderConfig>>,
     pending: Arc<tokio::sync::Mutex<HashMap<String, PendingState>>>,
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
 struct PendingState {
@@ -30,6 +31,7 @@ struct PendingState {
     nonce: String,
     device: OAuthDevice,
     expires_at: u64,
+    browser_binding: sodiumoxide::crypto::hash::sha256::Digest,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -74,6 +76,11 @@ struct TokenResponse {
 
 impl OAuthRuntime {
     pub fn new(configs: Vec<OAuthProviderConfig>) -> Self {
+        Self::new_with_clock(configs, Arc::new(crate::common::now))
+    }
+
+    /// Supply a clock at the expiration boundary for deterministic integration tests.
+    pub fn new_with_clock(configs: Vec<OAuthProviderConfig>, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
         let providers = configs
             .into_iter()
             .filter(|config| {
@@ -95,6 +102,7 @@ impl OAuthRuntime {
         Self {
             providers: Arc::new(providers),
             pending: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            clock,
         }
     }
 
@@ -119,8 +127,8 @@ impl OAuthRuntime {
         providers
     }
 
-    pub async fn begin(&self, provider: &str, redirect_uri: &str) -> Result<Url, OAuthError> {
-        self.begin_with_device(provider, redirect_uri, OAuthDevice::default())
+    pub async fn begin(&self, provider: &str, redirect_uri: &str, browser_binding: &str) -> Result<Url, OAuthError> {
+        self.begin_with_device(provider, redirect_uri, OAuthDevice::default(), browser_binding)
             .await
             .map(|(url, _)| url)
     }
@@ -130,7 +138,11 @@ impl OAuthRuntime {
         provider: &str,
         redirect_uri: &str,
         device: OAuthDevice,
+        browser_binding: &str,
     ) -> Result<(Url, String), OAuthError> {
+        if browser_binding.is_empty() || browser_binding.len() > 128 {
+            return Err(OAuthError::InvalidState);
+        }
         let config = self
             .providers
             .get(provider)
@@ -149,7 +161,7 @@ impl OAuthRuntime {
             .as_ref(),
             base64::URL_SAFE_NO_PAD,
         );
-        let now = crate::common::now();
+        let now = (self.clock)();
         let mut pending = self.pending.lock().await;
         pending.retain(|_, value| value.expires_at >= now);
         if pending.len() >= 10_000 {
@@ -164,6 +176,7 @@ impl OAuthRuntime {
                 nonce: nonce.clone(),
                 device,
                 expires_at: now.saturating_add(300),
+                browser_binding: sodiumoxide::crypto::hash::sha256::hash(browser_binding.as_bytes()),
             },
         );
         let mut url = Url::parse(&config.authorization_url).map_err(|_| OAuthError::InvalidResponse)?;
@@ -184,19 +197,26 @@ impl OAuthRuntime {
         code: &str,
         state: &str,
         redirect_uri: &str,
+        browser_binding: &str,
     ) -> Result<ExternalIdentity, OAuthError> {
         if code.is_empty() || state.is_empty() {
             return Err(OAuthError::InvalidState);
         }
-        let pending = self
-            .pending
-            .lock()
-            .await
-            .remove(state)
-            .ok_or(OAuthError::InvalidState)?;
-        if pending.redirect_uri != redirect_uri || pending.expires_at < crate::common::now() {
-            return Err(OAuthError::InvalidState);
-        }
+        let pending = {
+            let mut states = self.pending.lock().await;
+            let pending = states.get(state).ok_or(OAuthError::InvalidState)?;
+            let binding = sodiumoxide::crypto::hash::sha256::hash(browser_binding.as_bytes());
+            if browser_binding.is_empty() || pending.redirect_uri != redirect_uri
+                || !sodiumoxide::utils::memcmp(pending.browser_binding.as_ref(), binding.as_ref())
+            {
+                return Err(OAuthError::InvalidState);
+            }
+            let pending = states.remove(state).ok_or(OAuthError::InvalidState)?;
+            if pending.expires_at <= (self.clock)() {
+                return Err(OAuthError::InvalidState);
+            }
+            pending
+        };
         let provider = pending.provider;
         let code_verifier = pending.code_verifier;
         let nonce = pending.nonce;
@@ -399,6 +419,7 @@ mod tests {
                     uuid: "device-uuid".to_owned(),
                     ..OAuthDevice::default()
                 },
+                "test-browser",
             )
             .await
             .expect("authorization URL should be created");
@@ -422,11 +443,11 @@ mod tests {
             .expect("state should be present");
         assert_eq!(returned_state, state);
         assert!(runtime
-            .complete("code", &state, "https://api.example/callback")
+            .complete("code", &state, "https://api.example/callback", "test-browser")
             .await
             .is_err());
         assert!(runtime
-            .complete("code", &state, "https://api.example/callback")
+            .complete("code", &state, "https://api.example/callback", "test-browser")
             .await
             .is_err());
     }
@@ -472,12 +493,12 @@ mod tests {
             scopes: "openid email".to_owned(),
         }]);
         let (_, state) = runtime
-            .begin_with_device("local", "https://api.example/callback", OAuthDevice::default())
+            .begin_with_device("local", "https://api.example/callback", OAuthDevice::default(), "test-browser")
             .await
             .expect("local provider should begin");
 
         let identity = runtime
-            .complete("authorization-code", &state, "https://api.example/callback")
+            .complete("authorization-code", &state, "https://api.example/callback", "test-browser")
             .await
             .expect("mock provider should complete");
         server.await.expect("mock OAuth server should finish");

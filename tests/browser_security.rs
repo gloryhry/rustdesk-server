@@ -22,9 +22,11 @@ async fn oauth_callback_uses_the_same_secure_cookie_policy() {
     let app = TestApp::new(CookiePolicy::default(), provider.runtime()).await;
     let begin = app.send(Request::builder().uri("/api/oidc/login?provider=test")
         .body(Body::empty()).unwrap()).await;
+    let binding = cookie(&begin);
     let url = reqwest::Url::parse(begin.headers().get(header::LOCATION).unwrap().to_str().unwrap()).unwrap();
     let state = url.query_pairs().find(|(key, _)| key == "state").unwrap().1.into_owned();
     let response = app.send(Request::builder().uri(format!("/api/oidc/callback?code=code&state={state}"))
+        .header(header::COOKIE, binding)
         .body(Body::empty()).unwrap()).await;
     assert_secure_cookie(&response, false);
 }

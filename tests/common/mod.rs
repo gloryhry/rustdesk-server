@@ -80,12 +80,16 @@ impl MockOAuth {
     }
 
     pub fn runtime(&self) -> OAuthRuntime {
-        OAuthRuntime::new(vec![OAuthProviderConfig {
+        OAuthRuntime::new(vec![self.config()])
+    }
+
+    pub fn config(&self) -> OAuthProviderConfig {
+        OAuthProviderConfig {
             name: "test".to_owned(), client_id: "client".to_owned(), client_secret: "secret".to_owned(),
             authorization_url: format!("{}/authorize", self.base), token_url: format!("{}/token", self.base),
             userinfo_url: format!("{}/userinfo", self.base), issuer_url: String::new(),
             jwks_url: String::new(), scopes: "read:user".to_owned(),
-        }])
+        }
     }
 }
 
