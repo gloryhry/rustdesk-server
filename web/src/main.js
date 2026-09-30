@@ -1529,7 +1529,8 @@ async function loadGroups() {
     const users = userResult.data?.list || userResult.data || userResult.list || userResult;
     state.groups = Array.isArray(value) ? value : [];
     state.groupMemberships = Array.isArray(result.memberships) ? result.memberships : [];
-    state.groupUsers = Array.isArray(users) ? users : [];
+    if (!Array.isArray(users) || users.some(user => typeof user.id !== 'string' || !user.id)) throw new Error(t('requestFailed'));
+    state.groupUsers = users;
     setNotice(null, null);
   } catch (error) {
     setNotice('error', error.message);

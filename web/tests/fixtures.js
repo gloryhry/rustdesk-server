@@ -48,7 +48,7 @@ export const test = base.extend({
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
       !/^(API[_-]|RUSTDESK[_-]|DB[_-]URL)/i.test(key)));
     Object.assign(env, {
-      API_ENABLED: '1', API_PORT: String(port), API_BIND: '127.0.0.1',
+      API_ENABLED: '1', API_REGISTER_ENABLED: '1', API_PORT: String(port), API_BIND: '127.0.0.1',
       API_PUBLIC_URL: url, API_ALLOW_INSECURE_LOCAL_HTTP: '1',
       API_JWT_SECRET: randomBytes(32).toString('hex'),
       API_OAUTH_CONFIG_KEY: randomBytes(32).toString('base64'),

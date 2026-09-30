@@ -587,7 +587,7 @@ async fn list_users(Extension(state): Extension<Arc<ApiState>>, headers: HeaderM
         let visible = page.status.map_or(true,|status|principal.user.status==status)
             && page.name.as_ref().map_or(true,|name|principal.user.name.to_lowercase().contains(&name.to_lowercase()));
         let total = usize::from(visible);
-        let data = if visible && page.offset==0 { vec![principal.user] } else { Vec::new() };
+        let data = if visible && page.offset==0 { vec![ListedUser { id:principal.user_id,user:principal.user }] } else { Vec::new() };
         return Json(crate::pagination::Page { total,data,code:0 }).into_response();
     }
     match state.auth.db().paged_api_users(&page).await {
@@ -598,6 +598,13 @@ async fn list_users(Extension(state): Extension<Arc<ApiState>>, headers: HeaderM
 
 fn invalid_list_query(message: &str) -> Response {
     (StatusCode::BAD_REQUEST,Json(json!({"error":message}))).into_response()
+}
+
+#[derive(serde::Serialize)]
+struct ListedUser {
+    id: String,
+    #[serde(flatten)]
+    user: crate::auth::PublicUser,
 }
 
 async fn admin_current_user(

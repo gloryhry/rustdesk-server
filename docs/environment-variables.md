@@ -479,3 +479,7 @@ An optional `name` filter matches literal substrings in account name, group name
 or Peer ID/managed device name. `%` and `_` are not wildcards.
 The Web group selector reads all account pages; management-specific list routes
 retain their existing complete responses.
+
+`/api/users.data[].id` is the stable API account ID for both administrators and
+ordinary users. The latter still see only themselves. Web group membership
+uses this ID, and usernames are never accepted as substitute member IDs.
