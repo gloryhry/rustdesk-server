@@ -53,6 +53,10 @@ impl MockOidc {
     pub fn signed(claims: &Value) -> String {
         let mut header = Header::new(Algorithm::RS256);
         header.kid = Some("test-key".to_owned());
+        Self::signed_with_header(claims, header)
+    }
+
+    pub fn signed_with_header(claims: &Value, header: Header) -> String {
         encode(&header, claims, &EncodingKey::from_rsa_pem(include_bytes!("../fixtures/oidc-test-key.pem")).unwrap()).unwrap()
     }
 

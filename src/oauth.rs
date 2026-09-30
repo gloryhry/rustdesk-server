@@ -299,9 +299,14 @@ impl OAuthRuntime {
                 (!value.is_empty()).then(|| value.to_owned())
             })
             .ok_or(OAuthError::InvalidResponse)?;
-        if let Some(id_token) = token.id_token.as_deref() {
-            validate_id_token(&client, config, id_token, &nonce).await?;
-        }
+        let verified_subject = match config.kind {
+            OAuthProviderKind::Oidc => {
+                let id_token = token.id_token.as_deref().filter(|value| !value.is_empty())
+                    .ok_or(OAuthError::InvalidResponse)?;
+                Some(validate_id_token(&client, config, id_token, &nonce).await?)
+            }
+            OAuthProviderKind::OAuth2 => None,
+        };
         let profile = client
             .get(&config.userinfo_url)
             .bearer_auth(access_token)
@@ -314,12 +319,20 @@ impl OAuthRuntime {
             .json::<serde_json::Value>()
             .await
             .map_err(|_| OAuthError::InvalidResponse)?;
-        let subject = profile
-            .get("sub")
-            .or_else(|| profile.get("id"))
-            .and_then(json_scalar_string)
+        let subject_value = match config.kind {
+            OAuthProviderKind::Oidc => profile.get("sub"),
+            OAuthProviderKind::OAuth2 => profile.get("sub").or_else(|| profile.get("id")),
+        };
+        let subject = subject_value
+            .and_then(|value| match config.kind {
+                OAuthProviderKind::Oidc => value.as_str().map(str::to_owned),
+                OAuthProviderKind::OAuth2 => json_scalar_string(value),
+            })
             .filter(|value| !value.trim().is_empty())
             .ok_or(OAuthError::InvalidResponse)?;
+        if verified_subject.as_ref().is_some_and(|verified| verified != &subject) {
+            return Err(OAuthError::InvalidResponse);
+        }
         let username = profile
             .get("preferred_username")
             .or_else(|| profile.get("login"))
@@ -347,7 +360,7 @@ async fn validate_id_token(
     config: &OAuthProviderConfig,
     token: &str,
     nonce: &str,
-) -> Result<(), OAuthError> {
+) -> Result<String, OAuthError> {
     let header = decode_header(token).map_err(|_| OAuthError::InvalidResponse)?;
     if !matches!(header.alg, jsonwebtoken::Algorithm::RS256 | jsonwebtoken::Algorithm::RS384 | jsonwebtoken::Algorithm::RS512) {
         return Err(OAuthError::InvalidResponse);
@@ -375,6 +388,9 @@ async fn validate_id_token(
     let key = DecodingKey::from_rsa_components(&parameters.n, &parameters.e)
         .map_err(|_| OAuthError::InvalidResponse)?;
     let mut validation = Validation::new(header.alg);
+    validation.leeway = 0;
+    validation.validate_nbf = true;
+    validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     validation.set_issuer(&[config.issuer_url.as_str()]);
     validation.set_audience(&[config.client_id.as_str()]);
     let claims = decode::<IdTokenClaims>(token, &key, &validation)
@@ -384,10 +400,14 @@ async fn validate_id_token(
         || claims.sub.trim().is_empty()
         || claims.nonce.as_deref() != Some(nonce)
         || !claims.audience_contains(&config.client_id)
+        || claims.exp <= crate::common::now()
+        || (claims.aud.as_array().is_some_and(|aud| aud.len() > 1)
+            && claims.azp.as_deref() != Some(config.client_id.as_str()))
+        || claims.azp.as_ref().is_some_and(|azp| azp != &config.client_id)
     {
         return Err(OAuthError::InvalidResponse);
     }
-    Ok(())
+    Ok(claims.sub)
 }
 
 #[derive(Debug, Deserialize)]
@@ -396,6 +416,8 @@ struct IdTokenClaims {
     sub: String,
     aud: serde_json::Value,
     nonce: Option<String>,
+    exp: u64,
+    azp: Option<String>,
 }
 
 impl IdTokenClaims {

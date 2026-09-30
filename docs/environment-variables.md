@@ -80,7 +80,7 @@ in the inherited process environment.
 | `API_OIDC_AUTH_URL` | *(unset)* | Generic OIDC authorization endpoint. |
 | `API_OIDC_TOKEN_URL` | *(unset)* | Generic OIDC token endpoint. |
 | `API_OIDC_USERINFO_URL` | *(unset)* | Generic OIDC userinfo endpoint. |
-| `API_OIDC_ISSUER_URL` / `API_OIDC_JWKS_URL` | *(unset)* | Both endpoints are required when generic OIDC is configured. Invalid or partial provider configuration prevents startup with an explicit configuration error; it never falls back to an unvalidated provider. |
+| `API_OIDC_ISSUER_URL` / `API_OIDC_JWKS_URL` | *(unset)* | Both endpoints are required when generic OIDC is configured. Invalid or partial provider configuration prevents startup with an explicit configuration error; it never falls back to an unvalidated provider. OIDC callbacks require an ID token with a valid signature, issuer, audience, expiry, nonce and subject; userinfo.sub must match. Multiple audiences require a matching azp. |
 | `API_OIDC_SCOPE` | `openid email profile` | Generic OIDC scopes requested during authorization. |
 | `API_LDAP_ENABLED` | `0` | Enables validation and exposure of LDAP configuration to administrators. Directory bind authentication requires the LDAP protocol adapter and is not enabled by this setting alone. |
 | `API_LDAP_URL` | *(unset)* | LDAP endpoint using `ldap://` or `ldaps://`. |
