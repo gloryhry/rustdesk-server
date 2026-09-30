@@ -9,7 +9,7 @@
 | #23 | openssl 0.10.68 / RUSTSEC-2025-0022; openssl 0.10.68 / RUSTSEC-2025-0004 | 已完成 |
 | #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 已完成 |
 | #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 已完成 |
-| #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 待处理 |
+| #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 已完成 |
 | #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 待处理 |
 | #28 | libsqlite3-sys 0.24.2 / RUSTSEC-2022-0090; sqlx 0.6.0 / RUSTSEC-2024-0363; rustls 0.20.4 / RUSTSEC-2024-0336; webpki 0.22.0 / RUSTSEC-2023-0052 | 待处理 |
 | #29 | h2 0.3.26 / RUSTSEC-2026-0258; rustls-webpki 0.101.7 / RUSTSEC-2026-0098; rustls-webpki 0.101.7 / RUSTSEC-2026-0099; rustls-webpki 0.101.7 / RUSTSEC-2026-0104 | 待处理 |
@@ -45,3 +45,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ## #25 验收
 
 现代 rustls 握手边界定向审计先失败；升级 rustls 0.23.45 与所需 rustls-webpki 0.103.15 后通过，其余 13 条仍待处理。旧 rustls 0.20 的公告仍在 #28，不误报全部 TLS 已完成。根包 142 项和 locked 全目标检查通过；CryptoProvider、平台证书验证等依赖正常编译。锁文件 SHA-256：7f7341e33f2c15f510ec30c6c665ba03ce0e4b1fca8773b221dcaf9bb8ca14fb；用户数据库未变。
+
+## #26 验收
+
+定向 DoS 公告基线失败；tokio-tungstenite/tungstenite 统一到已由 hbb_common 使用的 0.26.2，旧 0.17 路径移除后通过，剩余 12 条。适配二进制 Bytes 类型，hbbr 发送不再复制为 Vec。真实 hbbs WebSocket 握手、RustDesk protobuf 二进制响应在升级前后都通过；保留既有 RegisterPk 在 WS 上返回 NOT_SUPPORT 的规则，未据此宣称 WS 公钥注册兼容。根包 143 项和 locked 全目标检查通过；锁文件 SHA-256 为 def89a18bbc6e2cf3a46139d889bdfe588f01287d18737a57f06780001b85c6b，用户数据库未变。
