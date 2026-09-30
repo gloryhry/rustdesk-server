@@ -1,5 +1,6 @@
 use crate::auth::{AuthError, AuthService, LoginDevice, Principal};
 use crate::ldap::LdapConfig;
+pub use crate::browser_security::CookiePolicy;
 use crate::oauth::{OAuthError, OAuthRuntime};
 use axum::{
     error_handling::HandleErrorLayer,
@@ -27,6 +28,7 @@ pub struct ApiState {
     pub oauth: OAuthRuntime,
     pub oauth_redirect_url: String,
     pub ldap: Arc<hbb_common::tokio::sync::RwLock<LdapConfig>>,
+    pub cookie_policy: CookiePolicy,
     pub tag_lock: Arc<hbb_common::tokio::sync::Mutex<()>>,
 }
 
@@ -229,6 +231,7 @@ pub fn build_router(
     oauth: OAuthRuntime,
     oauth_redirect_url: String,
     ldap: LdapConfig,
+    cookie_policy: CookiePolicy,
 ) -> Router {
     let state = Arc::new(ApiState {
         auth,
@@ -237,6 +240,7 @@ pub fn build_router(
         oauth,
         oauth_redirect_url,
         ldap: Arc::new(hbb_common::tokio::sync::RwLock::new(ldap)),
+        cookie_policy,
         tag_lock: Arc::new(hbb_common::tokio::sync::Mutex::new(())),
     });
     Router::new()
@@ -332,6 +336,7 @@ pub async fn build_service(
     oauth: OAuthRuntime,
     oauth_redirect_url: String,
     ldap: LdapConfig,
+    cookie_policy: CookiePolicy,
 ) -> Result<Router, AuthError> {
     let auth = AuthService::new(db, secret, token_ttl)?;
     if let Some((username, password)) = bootstrap_admin {
@@ -345,6 +350,7 @@ pub async fn build_service(
         oauth,
         oauth_redirect_url,
         ldap,
+        cookie_policy,
     ))
 }
 
@@ -419,6 +425,7 @@ async fn login(
     let (username, password, device) = login_parts(request);
     match state.auth.login(&username, &password, device).await {
         Ok(result) => with_auth_cookie(
+            &state.cookie_policy,
             (StatusCode::OK, Json(result.clone())).into_response(),
             &result.access_token,
             result.expires_in,
@@ -434,6 +441,7 @@ async fn admin_login(
     let (username, password, device) = login_parts(request);
     match state.auth.login_admin(&username, &password, device).await {
         Ok(result) => with_auth_cookie(
+            &state.cookie_policy,
             (StatusCode::OK, Json(result.clone())).into_response(),
             &result.access_token,
             result.expires_in,
@@ -846,7 +854,7 @@ async fn logout(
             .revoke_session(&principal.user_id, &principal.session_id)
             .await
         {
-            Ok(()) => clear_auth_cookie((StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
+            Ok(()) => clear_auth_cookie(&state.cookie_policy, (StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
             Err(err) => auth_error_response(err, false),
         },
         Err(err) => auth_error_response(err, true),
@@ -870,7 +878,7 @@ async fn logout_authorized(state: &ApiState, principal: Principal) -> Response {
         .revoke_session(&principal.user_id, &principal.session_id)
         .await
     {
-        Ok(()) => clear_auth_cookie((StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
+        Ok(()) => clear_auth_cookie(&state.cookie_policy, (StatusCode::OK, Json(serde_json::Value::Null)).into_response()),
         Err(err) => auth_error_response(err, false),
     }
 }
@@ -2087,24 +2095,16 @@ fn cookie_value<'a>(value: Option<&'a HeaderValue>, name: &str) -> Option<&'a st
         })
 }
 
-fn with_auth_cookie(mut response: Response, token: &str, expires_in: u64) -> Response {
-    let cookie = format!(
-        "rustdesk_api_token={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={expires_in}"
-    );
+fn with_auth_cookie(policy: &CookiePolicy, mut response: Response, token: &str, expires_in: u64) -> Response {
+    let cookie = policy.cookie("rustdesk_api_token", token, expires_in);
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(header::SET_COOKIE, value);
     }
     response
 }
 
-fn clear_auth_cookie(mut response: Response) -> Response {
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        HeaderValue::from_static(
-            "rustdesk_api_token=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0",
-        ),
-    );
-    response
+fn clear_auth_cookie(policy: &CookiePolicy, response: Response) -> Response {
+    with_auth_cookie(policy, response, "", 0)
 }
 
 async fn oauth_login(
@@ -2230,9 +2230,10 @@ async fn oauth_callback(
                 .unwrap_or(false);
             if accepts_html {
                 let response = Redirect::temporary("/").into_response();
-                with_auth_cookie(response, &result.access_token, result.expires_in)
+                with_auth_cookie(&state.cookie_policy, response, &result.access_token, result.expires_in)
             } else {
                 with_auth_cookie(
+                    &state.cookie_policy,
                     (StatusCode::OK, Json(result.clone())).into_response(),
                     &result.access_token,
                     result.expires_in,
@@ -2345,6 +2346,7 @@ mod tests {
     #[test]
     fn auth_cookie_response_sets_browser_session_attributes() {
         let response = with_auth_cookie(
+            &CookiePolicy::default(),
             (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
             "token-123",
             900,

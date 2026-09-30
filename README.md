@@ -28,7 +28,7 @@ RustDesk Server 是 RustDesk 的自托管服务端项目，提供设备发现、
 主要能力包括：
 
 - 用户注册、登录、当前用户查询、注销和持久化 session 撤销。
-- JWT Bearer token 和 `rustdesk_api_token` HttpOnly cookie 两种认证方式。
+- JWT Bearer token 和 `rustdesk_api_token` Secure/HttpOnly cookie 两种认证方式。
 - bcrypt 密码哈希、密码长度限制、用户名规范化和管理员权限检查。
 - 设备上报、设备列表、设备状态展示和管理员设备删除。
 - 管理员用户创建、状态修改、密码修改和删除。

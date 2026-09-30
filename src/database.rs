@@ -1021,7 +1021,10 @@ mod tests {
 
     #[tokio::main(flavor = "multi_thread")]
     async fn insert() {
-        let db = super::Database::new("test.sqlite3").await.unwrap();
+        let directory = std::env::temp_dir().join(format!("rustdesk-peer-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let database_path = directory.join("test.sqlite3");
+        let db = super::Database::new(database_path.to_str().unwrap()).await.unwrap();
         let mut jobs = vec![];
         for i in 0..10000 {
             let cloned = db.clone();
@@ -1043,6 +1046,10 @@ mod tests {
             });
             jobs.push(a);
         }
-        hbb_common::futures::future::join_all(jobs).await;
+        for result in hbb_common::futures::future::join_all(jobs).await {
+            result.expect("database task must succeed");
+        }
+        drop(db);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

@@ -4,6 +4,7 @@ pub mod common;
 pub mod database;
 pub mod auth;
 pub mod api;
+pub mod browser_security;
 pub mod oauth;
 pub mod ldap;
 mod peer;

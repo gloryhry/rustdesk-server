@@ -66,6 +66,7 @@ in the inherited process environment.
 | `API_BIND` | `127.0.0.1` | Address for the HTTP API listener. Use `0.0.0.0` in a container and publish it through a TLS reverse proxy. |
 | `API_PORT` | `21114` | HTTP API port. |
 | `API_JWT_SECRET` | *(required when enabled)* | Signing secret of at least 32 bytes. Do not reuse the RustDesk private key or commit this value. |
+| `API_ALLOW_INSECURE_LOCAL_HTTP` | `0` | Explicit local HTTP development exception. Requires a loopback `API_BIND` and an HTTP `API_PUBLIC_URL` whose host is localhost or a loopback IP. Default cookies always use Secure, HttpOnly, SameSite=Lax, and Path=/; forwarded headers never change this policy. |
 | `API_TOKEN_TTL` | `3600` | Access-token lifetime in seconds. |
 | `API_REGISTER_ENABLED` | `0` | Set to `1` to enable public registration. Publicly registered accounts are ordinary users. |
 | `API_BOOTSTRAP_ADMIN_USERNAME` | *(unset)* | Optional administrator username used only when the database has no users. Set together with the password. |

@@ -63,6 +63,12 @@ fn main() -> ResultType<()> {
         relay_server: common::get_arg("RUSTDESK_RELAY_SERVER"),
         key,
     };
+    let cookie_policy = if parse_bool_arg("API_ALLOW_INSECURE_LOCAL_HTTP", false)? {
+        api::CookiePolicy::local_http(bind_addr.ip(), &server_config.api_server)
+            .map_err(|message| hbb_common::anyhow::anyhow!(message))?
+    } else {
+        api::CookiePolicy::default()
+    };
     start(
         bind_addr,
         db_url,
@@ -75,6 +81,7 @@ fn main() -> ResultType<()> {
         oauth,
         oauth_redirect_url,
         ldap,
+        cookie_policy,
     )
 }
 
@@ -91,6 +98,7 @@ async fn start(
     oauth: hbbs::oauth::OAuthRuntime,
     oauth_redirect_url: String,
     ldap: hbbs::ldap::LdapConfig,
+    cookie_policy: api::CookiePolicy,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
     let router = api::build_service(
@@ -104,6 +112,7 @@ async fn start(
         oauth,
         oauth_redirect_url,
         ldap,
+        cookie_policy,
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;

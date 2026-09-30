@@ -3,6 +3,7 @@ use axum::http::{header, Request, StatusCode};
 use hbbs::{
     api::{build_service, PublicServerConfig},
     database::Database,
+    browser_security::CookiePolicy,
     ldap::LdapConfig,
     oauth::OAuthRuntime,
 };
@@ -39,6 +40,7 @@ async fn test_app() -> (axum::Router, PathBuf) {
         OAuthRuntime::new(Vec::new()),
         String::new(),
         LdapConfig::disabled(),
+        CookiePolicy::default(),
     )
     .await
     .expect("test router should initialize");
@@ -179,7 +181,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         .headers()
         .get(header::SET_COOKIE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.contains("HttpOnly") && value.contains("SameSite=Lax")));
+        .is_some_and(|value| value.contains("HttpOnly") && value.contains("SameSite=Lax") && value.contains("; Secure")));
 
     let sysinfo = send(
         &app,
@@ -361,7 +363,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         .headers()
         .get(header::SET_COOKIE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.contains("Max-Age=0")));
+        .is_some_and(|value| value.contains("Max-Age=0") && value.contains("; Secure")));
 
     let revoked = send(
         &app,
