@@ -7,7 +7,7 @@
 | #21 | axum-core 0.2.4 / RUSTSEC-2022-0055 | 已完成 |
 | #22 | crossbeam-epoch 0.9.8 / RUSTSEC-2026-0204 | 已完成 |
 | #23 | openssl 0.10.68 / RUSTSEC-2025-0022; openssl 0.10.68 / RUSTSEC-2025-0004 | 已完成 |
-| #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 待处理 |
+| #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 已完成 |
 | #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 待处理 |
 | #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 待处理 |
 | #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 待处理 |
@@ -37,3 +37,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ## #23 验收
 
 两条 OpenSSL 定向公告在基线失败；升级绑定 0.10.75 及必需的 openssl-sys 0.9.117 后通过，其余 15 条公告待处理。根包 142 项与 locked 全目标检查通过，服务链接和既有 OAuth/协议回归正常；没有 Web 代码变更。Cargo.lock SHA-256：4c30f9b8282a2a8183e81477bac33fd00fcbf4a1dc89d998d1c95ed64407e820，用户数据库保持基线。
+
+## #24 验收
+
+定向审计红测试确认 RUSTSEC-2023-0018；升级代码生成器的 tempfile 到 3.23.0 后移除 remove_dir_all 0.5.3，定向审计通过，剩余 14 条。路径位于 protobuf 构建工具，不直接接收 API 网络请求。根包 142 项测试和 locked 全目标检查通过，包括重新生成/编译协议。Cargo.lock SHA-256：d54209a0e7cb87a0a3d44b540bd5f8a97e7eb7f2721481747cb5ba068b4888cf；用户数据库未变。
