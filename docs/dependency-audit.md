@@ -8,7 +8,7 @@
 | #22 | crossbeam-epoch 0.9.8 / RUSTSEC-2026-0204 | 已完成 |
 | #23 | openssl 0.10.68 / RUSTSEC-2025-0022; openssl 0.10.68 / RUSTSEC-2025-0004 | 已完成 |
 | #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 已完成 |
-| #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 待处理 |
+| #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 已完成 |
 | #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 待处理 |
 | #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 待处理 |
 | #28 | libsqlite3-sys 0.24.2 / RUSTSEC-2022-0090; sqlx 0.6.0 / RUSTSEC-2024-0363; rustls 0.20.4 / RUSTSEC-2024-0336; webpki 0.22.0 / RUSTSEC-2023-0052 | 待处理 |
@@ -41,3 +41,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ## #24 验收
 
 定向审计红测试确认 RUSTSEC-2023-0018；升级代码生成器的 tempfile 到 3.23.0 后移除 remove_dir_all 0.5.3，定向审计通过，剩余 14 条。路径位于 protobuf 构建工具，不直接接收 API 网络请求。根包 142 项测试和 locked 全目标检查通过，包括重新生成/编译协议。Cargo.lock SHA-256：d54209a0e7cb87a0a3d44b540bd5f8a97e7eb7f2721481747cb5ba068b4888cf；用户数据库未变。
+
+## #25 验收
+
+现代 rustls 握手边界定向审计先失败；升级 rustls 0.23.45 与所需 rustls-webpki 0.103.15 后通过，其余 13 条仍待处理。旧 rustls 0.20 的公告仍在 #28，不误报全部 TLS 已完成。根包 142 项和 locked 全目标检查通过；CryptoProvider、平台证书验证等依赖正常编译。锁文件 SHA-256：7f7341e33f2c15f510ec30c6c665ba03ce0e4b1fca8773b221dcaf9bb8ca14fb；用户数据库未变。
