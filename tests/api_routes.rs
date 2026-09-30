@@ -235,18 +235,22 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         .expect("current user response should read");
     assert!(String::from_utf8_lossy(&current_user_body).contains("route-user"));
 
+    let book = send(&app,Request::builder().uri("/api/ab").header(header::COOKIE,&cookie).body(Body::empty()).unwrap()).await;
+    let book: serde_json::Value = serde_json::from_slice(&to_bytes(book.into_body()).await.unwrap()).unwrap();
+    let revision = book["revision"].as_i64().unwrap();
     let peer_upsert = send(
         &app,
         authenticated_json_request(
             "POST",
             "/api/ab/peer",
-            r#"{"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true}"#,
+            &serde_json::json!({"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true,"revision":revision}).to_string(),
             &cookie,
             csrf,
         ),
     )
     .await;
     assert_eq!(peer_upsert.status(), StatusCode::OK);
+    let peer_saved: serde_json::Value = serde_json::from_slice(&to_bytes(peer_upsert.into_body()).await.unwrap()).unwrap();
 
     let peers = send(
         &app,
@@ -270,7 +274,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         &app,
         Request::builder()
             .method("DELETE")
-            .uri("/api/ab/peer/peer-42")
+            .uri(format!("/api/ab/peer/peer-42?revision={}",peer_saved["revision"].as_i64().unwrap()))
             .header(header::COOKIE, &cookie)
             .header(header::ORIGIN, "http://127.0.0.1:21114")
             .header("x-csrf-token", csrf)

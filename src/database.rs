@@ -445,9 +445,13 @@ impl Database {
                 insert into api_schema_migration(version,name) values(2,'untrusted_device_reports_and_verified_bindings')")
                 .execute(&mut tx).await?;
         }
+        let applied: Option<i64> = sqlx::query_scalar("select version from api_schema_migration where version=3").fetch_optional(&mut tx).await?;
+        if applied.is_none() { crate::address_book_store::migrate(&mut tx).await?; }
         tx.commit().await?;
         Ok(())
     }
+
+    pub(crate) async fn book_connection(&self) -> ResultType<deadpool::managed::Object<DbPool>> { Ok(self.pool.get().await?) }
 
     pub(crate) async fn oauth_provider_records(&self) -> ResultType<Vec<crate::oauth_admin::ProviderRecord>> {
         Ok(sqlx::query_as("select id,name,namespace,authority,source,config,encrypted_secret,enabled,deleted,revision from api_oauth_provider order by name")
@@ -1053,123 +1057,6 @@ impl Database {
         .bind(now)
         .bind(id)
         .bind(user_id)
-        .execute(self.pool.get().await?.deref_mut())
-        .await?;
-        Ok(())
-    }
-
-    pub async fn list_api_address_book_entries(
-        &self,
-        user_id: &str,
-    ) -> ResultType<Vec<ApiAddressBookEntry>> {
-        Ok(sqlx::query_as::<_, ApiAddressBookEntry>(
-            "select id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay, created_at, updated_at from api_address_book_entry where user_id = ? order by updated_at desc, id",
-        )
-        .bind(user_id)
-        .fetch_all(self.pool.get().await?.deref_mut())
-        .await?)
-    }
-
-    pub async fn get_api_address_book_entry(
-        &self,
-        user_id: &str,
-        peer_id: &str,
-    ) -> ResultType<Option<ApiAddressBookEntry>> {
-        Ok(sqlx::query_as::<_, ApiAddressBookEntry>(
-            "select id, user_id, peer_id, username, hostname, alias, platform, tags, force_always_relay, created_at, updated_at from api_address_book_entry where user_id = ? and peer_id = ?",
-        )
-        .bind(user_id)
-        .bind(peer_id)
-        .fetch_optional(self.pool.get().await?.deref_mut())
-        .await?)
-    }
-
-    pub async fn delete_address_book_peer_and_snapshot(&self, user_id: &str, peer_id: &str, snapshot: &str) -> ResultType<()> {
-        let mut conn = self.pool.get().await?;
-        let mut tx = conn.begin().await?;
-        sqlx::query("delete from api_address_book_entry where user_id=? and peer_id=?")
-            .bind(user_id).bind(peer_id).execute(&mut tx).await?;
-        sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
-            .bind(user_id).bind(snapshot).execute(&mut tx).await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn save_address_book_tag_change(&self, user_id: &str, snapshot: &str, old: &str, new: Option<&str>) -> ResultType<()> {
-        let mut conn = self.pool.get().await?;
-        let mut tx = conn.begin().await?;
-        let entries: Vec<(String,String)> = sqlx::query_as("select id,tags from api_address_book_entry where user_id=?").bind(user_id).fetch_all(&mut tx).await?;
-        for (id,raw) in entries {
-            let tags: Vec<String> = serde_json::from_str(&raw)?;
-            let updated: Vec<String> = tags.iter().filter_map(|tag| {
-                if tag.eq_ignore_ascii_case(old) { new.map(str::to_owned) } else { Some(tag.clone()) }
-            }).collect();
-            if updated!=tags {
-                sqlx::query("update api_address_book_entry set tags=?,updated_at=current_timestamp where id=? and user_id=?")
-                    .bind(serde_json::to_string(&updated)?).bind(id).bind(user_id).execute(&mut tx).await?;
-            }
-        }
-        sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
-            .bind(user_id).bind(snapshot).execute(&mut tx).await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn upsert_api_address_book_entry(
-        &self,
-        entry: &ApiAddressBookEntry,
-        snapshot: &str,
-    ) -> ResultType<()> {
-        let mut conn = self.pool.get().await?;
-        let mut tx = conn.begin().await?;
-        let updated = sqlx::query("update api_address_book_entry set peer_id=?,username=?,hostname=?,alias=?,platform=?,tags=?,force_always_relay=?,updated_at=current_timestamp where user_id=? and id=?")
-            .bind(&entry.peer_id).bind(&entry.username).bind(&entry.hostname).bind(&entry.alias).bind(&entry.platform)
-            .bind(&entry.tags).bind(entry.force_always_relay).bind(&entry.user_id).bind(&entry.id).execute(&mut tx).await?;
-        if updated.rows_affected()==0 {
-            sqlx::query("insert into api_address_book_entry(id,user_id,peer_id,username,hostname,alias,platform,tags,force_always_relay) values(?,?,?,?,?,?,?,?,?)")
-                .bind(&entry.id).bind(&entry.user_id).bind(&entry.peer_id).bind(&entry.username).bind(&entry.hostname)
-                .bind(&entry.alias).bind(&entry.platform).bind(&entry.tags).bind(entry.force_always_relay).execute(&mut tx).await?;
-        }
-        sqlx::query("insert into api_address_book_snapshot(user_id,data) values(?,?) on conflict(user_id) do update set data=excluded.data,updated_at=current_timestamp")
-            .bind(&entry.user_id).bind(snapshot).execute(&mut tx).await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn delete_api_address_book_entry(&self, id: &str, user_id: &str) -> ResultType<bool> {
-        let result = sqlx::query("delete from api_address_book_entry where id = ? and user_id = ?")
-            .bind(id)
-            .bind(user_id)
-            .execute(self.pool.get().await?.deref_mut())
-            .await?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    pub async fn clear_api_address_book_entries(&self, user_id: &str) -> ResultType<()> {
-        sqlx::query("delete from api_address_book_entry where user_id = ?")
-            .bind(user_id)
-            .execute(self.pool.get().await?.deref_mut())
-            .await?;
-        Ok(())
-    }
-
-    pub async fn get_api_address_book(&self, user_id: &str) -> ResultType<Option<String>> {
-        let row = sqlx::query("select data from api_address_book_snapshot where user_id = ?")
-            .bind(user_id)
-            .fetch_optional(self.pool.get().await?.deref_mut())
-            .await?;
-        use sqlx::Row as _;
-        Ok(row
-            .map(|row| row.try_get::<String, _>("data"))
-            .transpose()?)
-    }
-
-    pub async fn upsert_api_address_book(&self, user_id: &str, data: &str) -> ResultType<()> {
-        sqlx::query(
-            "insert into api_address_book_snapshot(user_id, data) values(?, ?) on conflict(user_id) do update set data = excluded.data, updated_at = current_timestamp",
-        )
-        .bind(user_id)
-        .bind(data)
         .execute(self.pool.get().await?.deref_mut())
         .await?;
         Ok(())

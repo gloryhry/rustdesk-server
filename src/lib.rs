@@ -17,3 +17,4 @@ mod official_peer;
 mod pagination;
 
 mod address_book_codec;
+pub mod address_book_store;

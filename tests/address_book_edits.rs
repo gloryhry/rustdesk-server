@@ -74,6 +74,8 @@ async fn identical_imported_peer_ids_in_different_accounts_have_independent_edit
 #[tokio::test]
 async fn snapshot_only_entry_can_be_deleted_from_both_read_paths_and_repeated_delete_is_explicit() {
     let (app,token) = fixture().await;
+    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
+    sqlx::query("delete from api_address_book_entry").execute(&pool).await.unwrap(); pool.close().await;
     assert_eq!(auth(&app,"DELETE","/api/ab/peer/123456",json!({}),&token).await.status(),StatusCode::OK);
     assert_eq!(book(&app,&token).await["peers"],json!([]));
     assert_eq!(value(auth(&app,"GET","/api/ab/peers",json!({}),&token).await).await["data"],json!([]));
@@ -168,7 +170,8 @@ async fn invalid_relay_values_never_silently_become_false_or_modify_the_book() {
     let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
     let damaged = json!({"peers":[{"id":"123456","forceAlwaysRelay":"damaged"}]}).to_string();
     sqlx::query("update api_address_book_snapshot set data=?").bind(&damaged).execute(&pool).await.unwrap();
-    assert_eq!(auth(&app,"GET","/api/ab",json!({}),&token).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
+    let response = auth(&app,"GET","/api/ab",json!({}),&token).await;
+    assert_eq!(response.status(),StatusCode::BAD_REQUEST); assert_eq!(value(response).await["error"],"invalid_force_always_relay");
     assert_eq!(sqlx::query_scalar::<_,String>("select data from api_address_book_snapshot").fetch_one(&pool).await.unwrap(),damaged); pool.close().await;
 }
 

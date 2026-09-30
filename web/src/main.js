@@ -263,6 +263,7 @@ const state = {
   authMode: 'login',
   addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
   addressBookEntries: [],
+  addressBookRevision: null,
   addressBookDraft: {
     id: '',
     peer_id: '',
@@ -1118,6 +1119,7 @@ function bindEvents() {
     const data = new FormData(event.currentTarget);
     state.tagDraft = {
       ...state.tagDraft,
+      revision: state.tagDraft.revision ?? state.addressBookRevision,
       name: String(data.get('name') || ''),
       color: String(data.get('color') || '')
     };
@@ -1125,7 +1127,7 @@ function bindEvents() {
   document.querySelectorAll('[data-edit-tag]').forEach(node => {
     node.addEventListener('click', () => {
       const tag = state.tags.find(tag => tag.name === node.dataset.editTag);
-      if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '' }; render(); }
+      if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '', revision: state.addressBookRevision }; render(); }
     });
   });
   document.querySelectorAll('[data-delete-tag]').forEach(node => {
@@ -1272,6 +1274,7 @@ async function loadBootstrapData() {
     try {
       const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       state.addressBook = JSON.stringify(parsed, null, 2);
+      state.addressBookRevision = addressResult.value.revision;
     } catch {
       setNotice('error', t('requestFailed'));
     }
@@ -1286,6 +1289,8 @@ async function loadAddressBook() {
       api('/api/ab'),
       api('/api/ab/peers')
     ]);
+    if (!Number.isSafeInteger(result.revision) || result.revision !== entriesResult.revision) throw new Error('address_book_revision_conflict');
+    state.addressBookRevision = result.revision;
     const raw = result.data ?? result;
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     state.addressBook = JSON.stringify(parsed, null, 2);
@@ -1315,11 +1320,9 @@ async function saveAddressBook() {
   state.busy = true;
   render();
   try {
-    await api('/api/ab', { method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed) }) });
-    state.addressBook = JSON.stringify(parsed, null, 2);
-    const entriesResult = await api('/api/ab/peers');
-    const entries = entriesResult.data?.list || entriesResult.data || entriesResult.list || entriesResult;
-    state.addressBookEntries = Array.isArray(entries) ? entries : [];
+    await api('/api/ab', { method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed), revision: state.addressBookRevision }) });
+    await loadAddressBook();
+    await loadTags();
     setNotice('success', t('saved'));
   } catch (error) {
     setNotice('error', error.message);
@@ -1334,6 +1337,7 @@ async function savePeer(event) {
   const data = new FormData(event.currentTarget);
   const payload = {
     id: state.addressBookDraft.id || undefined,
+    revision: state.addressBookDraft.revision ?? state.addressBookRevision,
     peer_id: String(data.get('peer-id') || '').trim(),
     username: String(data.get('peer-username') || '').trim(),
     hostname: String(data.get('peer-hostname') || '').trim(),
@@ -1366,6 +1370,7 @@ function preservePeerDraft(event) {
   const data = new FormData(event.currentTarget);
   state.addressBookDraft = {
     ...state.addressBookDraft,
+    revision: state.addressBookDraft.revision ?? state.addressBookRevision,
     peer_id: String(data.get('peer-id') || ''),
     username: String(data.get('peer-username') || ''),
     hostname: String(data.get('peer-hostname') || ''),
@@ -1381,6 +1386,7 @@ function editPeer(id) {
   if (!peer) return;
   state.addressBookDraft = {
     id: peer.id || '',
+    revision: state.addressBookRevision,
     peer_id: peer.peerId || peer.id || '',
     username: peer.username || '',
     hostname: peer.hostname || '',
@@ -1410,7 +1416,7 @@ async function deletePeer(id) {
   state.busy = true;
   render();
   try {
-    await api(`/api/ab/peer/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await api(`/api/ab/peer/${encodeURIComponent(id)}?revision=${state.addressBookRevision}`, { method: 'DELETE' });
     clearPeerDraft();
     await loadAddressBook();
   } catch (error) {
@@ -1424,6 +1430,7 @@ async function deletePeer(id) {
 async function loadTags() {
   try {
     const result = await api('/api/ab/tags');
+    if (result.revision !== state.addressBookRevision) throw new Error('address_book_revision_conflict');
     const value = result.data || result;
     state.tags = Array.isArray(value) ? value.filter(tag => tag && typeof tag === 'object') : [];
   } catch (error) {
@@ -1437,6 +1444,7 @@ async function saveTag(event) {
   const data = new FormData(event.currentTarget);
   const payload = {
     old_name: state.tagDraft.old_name,
+    revision: state.tagDraft.revision ?? state.addressBookRevision,
     name: String(data.get('name') || '').trim(),
     color: String(data.get('color') || '').trim()
   };
@@ -1464,7 +1472,7 @@ async function deleteTag(name) {
   try {
     await api('/api/ab/tags/delete', {
       method: 'POST',
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ name, revision: state.addressBookRevision })
     });
     await loadAddressBook();
     await loadTags();
@@ -2022,6 +2030,7 @@ function clearSession() {
   state.groupDraft = '';
   state.tags = [];
   state.addressBookEntries = [];
+  state.addressBookRevision = null;
   state.addressBookDraft = {
     id: '',
     peer_id: '',

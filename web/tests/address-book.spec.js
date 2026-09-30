@@ -2,6 +2,37 @@ import { test, expect, signIn } from './fixtures.js';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 
+test('whole document editor reloads canonical identities and revisions before further edits', async ({ page, service }) => {
+  await signIn(page, service); await page.locator('#nav-addressBook').click();
+  await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '123456', alias: 'JSON import', extension: { keep: true } }], tags: ['imported'], tag_colors: { imported: 0xff112233 } }));
+  await page.locator('#save-address-book').click(); await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+  await expect(page.locator('[data-edit-tag="imported"]')).toBeVisible();
+  const canonical = JSON.parse(await page.locator('#address-book-editor').inputValue()); expect(canonical.peers[0].entryId).toBeTruthy();
+  await page.locator('[data-edit-peer]').click(); await page.locator('[name="peer-alias"]').fill('After JSON'); await page.locator('#save-peer').click();
+  await expect(page.locator('.table-wrap')).toContainText('After JSON');
+  const saved = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
+  expect(saved.peers[0].extension).toEqual({ keep: true }); expect(saved.peers[0].entryId).toBe(canonical.peers[0].entryId);
+});
+
+test('two tabs preserve all peers and reject a stale draft even after list refresh', async ({ page, service, context }) => {
+  const sqlite = new DatabaseSync(join(service.directory, 'api.sqlite3'));
+  const owner = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
+  sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify({ peers: [{ id: '123456', alias: 'First' }, { id: '654321', alias: 'Second', password: 'keep' }] }));
+  await signIn(page, service); await page.locator('#nav-addressBook').click();
+  const second = await context.newPage(); await second.goto(service.uiUrl); await second.locator('#nav-addressBook').click();
+  await second.locator('[data-edit-peer]').first().click(); await second.locator('[name="peer-alias"]').fill('Stale draft');
+  await page.locator('[data-edit-peer]').first().click(); await page.locator('[name="peer-alias"]').fill('Fresh'); await page.locator('#save-peer').click();
+  await expect(page.locator('.table-wrap')).toContainText('Fresh'); await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
+  await second.locator('#refresh-address-book').click(); await expect(second.locator('.table-wrap')).toContainText('Fresh');
+  await second.locator('#save-peer').click(); await expect(second.locator('.notice')).toContainText('address_book_revision_conflict');
+  let document = JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data);
+  expect(document.peers[0].alias).toBe('Fresh'); expect(document.peers[1].password).toBe('keep');
+  await second.locator('[data-edit-peer]').first().click(); await second.locator('[name="peer-alias"]').fill('Recovered'); await second.locator('#save-peer').click();
+  await expect(second.locator('.table-wrap')).toContainText('Recovered');
+  document = JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data);
+  expect(document.peers).toHaveLength(2); await second.close(); sqlite.close();
+});
+
 test('editing an imported address book alias keeps password, RDP and unknown fields', async ({ page, service }) => {
   const sqlite = new DatabaseSync(join(service.directory, 'api.sqlite3'));
   const owner = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
