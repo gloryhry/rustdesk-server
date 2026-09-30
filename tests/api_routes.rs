@@ -42,6 +42,7 @@ async fn test_app() -> (axum::Router, PathBuf) {
         LdapConfig::disabled(),
         CookiePolicy::default(),
         None,
+        None,
     )
     .await
     .expect("test router should initialize");
@@ -69,11 +70,14 @@ fn authenticated_json_request(
     path: &str,
     body: &str,
     cookie: &str,
+    csrf: &str,
 ) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(path)
         .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, "http://127.0.0.1:21114")
+        .header("x-csrf-token", csrf)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_owned()))
         .expect("authenticated request should build")
@@ -178,6 +182,11 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     .await;
     assert_eq!(login.status(), StatusCode::OK);
     let cookie = cookie_from(&login);
+    let csrf_response = send(&app, Request::builder().uri("/api/session/csrf")
+        .header(header::COOKIE,&cookie).body(Body::empty()).unwrap()).await;
+    assert_eq!(csrf_response.status(),StatusCode::OK);
+    let csrf: serde_json::Value = serde_json::from_slice(&to_bytes(csrf_response.into_body()).await.unwrap()).unwrap();
+    let csrf = csrf["csrf_token"].as_str().unwrap();
     assert!(login
         .headers()
         .get(header::SET_COOKIE)
@@ -191,6 +200,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/sysinfo",
             r#"{"id":"client-a","uuid":"uuid-a","name":"Office laptop","os":"Linux","type":"desktop","info":"{}"}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -233,6 +243,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/ab/peer",
             r#"{"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -262,6 +273,8 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             .method("DELETE")
             .uri("/api/ab/peer/peer-42")
             .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "http://127.0.0.1:21114")
+            .header("x-csrf-token", csrf)
             .body(Body::empty())
             .expect("peer delete request should build"),
     )
@@ -275,6 +288,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/admin/device/delete",
             r#"{"id":"missing-device"}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -287,6 +301,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups",
             r#"{"name":"route-group"}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -307,6 +322,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups/members",
             &format!(r#"{{"group_id":"{group_id}","user_id":"{user_id}"}}"#),
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -337,6 +353,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups/members/delete",
             &format!(r#"{{"group_id":"{group_id}","user_id":"{user_id}"}}"#),
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -349,6 +366,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups/delete",
             &format!(r#"{{"id":"{group_id}"}}"#),
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -356,7 +374,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
 
     let logout = send(
         &app,
-        authenticated_json_request("POST", "/api/logout", "", &cookie),
+        authenticated_json_request("POST", "/api/logout", "", &cookie, csrf),
     )
     .await;
     assert_eq!(logout.status(), StatusCode::OK);

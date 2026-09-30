@@ -63,12 +63,19 @@ fn main() -> ResultType<()> {
         relay_server: common::get_arg("RUSTDESK_RELAY_SERVER"),
         key,
     };
-    let cookie_policy = if parse_bool_arg("API_ALLOW_INSECURE_LOCAL_HTTP", false)? {
+    let mut cookie_policy = if parse_bool_arg("API_ALLOW_INSECURE_LOCAL_HTTP", false)? {
         api::CookiePolicy::local_http(bind_addr.ip(), &server_config.api_server)
             .map_err(|message| hbb_common::anyhow::anyhow!(message))?
     } else {
         api::CookiePolicy::default()
     };
+    if parse_bool_arg("API_COOKIE_CROSS_SITE", false)? {
+        cookie_policy = cookie_policy.cross_site().map_err(|message| hbb_common::anyhow::anyhow!(message))?;
+    }
+    let allowed_origins = common::get_arg("API_ALLOWED_ORIGINS").split(',')
+        .map(str::trim).filter(|origin| !origin.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let browser_policy = api::BrowserPolicy::new(&server_config.api_server, &allowed_origins)
+        .map_err(|message| hbb_common::anyhow::anyhow!(message))?;
     let provider_key = match common::get_arg_opt("API_OAUTH_CONFIG_KEY") {
         Some(value) => {
             let bytes = base64::decode(&value)?;
@@ -91,6 +98,7 @@ fn main() -> ResultType<()> {
         ldap,
         cookie_policy,
         provider_key,
+        browser_policy,
     )
 }
 
@@ -109,6 +117,7 @@ async fn start(
     ldap: hbbs::ldap::LdapConfig,
     cookie_policy: api::CookiePolicy,
     provider_key: Option<hbbs::oauth_admin::ProviderSecretKey>,
+    browser_policy: api::BrowserPolicy,
 ) -> ResultType<()> {
     let database = Database::new(&db_url).await?;
     let router = api::build_service(
@@ -124,6 +133,7 @@ async fn start(
         ldap,
         cookie_policy,
         provider_key,
+        Some(browser_policy),
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;

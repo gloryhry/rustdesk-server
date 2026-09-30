@@ -100,6 +100,12 @@ impl AuthService {
         })
     }
 
+    pub(crate) fn csrf_token(&self, principal: &Principal) -> String {
+        let key = sodiumoxide::crypto::auth::Key(sodiumoxide::crypto::hash::sha256::hash(&self.secret).0);
+        let message = format!("rustdesk-browser-csrf:{}:{}", principal.user_id, principal.session_id);
+        base64::encode(sodiumoxide::crypto::auth::authenticate(message.as_bytes(), &key).as_ref())
+    }
+
     pub fn db(&self) -> Database {
         self.db.clone()
     }

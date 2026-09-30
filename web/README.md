@@ -98,7 +98,7 @@ API_WEB_ROOT=/absolute/path/to/rustdesk-server/web/dist \
 VITE_API_BASE=https://rustdesk.example.com npm run build
 ```
 
-当 `VITE_API_BASE` 为空时，前端使用同源 `/api`。生产环境必须使用 HTTPS，因为浏览器会发送受保护的认证 cookie 或 Bearer token。
+当 `VITE_API_BASE` 为空时，前端使用同源 `/api`。生产环境必须使用 HTTPS。Web 统一使用 HttpOnly Cookie 会话；请求携带 credentials，修改请求附带会话 CSRF token，刷新通过 `/api/session/csrf` 恢复，旧 Bearer 缓存会被清除。
 
 ## Session 行为
 
@@ -152,3 +152,7 @@ cargo check --locked --all-targets
 - 关闭公开注册后再投入生产。
 - 使用固定版本的 RustDesk server 镜像，不要把未经验证的 `latest` 当作生产版本。
 - 不要把 JWT secret、OAuth client secret、LDAP bind password 或数据库文件提交到仓库。
+
+跨源部署须在 API 设置 `API_ALLOWED_ORIGINS=https://web.example.com`，只接受精确 Origin（含端口），不支持通配。Web 构建设置 `VITE_API_BASE=https://api.example.com`。默认适合同站跨源；跨站须显式设置 `API_COOKIE_CROSS_SITE=1` 并使用 HTTPS。浏览器仍可能限制第三方 Cookie，此时页面会提示 Cookie 会话不可用，建议通过同源反向代理部署。Cookie 修改请求必须同时通过 Origin 和 `X-CSRF-Token` 校验；原生 Bearer 客户端不受浏览器 CSRF 协议影响。
+
+浏览器回归：构建 API 和 Web 后运行 `RUSTDESK_API_BINARY=/absolute/path/rustdesk-api npm run test:browser`。测试使用独立临时数据库、随机端口和系统 Chrome，涵盖允许/拒绝跨源、登录恢复、修改、注销及第三方 Cookie 限制。

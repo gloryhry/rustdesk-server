@@ -14,7 +14,7 @@
 | 04 | #5 | 强制 OIDC 身份令牌验证 | 已完成 |
 | 05 | #3 | 原生 OAuth 发起与轮询 | 已完成 |
 | 06 | #15 | OAuth provider 管理与持久化 | 已完成 |
-| 07 | #18 | CORS、Cookie 会话和 CSRF | 待处理 |
+| 07 | #18 | CORS、Cookie 会话和 CSRF | 已完成 |
 | 08 | #7 | 设备报告、绑定和注册时间 | 待处理 |
 | 09 | #9 | 官方设备 DTO | 待处理 |
 | 10 | #8 | 列表分页与 total | 待处理 |
@@ -89,6 +89,17 @@
 - Web：系统 Chrome 真实 API 端到端测试通过创建、编辑、启停、刷新、删除和环境只读；`npm run build` 通过；`npm audit --omit=dev --audit-level=low` 为 0 漏洞，安装后的全依赖审计亦为 0。
 - 验收：根包 71 项测试及 `cargo check --locked --offline --all-targets` 通过；现有数据库与锁文件校验值保持不变。
 - 浏览器命令：`RUSTDESK_API_BINARY=/tmp/rustdesk-review-target/debug/rustdesk-api npm run test:browser -- oauth-admin.spec.js`（web 目录）。
+
+### 07 / 原 #18
+
+- 复现：Cookie 注销缺少 Origin 和 CSRF token，修复前仍返回 200；回归要求 403。
+- 修改：API_PUBLIC_URL 的 Origin 和显式 API_ALLOWED_ORIGINS 构成精确白名单；凭据 CORS、OPTIONS、Vary: Origin；拒绝通配及恶意来源。
+- 会话：GET /api/session/csrf 获取不缓存的用户及会话绑定 token；Cookie 修改必须同时验证 Origin 和 X-CSRF-Token。原生 Bearer 不要求 CSRF，无效/过期/错误格式的 Authorization 不回退 Cookie。
+- Web：credentials: include；统一 Cookie 登录和刷新恢复；清除两种浏览器存储里的旧 Bearer；网络失败注销保留错误，不假称撤销成功。
+- 跨站：默认 SameSite=Lax 支持同站跨源；显式 API_COOKIE_CROSS_SITE=1 使用 None; Secure，并拒绝与本机不安全 HTTP 模式混用；第三方 Cookie 受限提示同源代理方案。
+- 后端 5 项回归：来源/端口匹配、预检方法及头白名单、缺失/错误/跨会话 CSRF、成功注销与会话撤销、Bearer 降级拒绝、配置边界。
+- Chrome 5 项测试全部通过（同源用例补充缺失 CSRF 和网络失败后单独重跑通过）；覆盖跨端口真实预检/登录/刷新/写入/注销、拒绝 Origin、CDP 实际禁用第三方 Cookie、provider CRUD。
+- 验收：Web 构建通过；根包 76 项测试及全部目标检查通过；数据库与 Cargo.lock 校验值保持基线。
 
 ## 完成与发布边界
 

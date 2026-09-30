@@ -2,6 +2,8 @@ import './style.css';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const TOKEN_KEY = 'rustdesk_api_token';
+sessionStorage.removeItem(TOKEN_KEY);
+localStorage.removeItem(TOKEN_KEY);
 const LOCALE_KEY = 'rustdesk_api_locale';
 
 const messages = {
@@ -114,6 +116,7 @@ const messages = {
     language: 'English',
     loading: '加载中...',
     signedInAs: '已登录账户',
+    cookieUnavailable: 'Cookie 会话不可用，请允许站点 Cookie 或使用同源反向代理',
     apiUnavailable: '无法连接 API 服务'
   },
   'en-US': {
@@ -226,13 +229,14 @@ const messages = {
     language: '简体中文',
     loading: 'Loading...',
     signedInAs: 'Signed in as',
+    cookieUnavailable: 'Cookie session unavailable. Allow site cookies or use a same-origin reverse proxy.',
     apiUnavailable: 'Unable to reach the API server'
   }
 };
 
 const state = {
   locale: localStorage.getItem(LOCALE_KEY) || 'zh-CN',
-  token: sessionStorage.getItem(TOKEN_KEY) || '',
+  csrfToken: '',
   cookieSession: false,
   user: null,
   activeView: 'profile',
@@ -293,7 +297,7 @@ function render() {
 
   const shell = element('div', 'app-shell');
   shell.append(header());
-  shell.append(state.user && (state.token || state.cookieSession) ? workspace() : authView());
+  shell.append(state.user && state.cookieSession ? workspace() : authView());
   if (state.notice) shell.append(notice());
   app.append(shell);
   bindEvents();
@@ -310,7 +314,7 @@ function header() {
   const locale = button('locale-toggle', t('language'), 'secondary');
   locale.type = 'button';
   actions.append(locale);
-  if (state.user && (state.token || state.cookieSession)) actions.append(button('logout', t('logout'), 'secondary'));
+  if (state.user && state.cookieSession) actions.append(button('logout', t('logout'), 'secondary'));
   node.append(actions);
   return node;
 }
@@ -1151,10 +1155,7 @@ async function submitAuth(event) {
       state.authMode = 'login';
       setNotice('success', t('registered'));
     } else {
-      state.token = result.access_token || result.data?.access_token || '';
-      if (!state.token) throw new Error(t('requestFailed'));
-      sessionStorage.setItem(TOKEN_KEY, state.token);
-      await loadCurrentUser(false);
+      await loadCurrentUser(false, true);
     }
   } catch (error) {
     setNotice('error', error.message);
@@ -1177,17 +1178,18 @@ async function loadLoginOptions() {
   }
 }
 
-async function loadCurrentUser(renderAfter = true) {
-  const hadToken = Boolean(state.token);
+async function loadCurrentUser(renderAfter = true, requireSession = false) {
   try {
-    const result = await api('/api/currentUser');
-    state.user = safeUser(result);
+    const result = await api('/api/session/csrf');
+    state.csrfToken = result.csrf_token || '';
+    if (!state.csrfToken) throw new Error(t('cookieUnavailable'));
+    state.user = safeUser(result.user);
     if (!state.user || typeof state.user !== 'object') throw new Error(t('requestFailed'));
-    state.cookieSession = !state.token;
+    state.cookieSession = true;
     await loadBootstrapData();
   } catch (error) {
     clearSession();
-    if (hadToken) setNotice('error', error.message);
+    if (requireSession) throw new Error(error.message === t('sessionExpired') ? t('cookieUnavailable') : error.message);
   }
   if (renderAfter) render();
 }
@@ -1867,21 +1869,21 @@ async function saveLdap(event) {
 async function logout() {
   try {
     await api('/api/logout', { method: 'POST' });
-  } catch {
-    // Local session cleanup is still required when the server session expired.
+    clearSession();
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
   }
-  clearSession();
-  setNotice(null, null);
   render();
 }
 
 async function api(path, options = {}) {
   const headers = { Accept: 'application/json', ...options.headers };
   if (options.body) headers['Content-Type'] = 'application/json';
-  if (options.authenticated !== false && state.token) headers.Authorization = `Bearer ${state.token}`;
+  if (options.authenticated !== false && state.csrfToken && !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers['X-CSRF-Token'] = state.csrfToken;
   let response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    response = await fetch(`${API_BASE}${path}`, { ...options, credentials: 'include', headers });
   } catch {
     throw new Error(t('apiUnavailable'));
   }
@@ -1902,7 +1904,7 @@ async function api(path, options = {}) {
 }
 
 function clearSession() {
-  state.token = '';
+  state.csrfToken = '';
   state.cookieSession = false;
   state.user = null;
   state.users = [];
@@ -1943,8 +1945,4 @@ function clearSession() {
 }
 
 render();
-if (state.token) {
-  loadCurrentUser();
-} else {
-  Promise.all([loadCurrentUser(false), loadLoginOptions()]).then(() => render());
-}
+Promise.all([loadCurrentUser(false), loadLoginOptions()]).then(() => render());

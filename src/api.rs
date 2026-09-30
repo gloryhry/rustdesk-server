@@ -1,6 +1,6 @@
 use crate::auth::{AuthError, AuthService, LoginDevice, Principal};
 use crate::ldap::LdapConfig;
-pub use crate::browser_security::CookiePolicy;
+pub use crate::browser_security::{CookiePolicy, BrowserPolicy};
 use crate::oauth::{OAuthError, OAuthRuntime, OAuthFlowKind};
 use crate::native_oauth::NativeOAuthStore;
 use crate::oauth_admin::{AdminError, OAuthProviderAdmin, ProviderRequest, ProviderSecretKey};
@@ -31,6 +31,7 @@ pub struct ApiState {
     pub oauth_redirect_url: String,
     pub ldap: Arc<hbb_common::tokio::sync::RwLock<LdapConfig>>,
     pub cookie_policy: CookiePolicy,
+    browser_policy: BrowserPolicy,
     native_oauth: NativeOAuthStore,
     provider_admin: Arc<OAuthProviderAdmin>,
     pub tag_lock: Arc<hbb_common::tokio::sync::Mutex<()>>,
@@ -238,6 +239,7 @@ fn build_router(
     ldap: LdapConfig,
     cookie_policy: CookiePolicy,
     provider_admin: OAuthProviderAdmin,
+    browser_policy: BrowserPolicy,
 ) -> Router {
     let native_clock = oauth.clone();
     let state = Arc::new(ApiState {
@@ -248,6 +250,7 @@ fn build_router(
         oauth_redirect_url,
         ldap: Arc::new(hbb_common::tokio::sync::RwLock::new(ldap)),
         cookie_policy,
+        browser_policy,
         provider_admin: Arc::new(provider_admin),
         native_oauth: NativeOAuthStore::new(Arc::new(move || native_clock.now())),
         tag_lock: Arc::new(hbb_common::tokio::sync::Mutex::new(())),
@@ -274,6 +277,7 @@ fn build_router(
         .route("/api/register", post(register))
         .route("/api/admin/user/register", post(admin_user_create))
         .route("/api/currentUser", get(current_user).post(current_user))
+        .route("/api/session/csrf", get(session_csrf))
         .route("/api/user/info", get(current_user))
         .route("/api/users", get(list_users))
         .route("/api/peers", get(list_devices))
@@ -325,7 +329,6 @@ fn build_router(
         .route("/api/server-config-v2", post(server_config_v2))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(RequestBodyTimeoutLayer::new(Duration::from_secs(15)))
-        .layer(Extension(state))
         .fallback(
             get_service(ServeDir::new(web_root)).layer(HandleErrorLayer::new(
                 |_: std::io::Error| async {
@@ -336,6 +339,8 @@ fn build_router(
                 },
             )),
         )
+        .layer(axum::middleware::from_fn(browser_request))
+        .layer(Extension(state))
 }
 
 pub async fn build_service(
@@ -351,7 +356,12 @@ pub async fn build_service(
     ldap: LdapConfig,
     cookie_policy: CookiePolicy,
     provider_key: Option<ProviderSecretKey>,
+    browser_policy: Option<BrowserPolicy>,
 ) -> Result<Router, AuthError> {
+    let browser_policy = match browser_policy {
+        Some(policy) => policy,
+        None => BrowserPolicy::new(&server_config.api_server, &[]).map_err(AuthError::InvalidInput)?,
+    };
     if provider_key.as_ref().is_some_and(|key| key.matches(secret.as_bytes())) {
         return Err(AuthError::InvalidInput("OAuth configuration key must be independent from JWT secret"));
     }
@@ -374,6 +384,7 @@ pub async fn build_service(
         ldap,
         cookie_policy,
         provider_admin,
+        browser_policy,
     ))
 }
 
@@ -511,6 +522,82 @@ async fn register(
         Ok(user) => (StatusCode::CREATED, Json(user)).into_response(),
         Err(err) => auth_error_response(err, false),
     }
+}
+
+async fn session_csrf(Extension(state): Extension<Arc<ApiState>>, headers: HeaderMap) -> Response {
+    match authorize(&state, &headers).await {
+        Ok(principal) => {
+            let mut response = Json(json!({"csrf_token":state.auth.csrf_token(&principal),"user":principal.user})).into_response();
+            response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err(error) => auth_error_response(error, true),
+    }
+}
+
+async fn browser_request(
+    request: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next<axum::body::Body>,
+) -> Response {
+    if !request.uri().path().starts_with("/api/") { return next.run(request).await; }
+    let state = match request.extensions().get::<Arc<ApiState>>().cloned() {
+        Some(state) => state,
+        None => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    let origin = request.headers().get(header::ORIGIN).cloned();
+    let allowed = origin.as_ref().is_some_and(|value| value.to_str().is_ok_and(|value| state.browser_policy.allows(value)));
+    if origin.is_some() && !allowed {
+        return cors_response(browser_error("origin_not_allowed"), None);
+    }
+    let cors_origin = if allowed { origin.as_ref() } else { None };
+    if request.method() == axum::http::Method::OPTIONS {
+        let valid_method = request.headers().get(header::ACCESS_CONTROL_REQUEST_METHOD)
+            .and_then(|value| value.to_str().ok()).is_some_and(|method| matches!(method,"GET"|"POST"|"PUT"|"PATCH"|"DELETE"|"HEAD"));
+        let valid_headers = request.headers().get(header::ACCESS_CONTROL_REQUEST_HEADERS).map(|value| {
+            value.to_str().is_ok_and(|value| value.split(',').all(|name|
+                matches!(name.trim().to_ascii_lowercase().as_str(), "authorization"|"content-type"|"x-csrf-token"|"accept")))
+        }).unwrap_or(true);
+        if !allowed || !valid_method || !valid_headers {
+            return cors_response(browser_error("invalid_cors_preflight"),cors_origin);
+        }
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_METHODS, HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, HEAD"));
+        response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("Authorization, Content-Type, X-CSRF-Token, Accept"));
+        response.headers_mut().insert(header::ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("600"));
+        response.headers_mut().append(header::VARY, HeaderValue::from_static("Access-Control-Request-Method, Access-Control-Request-Headers"));
+        return cors_response(response,cors_origin);
+    }
+    let unsafe_method = !matches!(*request.method(),axum::http::Method::GET|axum::http::Method::HEAD);
+    let public_login = matches!(request.uri().path(), "/api/login"|"/api/admin/login"|"/api/register"|"/api/users/register"|"/api/oidc/auth");
+    let read_post = matches!(request.uri().path(), "/api/currentUser"|"/api/user/info"|"/api/server-config"|"/api/server-config-v2");
+    let uses_cookie = !request.headers().contains_key(header::AUTHORIZATION)
+        && cookie_value(request.headers().get(header::COOKIE),"rustdesk_api_token").is_some();
+    if unsafe_method && uses_cookie && !public_login && !read_post {
+        if !allowed { return cors_response(browser_error("csrf_origin_required"),cors_origin); }
+        let principal = match authorize(&state,request.headers()).await {
+            Ok(principal) => principal,
+            Err(error) => return cors_response(auth_error_response(error,true),cors_origin),
+        };
+        let expected = state.auth.csrf_token(&principal);
+        let matches = request.headers().get("x-csrf-token").and_then(|value| value.to_str().ok())
+            .is_some_and(|value| sodiumoxide::utils::memcmp(value.as_bytes(),expected.as_bytes()));
+        if !matches { return cors_response(browser_error("csrf_token_required"),cors_origin); }
+    }
+    let origin = origin.filter(|_| allowed);
+    cors_response(next.run(request).await,origin.as_ref())
+}
+
+fn browser_error(message: &str) -> Response {
+    (StatusCode::FORBIDDEN,Json(json!({"error":message}))).into_response()
+}
+
+fn cors_response(mut response: Response, origin: Option<&HeaderValue>) -> Response {
+    response.headers_mut().append(header::VARY,HeaderValue::from_static("Origin"));
+    if let Some(origin) = origin {
+        response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_ORIGIN,origin.clone());
+        response.headers_mut().insert(header::ACCESS_CONTROL_ALLOW_CREDENTIALS,HeaderValue::from_static("true"));
+    }
+    response
 }
 
 async fn current_user(
@@ -2161,13 +2248,12 @@ fn valid_tag_color(value: &str) -> bool {
 }
 
 async fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<Principal, AuthError> {
-    let token = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .filter(|value| !value.is_empty())
-        .or_else(|| cookie_value(headers.get(header::COOKIE), "rustdesk_api_token"))
-        .ok_or(AuthError::InvalidCredentials)?;
+    let token = if let Some(value) = headers.get(header::AUTHORIZATION) {
+        value.to_str().ok().and_then(|value| value.strip_prefix("Bearer "))
+            .filter(|token| !token.is_empty()).ok_or(AuthError::InvalidCredentials)?
+    } else {
+        cookie_value(headers.get(header::COOKIE), "rustdesk_api_token").ok_or(AuthError::InvalidCredentials)?
+    };
     state.auth.authorize(token).await
 }
 

@@ -19,6 +19,10 @@ impl TestApp {
     }
 
     pub async fn new_with_key(policy: CookiePolicy, oauth: OAuthRuntime, key: Option<hbbs::oauth_admin::ProviderSecretKey>) -> Self {
+        Self::new_with_browser(policy,oauth,key,None).await
+    }
+
+    pub async fn new_with_browser(policy: CookiePolicy, oauth: OAuthRuntime, key: Option<hbbs::oauth_admin::ProviderSecretKey>, browser: Option<hbbs::api::BrowserPolicy>) -> Self {
         let directory = std::env::temp_dir().join(format!("rustdesk-contract-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();
         let db = Database::new(directory.join("api.sqlite3").to_str().unwrap()).await.unwrap();
@@ -28,7 +32,7 @@ impl TestApp {
                 relay_server: String::new(), key: String::new(),
             }, directory.to_string_lossy().into_owned(),
             Some(("admin".to_owned(), "admin-password".to_owned())), oauth,
-            "https://api.example/api/oidc/callback".to_owned(), LdapConfig::disabled(), policy, key,
+            "https://api.example/api/oidc/callback".to_owned(), LdapConfig::disabled(), policy, key, browser,
         ).await.unwrap();
         Self { router, directory }
     }
@@ -40,11 +44,27 @@ impl TestApp {
             "01234567890123456789012345678901".to_owned(), Duration::from_secs(3600), true,
             PublicServerConfig { api_server:"https://api.example".to_owned(), id_server:String::new(), relay_server:String::new(), key:String::new() },
             self.directory.to_string_lossy().into_owned(), None, oauth, "https://api.example/api/oidc/callback".to_owned(),
-            LdapConfig::disabled(), CookiePolicy::default(), key).await?;
+            LdapConfig::disabled(), CookiePolicy::default(), key, None).await?;
         Ok(())
     }
 
-    pub async fn send(&self, request: Request<Body>) -> Response {
+    // Older contract tests send valid browser mutations; security-negative tests use send_raw.
+    pub async fn send(&self, mut request: Request<Body>) -> Response {
+        if !matches!(*request.method(),axum::http::Method::GET|axum::http::Method::HEAD|axum::http::Method::OPTIONS)
+            && request.headers().contains_key(header::COOKIE) && !request.headers().contains_key(header::AUTHORIZATION)
+            && !request.headers().contains_key(header::ORIGIN) {
+            let cookie = request.headers()[header::COOKIE].clone();
+            let csrf = self.send_raw(Request::builder().uri("/api/session/csrf").header(header::COOKIE,cookie).body(Body::empty()).unwrap()).await;
+            if csrf.status() == StatusCode::OK {
+                let value: Value = serde_json::from_slice(&hyper::body::to_bytes(csrf.into_body()).await.unwrap()).unwrap();
+                request.headers_mut().insert("x-csrf-token",value["csrf_token"].as_str().unwrap().parse().unwrap());
+            }
+            request.headers_mut().insert(header::ORIGIN,"https://api.example".parse().unwrap());
+        }
+        self.send_raw(request).await
+    }
+
+    pub async fn send_raw(&self, request: Request<Body>) -> Response {
         self.router.clone().oneshot(request).await.unwrap()
     }
 }

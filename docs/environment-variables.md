@@ -67,6 +67,8 @@ in the inherited process environment.
 | `API_PORT` | `21114` | HTTP API port. |
 | `API_JWT_SECRET` | *(required when enabled)* | Signing secret of at least 32 bytes. Do not reuse the RustDesk private key or commit this value. |
 | `API_ALLOW_INSECURE_LOCAL_HTTP` | `0` | Explicit local HTTP development exception. Requires a loopback `API_BIND` and an HTTP `API_PUBLIC_URL` whose host is localhost or a loopback IP. Default cookies always use Secure, HttpOnly, SameSite=Lax, and Path=/; forwarded headers never change this policy. |
+| `API_ALLOWED_ORIGINS` | *(empty)* | Comma-separated exact Web origins (scheme, hostname and port). The origin of API_PUBLIC_URL is automatically allowed. Wildcards, credentials, paths and trailing slashes are rejected. Unapproved Origin headers are rejected even if a Bearer or Cookie is present. CORS credentials use explicit origins and Vary: Origin. |
+| `API_COOKIE_CROSS_SITE` | `0` | Explicit cross-site Cookie opt-in: SameSite=None; Secure. Cannot be combined with local insecure HTTP mode. Third-party Cookie policies may still prevent sessions; same-origin reverse proxy deployment avoids that restriction. |
 | `API_TOKEN_TTL` | `3600` | Access-token lifetime in seconds. |
 | `API_REGISTER_ENABLED` | `0` | Set to `1` to enable public registration. Publicly registered accounts are ordinary users. |
 | `API_BOOTSTRAP_ADMIN_USERNAME` | *(unset)* | Optional administrator username used only when the database has no users. Set together with the password. |
@@ -371,3 +373,27 @@ For browser acceptance, build `rustdesk-api`, run `npm ci && npm run build` in
 `npm run test:browser`. The harness uses a temporary database, random loopback
 port and temporary keys. `PLAYWRIGHT_CHROME` optionally selects a local Chrome
 executable (default `/usr/bin/google-chrome`); it does not download a browser.
+
+### Web origins and browser session protection
+
+Web login and refresh use the HttpOnly Cookie; JavaScript no longer caches Bearer
+tokens in localStorage or sessionStorage. Fetch requests always include
+credentials. After login or reload, `GET /api/session/csrf` returns the authenticated
+user and a session-bound `csrf_token` with `Cache-Control: no-store`. Cookie-authenticated
+modifications must include both an approved Origin and `X-CSRF-Token`; the token
+from another session is rejected. Read-only POST compatibility aliases for
+currentUser/user info/server configuration do not require CSRF. JSON login,
+registration and native OAuth initiation remain available to clients without a
+browser session. Bearer-authenticated native mutations do not require CSRF;
+an invalid or malformed Authorization header never falls back to Cookie auth.
+
+For same-site Web/API origins such as `https://web.example.com` and
+`https://api.example.com`, set API_PUBLIC_URL to the API URL,
+API_ALLOWED_ORIGINS to the exact Web origin and build Web with
+VITE_API_BASE pointing to the API. Default SameSite=Lax remains appropriate.
+For unrelated sites, additionally opt into API_COOKIE_CROSS_SITE=1 and HTTPS.
+Browser third-party Cookie restrictions can still reject login: the Web UI reports
+that the Cookie session is unavailable. Prefer serving Web and /api through the
+same HTTPS reverse proxy when this occurs. CORS does not bypass browser Cookie
+policies. A failed logout keeps the error visible rather than claiming server
+session revocation succeeded.
