@@ -63,7 +63,11 @@ pub struct OAuthRuntime {
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthFlowKind { Browser, Native }
+
 struct PendingState {
+    flow: OAuthFlowKind,
     provider: String,
     redirect_uri: String,
     code_verifier: String,
@@ -103,6 +107,7 @@ pub struct OAuthProviderView {
 
 #[derive(Debug, Clone)]
 pub struct ExternalIdentity {
+    pub flow: OAuthFlowKind,
     pub provider: String,
     pub subject: String,
     pub username: String,
@@ -176,12 +181,27 @@ impl OAuthRuntime {
             .map(|(url, _)| url)
     }
 
+    pub fn now(&self) -> u64 { (self.clock)() }
+
     pub async fn begin_with_device(
+        &self, provider: &str, redirect_uri: &str, device: OAuthDevice, browser_binding: &str,
+    ) -> Result<(Url, String), OAuthError> {
+        self.begin_flow(provider, redirect_uri, device, browser_binding, OAuthFlowKind::Browser).await
+    }
+
+    pub async fn begin_native(
+        &self, provider: &str, redirect_uri: &str, device: OAuthDevice, browser_binding: &str,
+    ) -> Result<(Url, String), OAuthError> {
+        self.begin_flow(provider, redirect_uri, device, browser_binding, OAuthFlowKind::Native).await
+    }
+
+    async fn begin_flow(
         &self,
         provider: &str,
         redirect_uri: &str,
         device: OAuthDevice,
         browser_binding: &str,
+        flow: OAuthFlowKind,
     ) -> Result<(Url, String), OAuthError> {
         if browser_binding.is_empty() || browser_binding.len() > 128 {
             return Err(OAuthError::InvalidState);
@@ -213,6 +233,7 @@ impl OAuthRuntime {
         pending.insert(
             state.clone(),
             PendingState {
+                flow,
                 provider: provider.to_owned(),
                 redirect_uri: redirect_uri.to_owned(),
                 code_verifier,
@@ -235,16 +256,7 @@ impl OAuthRuntime {
         Ok((url, state))
     }
 
-    pub async fn complete(
-        &self,
-        code: &str,
-        state: &str,
-        redirect_uri: &str,
-        browser_binding: &str,
-    ) -> Result<ExternalIdentity, OAuthError> {
-        if code.is_empty() || state.is_empty() {
-            return Err(OAuthError::InvalidState);
-        }
+    async fn claim(&self, state: &str, redirect_uri: &str, browser_binding: &str) -> Result<PendingState, OAuthError> {
         let pending = {
             let mut states = self.pending.lock().await;
             let pending = states.get(state).ok_or(OAuthError::InvalidState)?;
@@ -260,6 +272,24 @@ impl OAuthRuntime {
             }
             pending
         };
+        Ok(pending)
+    }
+
+    pub async fn cancel(&self, state: &str, redirect_uri: &str, browser_binding: &str) -> Result<OAuthFlowKind, OAuthError> {
+        self.claim(state, redirect_uri, browser_binding).await.map(|pending| pending.flow)
+    }
+
+    pub async fn complete(
+        &self,
+        code: &str,
+        state: &str,
+        redirect_uri: &str,
+        browser_binding: &str,
+    ) -> Result<ExternalIdentity, OAuthError> {
+        if code.is_empty() || state.is_empty() {
+            return Err(OAuthError::InvalidState);
+        }
+        let pending = self.claim(state, redirect_uri, browser_binding).await?;
         let provider = pending.provider;
         let code_verifier = pending.code_verifier;
         let nonce = pending.nonce;
@@ -346,6 +376,7 @@ impl OAuthRuntime {
             .unwrap_or_default()
             .to_owned();
         Ok(ExternalIdentity {
+            flow: pending.flow,
             provider,
             subject,
             username,

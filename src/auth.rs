@@ -35,6 +35,7 @@ pub struct PublicUser {
     pub note: String,
     pub is_admin: bool,
     pub status: i64,
+    pub info: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -464,6 +465,7 @@ fn public_user(user: &ApiUser) -> PublicUser {
         note: user.nickname.clone(),
         is_admin: user.is_admin != 0,
         status: user.status,
+        info: serde_json::json!({}),
     }
 }
 

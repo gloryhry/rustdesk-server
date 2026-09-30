@@ -6,6 +6,7 @@ pub mod auth;
 pub mod api;
 pub mod browser_security;
 pub mod oauth;
+mod native_oauth;
 pub mod ldap;
 mod peer;
 mod version;

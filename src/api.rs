@@ -1,7 +1,8 @@
 use crate::auth::{AuthError, AuthService, LoginDevice, Principal};
 use crate::ldap::LdapConfig;
 pub use crate::browser_security::CookiePolicy;
-use crate::oauth::{OAuthError, OAuthRuntime};
+use crate::oauth::{OAuthError, OAuthRuntime, OAuthFlowKind};
+use crate::native_oauth::NativeOAuthStore;
 use axum::{
     error_handling::HandleErrorLayer,
     extract::{Extension, Json, Path, Query},
@@ -29,6 +30,7 @@ pub struct ApiState {
     pub oauth_redirect_url: String,
     pub ldap: Arc<hbb_common::tokio::sync::RwLock<LdapConfig>>,
     pub cookie_policy: CookiePolicy,
+    native_oauth: NativeOAuthStore,
     pub tag_lock: Arc<hbb_common::tokio::sync::Mutex<()>>,
 }
 
@@ -73,6 +75,7 @@ pub struct OAuthQuery {
 #[derive(Debug, Default, Deserialize)]
 pub struct OAuthAuthRequest {
     #[serde(default)]
+    pub op: String,    #[serde(default)]
     pub provider: String,
     #[serde(default, rename = "redirectUri")]
     pub redirect_uri: String,
@@ -233,6 +236,7 @@ pub fn build_router(
     ldap: LdapConfig,
     cookie_policy: CookiePolicy,
 ) -> Router {
+    let native_clock = oauth.clone();
     let state = Arc::new(ApiState {
         auth,
         registration_enabled,
@@ -241,6 +245,7 @@ pub fn build_router(
         oauth_redirect_url,
         ldap: Arc::new(hbb_common::tokio::sync::RwLock::new(ldap)),
         cookie_policy,
+        native_oauth: NativeOAuthStore::new(Arc::new(move || native_clock.now())),
         tag_lock: Arc::new(hbb_common::tokio::sync::Mutex::new(())),
     });
     Router::new()
@@ -255,6 +260,7 @@ pub fn build_router(
         .route("/api/login-options", get(login_options))
         .route("/api/oidc/auth", get(oauth_login).post(oauth_login_post))
         .route("/api/oidc/auth-query", get(oauth_auth_query))
+        .route("/api/oidc/native", get(oauth_native_browser))
         .route("/api/oidc/msg", get(oauth_message))
         .route("/api/oauth/msg", get(oauth_message))
         .route("/api/oidc/login", get(oauth_login))
@@ -2130,52 +2136,77 @@ async fn oauth_login_post(
     Extension(state): Extension<Arc<ApiState>>,
     Json(request): Json<OAuthAuthRequest>,
 ) -> Response {
-    oauth_begin_response(&state, request.provider, request.id, request.uuid, request.device_info).await
+    if state.oauth_redirect_url.is_empty() { return oauth_error_response(OAuthError::NotConfigured); }
+    let op = request.op.strip_prefix("oidc/").unwrap_or(&request.op);
+    let provider_alias = request.provider.strip_prefix("oidc/").unwrap_or(&request.provider);
+    if !op.is_empty() && !provider_alias.is_empty() && op != provider_alias {
+        return native_error("conflicting_oauth_provider");
+    }
+    let provider = if op.is_empty() { provider_alias } else { op };
+    if !state.oauth.provider_names().iter().any(|name| name == provider) {
+        return oauth_error_response(OAuthError::NotConfigured);
+    }
+    let mut url = match reqwest::Url::parse(&state.oauth_redirect_url) {
+        Ok(url) => url,
+        Err(_) => return oauth_error_response(OAuthError::NotConfigured),
+    };
+    let info = request.device_info.unwrap_or_default();
+    let device = crate::oauth::OAuthDevice { id: request.id, uuid: request.uuid,
+        name: info.name, os: info.os, device_type: info.device_type };
+    let (code, launch) = match state.native_oauth.issue(provider.to_owned(), device).await {
+        Ok(result) => result,
+        Err(error) => return native_error(error),
+    };
+    url.set_path("/api/oidc/native");
+    url.set_query(None);
+    url.set_fragment(None);
+    url.query_pairs_mut().append_pair("launch", &launch);
+    Json(json!({"code":code,"url":url.as_str()})).into_response()
+}
+
+#[derive(Deserialize)]
+struct NativeLaunchQuery { launch: String }
+
+async fn oauth_native_browser(
+    Extension(state): Extension<Arc<ApiState>>,
+    Query(query): Query<NativeLaunchQuery>,
+) -> Response {
+    let (code, provider, device) = match state.native_oauth.launch(&query.launch).await {
+        Ok(result) => result,
+        Err(error) => return native_error(error),
+    };
+    let binding = uuid::Uuid::new_v4().to_string();
+    match state.oauth.begin_native(&provider, &state.oauth_redirect_url, device, &binding).await {
+        Ok((url, flow)) => {
+            if let Err(error) = state.native_oauth.bind(&code, flow.clone()).await { return native_error(error); }
+            with_oauth_binding(&state.cookie_policy, Redirect::temporary(url.as_str()).into_response(), &flow, &binding, 300)
+        }
+        Err(error) => {
+            state.native_oauth.fail_start(&code).await;
+            oauth_error_response(error)
+        }
+    }
 }
 
 async fn oauth_auth_query(
     Extension(state): Extension<Arc<ApiState>>,
     Query(query): Query<OAuthQuery>,
 ) -> Response {
-    oauth_begin_response(&state, query.provider, query.id, query.uuid, None).await
+    let identity = match state.native_oauth.poll(&query.code, &query.id, &query.uuid).await {
+        Ok(identity) => identity,
+        Err(error) => return Json(json!({"error":error})).into_response(),
+    };
+    match state.auth.login_external(&identity.provider, &identity.subject, &identity.username, &identity.email,
+        LoginDevice { id: identity.device.id, uuid: identity.device.uuid, name: identity.device.name,
+            os: identity.device.os, device_type: identity.device.device_type }).await
+    {
+        Ok(result) => Json(result).into_response(),
+        Err(error) => auth_error_response(error, false),
+    }
 }
 
-async fn oauth_begin_response(
-    state: &ApiState,
-    provider: String,
-    id: String,
-    uuid: String,
-    device_info: Option<DeviceInfoRequest>,
-) -> Response {
-    if state.oauth_redirect_url.is_empty() {
-        return oauth_error_response(OAuthError::NotConfigured);
-    }
-    let device_info = device_info.unwrap_or_default();
-    let device = crate::oauth::OAuthDevice {
-        id,
-        uuid,
-        name: device_info.name,
-        os: device_info.os,
-        device_type: device_info.device_type,
-    };
-    let binding = uuid::Uuid::new_v4().to_string();
-    match state
-        .oauth
-        .begin_with_device(&provider, &state.oauth_redirect_url, device, &binding)
-        .await
-    {
-        Ok((url, state_value)) => with_oauth_binding(&state.cookie_policy, (
-            StatusCode::OK,
-            Json(json!({
-                "code": 0,
-                "state": state_value.clone(),
-                "url": url.as_str(),
-                "data": { "state": state_value, "url": url.as_str() }
-            })),
-        )
-            .into_response(), &state_value, &binding, 300),
-        Err(err) => oauth_error_response(err),
-    }
+fn native_error(error: &str) -> Response {
+    (StatusCode::BAD_REQUEST, Json(json!({"error":error}))).into_response()
 }
 
 async fn oauth_message() -> impl IntoResponse {
@@ -2187,14 +2218,22 @@ async fn oauth_callback(
     headers: HeaderMap,
     Query(query): Query<OAuthQuery>,
 ) -> Response {
-    if !query.error.is_empty() {
-        return oauth_error_response(OAuthError::InvalidState);
-    }
     if state.oauth_redirect_url.is_empty() {
         return oauth_error_response(OAuthError::NotConfigured);
     }
     let binding_name = oauth_binding_name(&query.state);
     let binding = cookie_value(headers.get(header::COOKIE), &binding_name).unwrap_or_default();
+    if !query.error.is_empty() {
+        match state.oauth.cancel(&query.state, &state.oauth_redirect_url, binding).await {
+            Ok(OAuthFlowKind::Native) => {
+                let _ = state.native_oauth.finish(&query.state, Err("authorization_denied")).await;
+                return with_oauth_binding(&state.cookie_policy, native_error("authorization_denied"), &query.state, "", 0);
+            }
+            Ok(OAuthFlowKind::Browser) => return with_oauth_binding(&state.cookie_policy,
+                oauth_error_response(OAuthError::InvalidState), &query.state, "", 0),
+            Err(error) => return oauth_error_response(error),
+        }
+    }
     let identity = match state
         .oauth
         .complete(
@@ -2206,10 +2245,28 @@ async fn oauth_callback(
         .await
     {
         Ok(identity) => identity,
-        Err(err) => return oauth_error_response(err),
+        Err(err) => {
+            if state.native_oauth.is_authorizing(&query.state).await {
+                // Only exchange errors follow a successful binding claim; invalid callbacks cannot cancel a flow.
+                if !matches!(err, OAuthError::InvalidState) {
+                    let _ = state.native_oauth.finish(&query.state, Err("oauth_provider_failed")).await;
+                }
+            }
+            return oauth_error_response(err);
+        }
     };
     if !query.provider.is_empty() && query.provider != identity.provider {
+        if identity.flow == OAuthFlowKind::Native {
+            let _ = state.native_oauth.finish(&query.state, Err("conflicting_oauth_provider")).await;
+        }
         return oauth_error_response(OAuthError::InvalidState);
+    }
+    if identity.flow == OAuthFlowKind::Native {
+        let response = match state.native_oauth.finish(&query.state, Ok(identity)).await {
+            Ok(()) => (StatusCode::OK, "Authorization complete. Return to RustDesk.").into_response(),
+            Err(error) => native_error(error),
+        };
+        return with_oauth_binding(&state.cookie_policy, response, &query.state, "", 0);
     }
     let response = match state
         .auth
