@@ -1,0 +1,15 @@
+[package]
+name = "users"
+version = "0.11.0"
+edition = "2021"
+license = "MIT"
+description = "Local compatibility facade forwarding Unix user APIs to maintained uzers"
+
+[features]
+default = ["cache", "mock", "logging"]
+cache = ["uzers/cache"]
+mock = ["uzers/mock"]
+logging = ["uzers/logging"]
+
+[dependencies]
+uzers = { version = "0.12.2", default-features = false }

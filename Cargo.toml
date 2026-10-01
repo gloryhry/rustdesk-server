@@ -70,9 +70,12 @@ hbb_common = { path = "libs/hbb_common" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+users = "0.11"
+
 [workspace]
 members = ["libs/hbb_common"]
-exclude = ["ui"]
+exclude = ["ui", "vendor/users-compat"]
 
 #https://github.com/johnthagen/min-sized-rust
 #https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles
@@ -83,3 +86,6 @@ panic = 'abort'
 strip = true
 #opt-level = 'z' # only have smaller size after strip # Default is 3, better performance
 #rpath = true # Not needed
+
+[patch.crates-io]
+users = { path = "vendor/users-compat" }
