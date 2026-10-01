@@ -1,0 +1,18 @@
+Updating the configuration and installing your custom providers, if any. Please wait.
+2026-10-01 03:37:35,377 INFO  [io.quarkus.deployment.QuarkusAugmentor] (main) Quarkus augmentation completed in 7381ms
+Running the server in development mode. DO NOT use this configuration in production.
+2026-10-01 03:37:36,941 INFO  [org.keycloak.url.HostnameV2ProviderFactory] (main) If hostname is specified, hostname-strict is effectively ignored
+2026-10-01 03:37:38,716 INFO  [org.hibernate.orm.jdbc.batch] (JPA Startup Thread) HHH100501: Automatic JDBC statement batching enabled (maximum batch size 32)
+2026-10-01 03:37:39,367 INFO  [org.keycloak.quarkus.runtime.storage.database.liquibase.QuarkusJpaUpdaterProvider] (main) Initializing database schema. Using changelog META-INF/jpa-changelog-master.xml
+2026-10-01 03:37:43,372 INFO  [org.infinispan.CONTAINER] (main) Virtual threads support enabled
+2026-10-01 03:37:43,460 INFO  [org.infinispan.CONTAINER] (main) ISPN000556: Starting user marshaller 'org.infinispan.commons.marshall.ImmutableProtoStreamMarshaller'
+2026-10-01 03:37:43,704 INFO  [org.keycloak.connections.infinispan.DefaultInfinispanConnectionProviderFactory] (main) Node name: node_863680, Site name: null
+2026-10-01 03:37:43,858 INFO  [org.keycloak.exportimport.dir.DirImportProvider] (main) Importing from directory /opt/keycloak/bin/../data/import
+2026-10-01 03:37:43,862 INFO  [org.keycloak.services] (main) KC-SERVICES0050: Initializing master realm
+2026-10-01 03:37:45,128 INFO  [org.keycloak.services] (main) KC-SERVICES0030: Full model import requested. Strategy: IGNORE_EXISTING
+2026-10-01 03:37:46,118 INFO  [org.keycloak.exportimport.util.ImportUtils] (main) Realm 'goal' imported
+2026-10-01 03:37:46,121 INFO  [org.keycloak.services] (main) KC-SERVICES0032: Import finished successfully
+2026-10-01 03:37:46,189 INFO  [org.keycloak.services] (main) KC-SERVICES0077: Created temporary admin user with username goal-keycloak
+2026-10-01 03:37:46,336 INFO  [io.quarkus] (main) Keycloak 26.4.0 on JVM (powered by Quarkus 3.27.0) started in 10.817s. Listening on: http://0.0.0.0:8080
+2026-10-01 03:37:46,337 INFO  [io.quarkus] (main) Profile dev activated. 
+2026-10-01 03:37:46,337 INFO  [io.quarkus] (main) Installed features: [agroal, cdi, hibernate-orm, jdbc-h2, keycloak, narayana-jta, opentelemetry, reactive-routes, rest, rest-jackson, smallrye-context-propagation, vertx]

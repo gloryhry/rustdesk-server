@@ -2,34 +2,95 @@ use hbb_common::tokio;
 use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
 use reqwest::Url;
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OAuthProviderKind {
+    OAuth2,
+    Oidc,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct OAuthProviderConfig {
+    pub kind: OAuthProviderKind,
     pub name: String,
     pub client_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub client_secret: String,
     pub authorization_url: String,
     pub token_url: String,
     pub userinfo_url: String,
+    #[serde(default)]
     pub issuer_url: String,
+    #[serde(default)]
     pub jwks_url: String,
+    #[serde(default)]
     pub scopes: String,
+}
+
+impl OAuthProviderConfig {
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.name.is_empty() || self.name.len() > 64 || !self.name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            || self.client_id.is_empty() || self.client_id.len() > 512 || self.client_secret.is_empty() || self.client_secret.len() > 8192 {
+            return Err("provider name and both client credentials are required");
+        }
+        if self.scopes.len() > 2048 || [&self.authorization_url, &self.token_url, &self.userinfo_url, &self.issuer_url, &self.jwks_url].iter().any(|url| url.len() > 4096) {
+            return Err("provider configuration exceeds size limits");
+        }
+        if !valid_provider_endpoint(&self.authorization_url) || !valid_provider_endpoint(&self.token_url)
+            || !valid_provider_endpoint(&self.userinfo_url)
+        {
+            return Err("authorization, token and userinfo endpoints must use HTTPS or loopback HTTP");
+        }
+        match self.kind {
+            OAuthProviderKind::Oidc => {
+                if !valid_provider_endpoint(&self.issuer_url) || !valid_provider_endpoint(&self.jwks_url) {
+                    return Err("OIDC requires valid issuer and JWKS URLs");
+                }
+                if !self.scopes.split_whitespace().any(|scope| scope == "openid") {
+                    return Err("OIDC requires the openid scope");
+                }
+            }
+            OAuthProviderKind::OAuth2 => {
+                if !self.issuer_url.is_empty() || !self.jwks_url.is_empty()
+                    || self.scopes.split_whitespace().any(|scope| scope == "openid")
+                {
+                    return Err("OAuth2 cannot request OIDC scopes or validation endpoints");
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
 pub struct OAuthRuntime {
-    providers: Arc<HashMap<String, OAuthProviderConfig>>,
+    providers: Arc<RwLock<HashMap<String, RuntimeProvider>>>,
     pending: Arc<tokio::sync::Mutex<HashMap<String, PendingState>>>,
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
+#[derive(Clone)]
+pub(crate) struct RuntimeProvider {
+    pub config: OAuthProviderConfig,
+    pub namespace: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthFlowKind { Browser, Native }
+
 struct PendingState {
+    flow: OAuthFlowKind,
     provider: String,
+    revision: String,
     redirect_uri: String,
     code_verifier: String,
     nonce: String,
     device: OAuthDevice,
     expires_at: u64,
+    browser_binding: sodiumoxide::crypto::hash::sha256::Digest,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -51,6 +112,9 @@ pub enum OAuthError {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct OAuthProviderView {
+    pub kind: OAuthProviderKind,
+    pub issuer_url: String,
+    pub jwks_url: String,
     pub name: String,
     pub authorization_url: String,
     pub userinfo_url: String,
@@ -59,6 +123,8 @@ pub struct OAuthProviderView {
 
 #[derive(Debug, Clone)]
 pub struct ExternalIdentity {
+    pub provider_name: String,
+    pub revision: String,    pub flow: OAuthFlowKind,
     pub provider: String,
     pub subject: String,
     pub username: String,
@@ -74,67 +140,104 @@ struct TokenResponse {
 
 impl OAuthRuntime {
     pub fn new(configs: Vec<OAuthProviderConfig>) -> Self {
+        Self::new_with_clock(configs, Arc::new(crate::common::now))
+    }
+
+    /// Supply a clock at the expiration boundary for deterministic integration tests.
+    pub fn new_with_clock(configs: Vec<OAuthProviderConfig>, clock: Arc<dyn Fn() -> u64 + Send + Sync>) -> Self {
         let providers = configs
             .into_iter()
-            .filter(|config| {
-                !config.name.is_empty()
-                    && !config.client_id.is_empty()
-                    && !config.client_secret.is_empty()
-                    && !config.authorization_url.is_empty()
-                    && !config.token_url.is_empty()
-                    && !config.userinfo_url.is_empty()
-                    && valid_provider_endpoint(&config.authorization_url)
-                    && valid_provider_endpoint(&config.token_url)
-                    && valid_provider_endpoint(&config.userinfo_url)
-                    && (config.issuer_url.is_empty() == config.jwks_url.is_empty())
-                    && (config.issuer_url.is_empty() || valid_provider_endpoint(&config.issuer_url))
-                    && (config.jwks_url.is_empty() || valid_provider_endpoint(&config.jwks_url))
-            })
-            .map(|config| (config.name.clone(), config))
+            .filter(|config| config.validate().is_ok())
+            .map(|config| (config.name.clone(), RuntimeProvider { namespace: config.name.clone(), config, revision: uuid::Uuid::new_v4().to_string() }))
             .collect();
         Self {
-            providers: Arc::new(providers),
+            providers: Arc::new(RwLock::new(providers)),
             pending: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            clock,
         }
     }
 
+    pub fn try_new(configs: Vec<OAuthProviderConfig>) -> Result<Self, String> {
+        let mut names = std::collections::HashSet::new();
+        for config in &configs {
+            config.validate().map_err(|message| format!("OAuth provider {}: {message}", config.name))?;
+            if !names.insert(&config.name) {
+                return Err(format!("duplicate OAuth provider name: {}", config.name));
+            }
+        }
+        Ok(Self::new(configs))
+    }
+
     pub fn provider_names(&self) -> Vec<String> {
-        let mut names = self.providers.keys().cloned().collect::<Vec<_>>();
+        let mut names = self.providers.read().map(|providers| providers.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
         names.sort();
         names
     }
 
     pub fn provider_views(&self) -> Vec<OAuthProviderView> {
-        let mut providers = self
-            .providers
-            .values()
-            .map(|config| OAuthProviderView {
-                name: config.name.clone(),
-                authorization_url: config.authorization_url.clone(),
-                userinfo_url: config.userinfo_url.clone(),
-                scopes: config.scopes.clone(),
-            })
-            .collect::<Vec<_>>();
+        let mut providers = self.providers.read().map(|providers| providers.values().map(|provider| {
+            let config = &provider.config;
+            OAuthProviderView {
+                kind: config.kind, issuer_url: config.issuer_url.clone(), jwks_url: config.jwks_url.clone(),
+                name: config.name.clone(), authorization_url: config.authorization_url.clone(),
+                userinfo_url: config.userinfo_url.clone(), scopes: config.scopes.clone(),
+            }
+        }).collect::<Vec<_>>()).unwrap_or_default();
         providers.sort_by(|left, right| left.name.cmp(&right.name));
         providers
     }
 
-    pub async fn begin(&self, provider: &str, redirect_uri: &str) -> Result<Url, OAuthError> {
-        self.begin_with_device(provider, redirect_uri, OAuthDevice::default())
+    pub(crate) fn configs(&self) -> Result<Vec<OAuthProviderConfig>, OAuthError> {
+        Ok(self.providers.read().map_err(|_| OAuthError::Remote)?.values().map(|provider| provider.config.clone()).collect())
+    }
+
+    pub(crate) async fn replace(&self, replacements: Vec<RuntimeProvider>) -> Result<(), OAuthError> {
+        let mut pending = self.pending.lock().await;
+        let mut providers = self.providers.write().map_err(|_| OAuthError::Remote)?;
+        *providers = replacements.into_iter().map(|provider| (provider.config.name.clone(), provider)).collect();
+        pending.retain(|_, state| providers.get(&state.provider).is_some_and(|provider| provider.revision == state.revision));
+        Ok(())
+    }
+
+    pub(crate) fn identity_is_current(&self, identity: &ExternalIdentity) -> bool {
+        self.providers.read().is_ok_and(|providers| providers.get(&identity.provider_name)
+            .is_some_and(|provider| provider.namespace == identity.provider && provider.revision == identity.revision))
+    }
+
+    pub async fn begin(&self, provider: &str, redirect_uri: &str, browser_binding: &str) -> Result<Url, OAuthError> {
+        self.begin_with_device(provider, redirect_uri, OAuthDevice::default(), browser_binding)
             .await
             .map(|(url, _)| url)
     }
 
+    pub fn now(&self) -> u64 { (self.clock)() }
+
     pub async fn begin_with_device(
+        &self, provider: &str, redirect_uri: &str, device: OAuthDevice, browser_binding: &str,
+    ) -> Result<(Url, String), OAuthError> {
+        self.begin_flow(provider, redirect_uri, device, browser_binding, OAuthFlowKind::Browser).await
+    }
+
+    pub async fn begin_native(
+        &self, provider: &str, redirect_uri: &str, device: OAuthDevice, browser_binding: &str,
+    ) -> Result<(Url, String), OAuthError> {
+        self.begin_flow(provider, redirect_uri, device, browser_binding, OAuthFlowKind::Native).await
+    }
+
+    async fn begin_flow(
         &self,
         provider: &str,
         redirect_uri: &str,
         device: OAuthDevice,
+        browser_binding: &str,
+        flow: OAuthFlowKind,
     ) -> Result<(Url, String), OAuthError> {
-        let config = self
-            .providers
-            .get(provider)
-            .ok_or(OAuthError::NotConfigured)?;
+        if browser_binding.is_empty() || browser_binding.len() > 128 {
+            return Err(OAuthError::InvalidState);
+        }
+        let configured = self.providers.read().map_err(|_| OAuthError::Remote)?
+            .get(provider).cloned().ok_or(OAuthError::NotConfigured)?;
+        let config = &configured.config;
         let state = uuid::Uuid::new_v4().to_string();
         let nonce = uuid::Uuid::new_v4().to_string();
         let code_verifier = format!(
@@ -149,7 +252,7 @@ impl OAuthRuntime {
             .as_ref(),
             base64::URL_SAFE_NO_PAD,
         );
-        let now = crate::common::now();
+        let now = (self.clock)();
         let mut pending = self.pending.lock().await;
         pending.retain(|_, value| value.expires_at >= now);
         if pending.len() >= 10_000 {
@@ -158,12 +261,15 @@ impl OAuthRuntime {
         pending.insert(
             state.clone(),
             PendingState {
+                flow,
                 provider: provider.to_owned(),
+                revision: configured.revision.clone(),
                 redirect_uri: redirect_uri.to_owned(),
                 code_verifier,
                 nonce: nonce.clone(),
                 device,
                 expires_at: now.saturating_add(300),
+                browser_binding: sodiumoxide::crypto::hash::sha256::hash(browser_binding.as_bytes()),
             },
         );
         let mut url = Url::parse(&config.authorization_url).map_err(|_| OAuthError::InvalidResponse)?;
@@ -179,32 +285,48 @@ impl OAuthRuntime {
         Ok((url, state))
     }
 
+    async fn claim(&self, state: &str, redirect_uri: &str, browser_binding: &str) -> Result<PendingState, OAuthError> {
+        let pending = {
+            let mut states = self.pending.lock().await;
+            let pending = states.get(state).ok_or(OAuthError::InvalidState)?;
+            let binding = sodiumoxide::crypto::hash::sha256::hash(browser_binding.as_bytes());
+            if browser_binding.is_empty() || pending.redirect_uri != redirect_uri
+                || !sodiumoxide::utils::memcmp(pending.browser_binding.as_ref(), binding.as_ref())
+            {
+                return Err(OAuthError::InvalidState);
+            }
+            let pending = states.remove(state).ok_or(OAuthError::InvalidState)?;
+            if pending.expires_at <= (self.clock)() {
+                return Err(OAuthError::InvalidState);
+            }
+            pending
+        };
+        Ok(pending)
+    }
+
+    pub async fn cancel(&self, state: &str, redirect_uri: &str, browser_binding: &str) -> Result<OAuthFlowKind, OAuthError> {
+        self.claim(state, redirect_uri, browser_binding).await.map(|pending| pending.flow)
+    }
+
     pub async fn complete(
         &self,
         code: &str,
         state: &str,
         redirect_uri: &str,
+        browser_binding: &str,
     ) -> Result<ExternalIdentity, OAuthError> {
         if code.is_empty() || state.is_empty() {
             return Err(OAuthError::InvalidState);
         }
-        let pending = self
-            .pending
-            .lock()
-            .await
-            .remove(state)
-            .ok_or(OAuthError::InvalidState)?;
-        if pending.redirect_uri != redirect_uri || pending.expires_at < crate::common::now() {
-            return Err(OAuthError::InvalidState);
-        }
+        let pending = self.claim(state, redirect_uri, browser_binding).await?;
         let provider = pending.provider;
         let code_verifier = pending.code_verifier;
         let nonce = pending.nonce;
         let device = pending.device;
-        let config = self
-            .providers
-            .get(&provider)
-            .ok_or(OAuthError::NotConfigured)?;
+        let configured = self.providers.read().map_err(|_| OAuthError::Remote)?
+            .get(&provider).cloned().ok_or(OAuthError::NotConfigured)?;
+        if configured.revision != pending.revision { return Err(OAuthError::InvalidState); }
+        let config = &configured.config;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
@@ -236,9 +358,14 @@ impl OAuthRuntime {
                 (!value.is_empty()).then(|| value.to_owned())
             })
             .ok_or(OAuthError::InvalidResponse)?;
-        if let Some(id_token) = token.id_token.as_deref() {
-            validate_id_token(&client, config, id_token, &nonce).await?;
-        }
+        let verified_subject = match config.kind {
+            OAuthProviderKind::Oidc => {
+                let id_token = token.id_token.as_deref().filter(|value| !value.is_empty())
+                    .ok_or(OAuthError::InvalidResponse)?;
+                Some(validate_id_token(&client, config, id_token, &nonce).await?)
+            }
+            OAuthProviderKind::OAuth2 => None,
+        };
         let profile = client
             .get(&config.userinfo_url)
             .bearer_auth(access_token)
@@ -251,12 +378,20 @@ impl OAuthRuntime {
             .json::<serde_json::Value>()
             .await
             .map_err(|_| OAuthError::InvalidResponse)?;
-        let subject = profile
-            .get("sub")
-            .or_else(|| profile.get("id"))
-            .and_then(json_scalar_string)
+        let subject_value = match config.kind {
+            OAuthProviderKind::Oidc => profile.get("sub"),
+            OAuthProviderKind::OAuth2 => profile.get("sub").or_else(|| profile.get("id")),
+        };
+        let subject = subject_value
+            .and_then(|value| match config.kind {
+                OAuthProviderKind::Oidc => value.as_str().map(str::to_owned),
+                OAuthProviderKind::OAuth2 => json_scalar_string(value),
+            })
             .filter(|value| !value.trim().is_empty())
             .ok_or(OAuthError::InvalidResponse)?;
+        if verified_subject.as_ref().is_some_and(|verified| verified != &subject) {
+            return Err(OAuthError::InvalidResponse);
+        }
         let username = profile
             .get("preferred_username")
             .or_else(|| profile.get("login"))
@@ -269,13 +404,18 @@ impl OAuthRuntime {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_owned();
-        Ok(ExternalIdentity {
-            provider,
+        let identity = ExternalIdentity {
+            flow: pending.flow,
+            provider_name: provider,
+            provider: configured.namespace,
+            revision: configured.revision,
             subject,
             username,
             email,
             device,
-        })
+        };
+        if !self.identity_is_current(&identity) { return Err(OAuthError::InvalidState); }
+        Ok(identity)
     }
 }
 
@@ -284,7 +424,7 @@ async fn validate_id_token(
     config: &OAuthProviderConfig,
     token: &str,
     nonce: &str,
-) -> Result<(), OAuthError> {
+) -> Result<String, OAuthError> {
     let header = decode_header(token).map_err(|_| OAuthError::InvalidResponse)?;
     if !matches!(header.alg, jsonwebtoken::Algorithm::RS256 | jsonwebtoken::Algorithm::RS384 | jsonwebtoken::Algorithm::RS512) {
         return Err(OAuthError::InvalidResponse);
@@ -302,7 +442,7 @@ async fn validate_id_token(
         .map_err(|_| OAuthError::InvalidResponse)?;
     let key_id = header.kid.as_deref().ok_or(OAuthError::InvalidResponse)?;
     let jwk = key_set.find(key_id).ok_or(OAuthError::InvalidResponse)?;
-    if jwk.common.algorithm.is_some_and(|algorithm| algorithm != header.alg) {
+    if jwk.common.key_algorithm.is_some_and(|algorithm| algorithm.to_string().parse::<jsonwebtoken::Algorithm>().ok() != Some(header.alg)) {
         return Err(OAuthError::InvalidResponse);
     }
     let parameters = match &jwk.algorithm {
@@ -312,6 +452,9 @@ async fn validate_id_token(
     let key = DecodingKey::from_rsa_components(&parameters.n, &parameters.e)
         .map_err(|_| OAuthError::InvalidResponse)?;
     let mut validation = Validation::new(header.alg);
+    validation.leeway = 0;
+    validation.validate_nbf = true;
+    validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     validation.set_issuer(&[config.issuer_url.as_str()]);
     validation.set_audience(&[config.client_id.as_str()]);
     let claims = decode::<IdTokenClaims>(token, &key, &validation)
@@ -321,10 +464,14 @@ async fn validate_id_token(
         || claims.sub.trim().is_empty()
         || claims.nonce.as_deref() != Some(nonce)
         || !claims.audience_contains(&config.client_id)
+        || claims.exp <= crate::common::now()
+        || (claims.aud.as_array().is_some_and(|aud| aud.len() > 1)
+            && claims.azp.as_deref() != Some(config.client_id.as_str()))
+        || claims.azp.as_ref().is_some_and(|azp| azp != &config.client_id)
     {
         return Err(OAuthError::InvalidResponse);
     }
-    Ok(())
+    Ok(claims.sub)
 }
 
 #[derive(Debug, Deserialize)]
@@ -333,6 +480,8 @@ struct IdTokenClaims {
     sub: String,
     aud: serde_json::Value,
     nonce: Option<String>,
+    exp: u64,
+    azp: Option<String>,
 }
 
 impl IdTokenClaims {
@@ -375,6 +524,7 @@ mod tests {
 
     fn test_runtime() -> OAuthRuntime {
         OAuthRuntime::new(vec![OAuthProviderConfig {
+            kind: OAuthProviderKind::OAuth2,
             name: "test".to_owned(),
             client_id: "client".to_owned(),
             client_secret: "secret".to_owned(),
@@ -383,7 +533,7 @@ mod tests {
             userinfo_url: "https://provider.example/userinfo".to_owned(),
             issuer_url: String::new(),
             jwks_url: String::new(),
-            scopes: "openid email".to_owned(),
+            scopes: "email".to_owned(),
         }])
     }
 
@@ -399,6 +549,7 @@ mod tests {
                     uuid: "device-uuid".to_owned(),
                     ..OAuthDevice::default()
                 },
+                "test-browser",
             )
             .await
             .expect("authorization URL should be created");
@@ -422,11 +573,11 @@ mod tests {
             .expect("state should be present");
         assert_eq!(returned_state, state);
         assert!(runtime
-            .complete("code", &state, "https://api.example/callback")
+            .complete("code", &state, "https://api.example/callback", "test-browser")
             .await
             .is_err());
         assert!(runtime
-            .complete("code", &state, "https://api.example/callback")
+            .complete("code", &state, "https://api.example/callback", "test-browser")
             .await
             .is_err());
     }
@@ -461,6 +612,7 @@ mod tests {
         });
         let base = format!("http://{address}");
         let runtime = OAuthRuntime::new(vec![OAuthProviderConfig {
+            kind: OAuthProviderKind::OAuth2,
             name: "local".to_owned(),
             client_id: "client".to_owned(),
             client_secret: "secret".to_owned(),
@@ -469,15 +621,15 @@ mod tests {
             userinfo_url: format!("{base}/userinfo"),
             issuer_url: String::new(),
             jwks_url: String::new(),
-            scopes: "openid email".to_owned(),
+            scopes: "email".to_owned(),
         }]);
         let (_, state) = runtime
-            .begin_with_device("local", "https://api.example/callback", OAuthDevice::default())
+            .begin_with_device("local", "https://api.example/callback", OAuthDevice::default(), "test-browser")
             .await
             .expect("local provider should begin");
 
         let identity = runtime
-            .complete("authorization-code", &state, "https://api.example/callback")
+            .complete("authorization-code", &state, "https://api.example/callback", "test-browser")
             .await
             .expect("mock provider should complete");
         server.await.expect("mock OAuth server should finish");
@@ -489,8 +641,22 @@ mod tests {
     }
 
     #[test]
+    fn oidc_without_any_validation_endpoints_is_rejected() {
+        let config = OAuthProviderConfig {
+            kind: OAuthProviderKind::Oidc,
+            name: "oidc".to_owned(), client_id: "client".to_owned(), client_secret: "secret".to_owned(),
+            authorization_url: "https://provider.example/authorize".to_owned(),
+            token_url: "https://provider.example/token".to_owned(),
+            userinfo_url: "https://provider.example/userinfo".to_owned(),
+            issuer_url: String::new(), jwks_url: String::new(), scopes: "openid email".to_owned(),
+        };
+        assert!(OAuthRuntime::new(vec![config]).provider_names().is_empty());
+    }
+
+    #[test]
     fn oidc_validation_endpoints_must_be_paired() {
         let mut config = OAuthProviderConfig {
+            kind: OAuthProviderKind::Oidc,
             name: "oidc".to_owned(),
             client_id: "client".to_owned(),
             client_secret: "secret".to_owned(),

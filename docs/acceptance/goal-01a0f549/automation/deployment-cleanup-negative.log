@@ -1,0 +1,107 @@
+ Network rustdesk-check-732149ad6f2e_default Creating 
+ Network rustdesk-check-732149ad6f2e_default Creating 
+ Volume rustdesk-check-732149ad6f2e_rustdesk-data Creating 
+ Volume rustdesk-check-732149ad6f2e_rustdesk-data Creating 
+ Volume rustdesk-check-732149ad6f2e_rustdesk-data Created 
+ Volume rustdesk-check-732149ad6f2e_rustdesk-data Created 
+ Network rustdesk-check-732149ad6f2e_default Created 
+ Network rustdesk-check-732149ad6f2e_default Created 
+ Container rustdesk-check-732149ad6f2e-init-1 Creating 
+ Container rustdesk-check-732149ad6f2e-init-1 Created 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Creating 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Creating 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Creating 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Created 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Created 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Created 
+ Container rustdesk-check-732149ad6f2e-init-1 Starting 
+ Container rustdesk-check-732149ad6f2e-init-1 Started 
+ Container rustdesk-check-732149ad6f2e-init-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-init-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-init-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-init-1 Exited 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Starting 
+ Container rustdesk-check-732149ad6f2e-init-1 Exited 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Starting 
+ Container rustdesk-check-732149ad6f2e-init-1 Exited 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Starting 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Started 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Started 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Started 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-init-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Waiting 
+ Container rustdesk-check-732149ad6f2e-init-1 Exited 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Healthy 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Healthy 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Healthy 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Restarting 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Restarting 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Restarting 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Started 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Started 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Started 
+2dc0dc511532e3eb44d92903cbc9d7c3b646d20168bb383c2ea03afe5cbef003
+6511daa78a44d952832de254bd00cc1e741ef03c7215c63f94b74c5277eed763
+1bf5cfd365b1c3eb54032b89d1b8f51940bb44b35909e6fff29c9bd55b590eeb
+rustdesk-check-732149ad6f2e-core-only
+rustdesk-check-732149ad6f2e-broken
+rustdesk-check-732149ad6f2e-s6
+rustdesk-check-732149ad6f2e-core-only
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Stopping 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Stopping 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Stopping 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Stopped 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Removing 
+ Container rustdesk-check-732149ad6f2e-hbbs-1 Removed 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Stopped 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Removing 
+ Container rustdesk-check-732149ad6f2e-hbbr-1 Removed 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Stopped 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Removing 
+ Container rustdesk-check-732149ad6f2e-rustdesk-api-1 Removed 
+ Container rustdesk-check-732149ad6f2e-init-1 Stopping 
+ Container rustdesk-check-732149ad6f2e-init-1 Stopped 
+ Container rustdesk-check-732149ad6f2e-init-1 Removing 
+ Container rustdesk-check-732149ad6f2e-init-1 Removed 
+ Volume rustdesk-check-732149ad6f2e_rustdesk-data Removing 
+ Network rustdesk-check-732149ad6f2e_default Removing 
+ Volume rustdesk-check-732149ad6f2e_rustdesk-data Removed 
+ Network rustdesk-check-732149ad6f2e_default Removed 
+rustdesk-check-732149ad6f2e-invalid
+rustdesk-check-732149ad6f2e-s6
+rustdesk-check-732149ad6f2e-core-only
+Traceback (most recent call last):
+  File "/home/glory/Software/rustdesk-server/tests/deployment/run.py", line 134, in main
+    run(args.kind, 'create', 'cluster', '--name', project, '--image', 'kindest/node:v1.34.0', '--kubeconfig', str(tmp / 'kubeconfig'), '--wait', '120s')
+  File "/home/glory/Software/rustdesk-server/tests/deployment/run.py", line 18, in run
+    return subprocess.run(args, cwd=ROOT, check=check, text=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/rustdesk-goal-01a0f549/nonexistent-kind'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/glory/Software/rustdesk-server/tests/deployment/run.py", line 188, in <module>
+    main()
+  File "/home/glory/Software/rustdesk-server/tests/deployment/run.py", line 178, in main
+    run(args.kind, 'delete', 'cluster', '--name', project, check=False)
+  File "/home/glory/Software/rustdesk-server/tests/deployment/run.py", line 18, in run
+    return subprocess.run(args, cwd=ROOT, check=check, text=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 548, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 1026, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.12/subprocess.py", line 1955, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/rustdesk-goal-01a0f549/nonexistent-kind'

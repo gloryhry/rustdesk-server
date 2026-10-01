@@ -1,0 +1,44 @@
+{
+  "containers": {
+    "rustdesk-goal-70101ca759a1-init": true,
+    "rustdesk-goal-70101ca759a1-hbbs": true,
+    "rustdesk-goal-70101ca759a1-hbbr": true,
+    "rustdesk-goal-70101ca759a1-api": true,
+    "rustdesk-goal-70101ca759a1-keycloak": true,
+    "rustdesk-goal-70101ca759a1-proxy": true,
+    "rustdesk-goal-70101ca759a1-client-a": true,
+    "rustdesk-goal-70101ca759a1-client-b": true,
+    "rustdesk-goal-70101ca759a1-elogind-fetch": true,
+    "rustdesk-goal-70101ca759a1-cgroup-probe": true,
+    "rustdesk-goal-70101ca759a1-s6-core": true,
+    "rustdesk-goal-70101ca759a1-registry-proof": true
+  },
+  "volumes": {
+    "rustdesk-goal-70101ca759a1-data": true,
+    "rustdesk-goal-70101ca759a1-home-a": true,
+    "rustdesk-goal-70101ca759a1-home-b": true
+  },
+  "networks": {
+    "rustdesk-goal-70101ca759a1": true
+  },
+  "images": {
+    "rustdesk-goal/server:01a0f549": true,
+    "rustdesk-goal/server:01a0f549-s6": true,
+    "rustdesk-goal/desktop:01a0f549": true
+  },
+  "credential_files_absent": {
+    "credentials.json": true,
+    "server.env": true,
+    "keycloak.env": true,
+    "realm.json": true,
+    "ca.key": true,
+    "tls.key": true
+  },
+  "deployment_prefixes": {
+    "rustdesk-check-0781d72fa2f9": true,
+    "rustdesk-check-7bf44876225c": true,
+    "rustdesk-check-732149ad6f2e": true,
+    "rustdesk-check-7e767bacf641": true,
+    "kind_clusters_empty": true
+  }
+}

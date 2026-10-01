@@ -1,0 +1,4 @@
+{
+  "a": "User=1001\nName=tester\nSeat=seat0\nLeader=6\nType=x11\nState=active\n",
+  "b": "User=1001\nName=tester\nSeat=seat0\nLeader=7\nType=x11\nState=active\n"
+}

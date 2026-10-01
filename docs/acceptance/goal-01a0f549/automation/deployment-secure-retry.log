@@ -1,0 +1,119 @@
+ Network rustdesk-check-7e767bacf641_default Creating 
+ Network rustdesk-check-7e767bacf641_default Creating 
+ Volume rustdesk-check-7e767bacf641_rustdesk-data Creating 
+ Volume rustdesk-check-7e767bacf641_rustdesk-data Creating 
+ Volume rustdesk-check-7e767bacf641_rustdesk-data Created 
+ Volume rustdesk-check-7e767bacf641_rustdesk-data Created 
+ Network rustdesk-check-7e767bacf641_default Created 
+ Network rustdesk-check-7e767bacf641_default Created 
+ Container rustdesk-check-7e767bacf641-init-1 Creating 
+ Container rustdesk-check-7e767bacf641-init-1 Created 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Creating 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Creating 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Creating 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Created 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Created 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Created 
+ Container rustdesk-check-7e767bacf641-init-1 Starting 
+ Container rustdesk-check-7e767bacf641-init-1 Started 
+ Container rustdesk-check-7e767bacf641-init-1 Waiting 
+ Container rustdesk-check-7e767bacf641-init-1 Waiting 
+ Container rustdesk-check-7e767bacf641-init-1 Waiting 
+ Container rustdesk-check-7e767bacf641-init-1 Exited 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Starting 
+ Container rustdesk-check-7e767bacf641-init-1 Exited 
+ Container rustdesk-check-7e767bacf641-init-1 Exited 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Starting 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Starting 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Started 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Started 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Started 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Waiting 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Waiting 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Waiting 
+ Container rustdesk-check-7e767bacf641-init-1 Waiting 
+ Container rustdesk-check-7e767bacf641-init-1 Exited 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Healthy 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Healthy 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Healthy 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Restarting 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Restarting 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Restarting 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Started 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Started 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Started 
+3355d9bd798342e2760edecb8d9297383abcf80aaf3d70fffdd7a545ddda6daf
+49d06b95958b994ab9d3b49d172e4ce179a45f61be907b870eadcaf256098c51
+01cb4d9bff9a0f53b9fc0042ca3488aadfe4e7118012532c44c26f95969525de
+rustdesk-check-7e767bacf641-core-only
+Creating cluster "rustdesk-check-7e767bacf641" ...
+ • Ensuring node image (kindest/node:v1.34.0) 🖼  ...
+ ✓ Ensuring node image (kindest/node:v1.34.0) 🖼
+ • Preparing nodes 📦   ...
+ ✓ Preparing nodes 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Waiting ≤ 2m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 2m0s for control-plane = Ready ⏳
+ • Ready after 18s 💚
+Set kubectl context to "kind-rustdesk-check-7e767bacf641"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-rustdesk-check-7e767bacf641 --kubeconfig /tmp/rustdesk-check-7e767bacf6417psf4vfn/kubeconfig
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+Image: "rustdesk-goal/server:01a0f549" with ID "sha256:b646bdd76d766743d0a17f34b3ba9c727b0f5632ca45f53a59cc5e8007506ae1" not yet present on node "rustdesk-check-7e767bacf641-control-plane", loading...
+namespace/rustdesk-compat created
+secret/rustdesk-api-secret created
+configmap/rustdesk-config created (server dry run)
+deployment.apps/rustdesk-server created (server dry run)
+service/rustdesk-service created (server dry run)
+persistentvolumeclaim/rustdesk-pvc created (server dry run)
+configmap/rustdesk-config created
+deployment.apps/rustdesk-server created
+service/rustdesk-service created
+persistentvolumeclaim/rustdesk-pvc created
+configmap/smoke-scripts created
+deployment.apps/rustdesk-server patched
+Waiting for deployment "rustdesk-server" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "rustdesk-server" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "rustdesk-server" rollout to finish: 0 of 1 updated replicas are available...
+deployment "rustdesk-server" successfully rolled out
+pod "rustdesk-server-5c79954894-rsn4l" deleted from rustdesk-compat namespace
+deployment "rustdesk-server" successfully rolled out
+{"persistent_guid": "2a64c244-7961-4416-8a08-a6b1debb1056", "result": "passed"}
+Deleting cluster "rustdesk-check-7e767bacf641" ...
+Deleted nodes: ["rustdesk-check-7e767bacf641-control-plane"]
+rustdesk-check-7e767bacf641-broken
+rustdesk-check-7e767bacf641-s6
+rustdesk-check-7e767bacf641-core-only
+ Container rustdesk-check-7e767bacf641-hbbs-1 Stopping 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Stopping 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Stopping 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Stopped 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Removing 
+ Container rustdesk-check-7e767bacf641-hbbr-1 Removed 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Stopped 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Removing 
+ Container rustdesk-check-7e767bacf641-hbbs-1 Removed 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Stopped 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Removing 
+ Container rustdesk-check-7e767bacf641-rustdesk-api-1 Removed 
+ Container rustdesk-check-7e767bacf641-init-1 Stopping 
+ Container rustdesk-check-7e767bacf641-init-1 Stopped 
+ Container rustdesk-check-7e767bacf641-init-1 Removing 
+ Container rustdesk-check-7e767bacf641-init-1 Removed 
+ Network rustdesk-check-7e767bacf641_default Removing 
+ Volume rustdesk-check-7e767bacf641_rustdesk-data Removing 
+ Volume rustdesk-check-7e767bacf641_rustdesk-data Removed 
+ Network rustdesk-check-7e767bacf641_default Removed 
+rustdesk-check-7e767bacf641-invalid
+rustdesk-check-7e767bacf641-s6
+rustdesk-check-7e767bacf641-core-only
+{"compose": ["readiness", "static_web", "secure_login", "official_address_book", "hbbs_registration", "device_report", "binding", "online_observation", "oauth_mock"], "s6": "passed", "kubernetes": "passed", "persistence": "passed", "negative_readiness": "passed"}

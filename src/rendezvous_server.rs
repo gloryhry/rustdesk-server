@@ -16,7 +16,7 @@ use hbb_common::{
         register_pk_response::Result::{TOO_FREQUENT, UUID_MISMATCH},
         *,
     },
-    tcp::FramedStream,
+    tcp::{Encrypt, FramedStream},
     timeout,
     tokio::{
         self,
@@ -31,7 +31,7 @@ use hbb_common::{
     AddrMangle, ResultType,
 };
 use ipnetwork::Ipv4Network;
-use sodiumoxide::crypto::sign;
+use sodiumoxide::crypto::{box_, sign};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -47,11 +47,11 @@ enum Data {
     RelayServers(RelayServers),
 }
 
-const REG_TIMEOUT: i64 = 30_000;
+const REG_TIMEOUT: i64 = crate::device_registry::REGISTRATION_TIMEOUT_MS;
 type TcpStreamSink = SplitSink<Framed<TcpStream, BytesCodec>, Bytes>;
 type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, tungstenite::Message>;
 enum Sink {
-    TcpStream(TcpStreamSink),
+    TcpStream(TcpStreamSink, Option<Encrypt>),
     Ws(WsSink),
 }
 type Sender = mpsc::UnboundedSender<Data>;
@@ -111,6 +111,7 @@ impl RendezvousServer {
         key: &str,
         rmem: usize,
     ) -> ResultType<()> {
+        crate::websocket_proxy::policy()?;
         let (key, sk) = Self::get_server_sk(key);
         let nat_port = port - 1;
         let ws_port = port + 2;
@@ -444,7 +445,13 @@ impl RendezvousServer {
                         }
                     }
                     if changed {
-                        self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+                        let result = self.pm.update_pk(id, peer, addr, rk.uuid, rk.pk, ip).await;
+                        return send_rk_res(socket, addr, result).await;
+                    } else {
+                        let mut peer = peer.write().await;
+                        peer.socket_addr = addr;
+                        peer.last_reg_time = Instant::now();
+                        self.pm.observe_registration(&peer);
                     }
                     let mut msg_out = RendezvousMessage::new();
                     msg_out.set_register_pk_response(RegisterPkResponse {
@@ -608,6 +615,7 @@ impl RendezvousServer {
             if !request_pk {
                 old.socket_addr = socket_addr;
                 old.last_reg_time = Instant::now();
+                self.pm.observe_registration(&old);
             }
             let ip_change = if ip_change && old.reg_pk.0 <= 2 {
                 Some(if old.socket_addr.port() == 0 {
@@ -852,11 +860,15 @@ impl RendezvousServer {
         if let Some(sink) = sink.as_mut() {
             if let Ok(bytes) = msg.write_to_bytes() {
                 match sink {
-                    Sink::TcpStream(s) => {
+                    Sink::TcpStream(s, encryption) => {
+                        let bytes = match encryption {
+                            Some(encryption) => encryption.enc(&bytes),
+                            None => bytes,
+                        };
                         allow_err!(s.send(Bytes::from(bytes)).await);
                     }
                     Sink::Ws(ws) => {
-                        allow_err!(ws.send(tungstenite::Message::Binary(bytes)).await);
+                        allow_err!(ws.send(tungstenite::Message::Binary(bytes.into())).await);
                     }
                 }
             }
@@ -1180,28 +1192,9 @@ impl RendezvousServer {
         let mut sink;
         if ws {
             use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+            let proxy_policy = crate::websocket_proxy::policy()?;
             let callback = |req: &Request, response: Response| {
-                let headers = req.headers();
-                // X-Real-IP / X-Forwarded-For are trusted as-is so that the real
-                // client IP is preserved when the WebSocket port runs behind a
-                // reverse proxy (WSS). They are NOT validated: anyone who can reach
-                // this port directly can spoof an arbitrary IP, bypassing IP-based
-                // rate limiting / blocking and corrupting logged IPs. Do not expose
-                // the WebSocket port directly to untrusted networks; only the
-                // reverse proxy, which overwrites these headers, should be able to
-                // connect to it.
-                // https://github.com/rustdesk/rustdesk-server/issues/634
-                let real_ip = headers
-                    .get("X-Real-IP")
-                    .or_else(|| headers.get("X-Forwarded-For"))
-                    .and_then(|header_value| header_value.to_str().ok());
-                if let Some(ip) = real_ip {
-                    if ip.contains('.') {
-                        addr = format!("{ip}:0").parse().unwrap_or(addr);
-                    } else {
-                        addr = format!("[{ip}]:0").parse().unwrap_or(addr);
-                    }
-                }
+                addr = proxy_policy.client_addr(addr,req.headers());
                 Ok(response)
             };
             let ws_stream = tokio_tungstenite::accept_hdr_async(stream, callback).await?;
@@ -1215,9 +1208,45 @@ impl RendezvousServer {
                 }
             }
         } else {
-            let (a, mut b) = Framed::new(stream, BytesCodec::new()).split();
-            sink = Some(Sink::TcpStream(a));
-            while let Ok(Some(Ok(bytes))) = timeout(30_000, b.next()).await {
+            let mut framed = Framed::new(stream, BytesCodec::new());
+            // Authenticated native clients wait for this offer before sending
+            // their API token. Clients without a token ignore it and send an
+            // ordinary rendezvous request, which remains supported below.
+            let exchange_sk = if let Some(signing_sk) = self.inner.sk.as_ref() {
+                let (pk, sk) = box_::gen_keypair();
+                let mut offer = RendezvousMessage::new();
+                offer.set_key_exchange(KeyExchange {
+                    keys: vec![sign::sign(&pk.0, signing_sk).into()],
+                    ..Default::default()
+                });
+                timeout(3_000, framed.send(Bytes::from(offer.write_to_bytes()?))).await??;
+                Some(sk)
+            } else {
+                None
+            };
+            let (a, mut b) = framed.split();
+            sink = Some(Sink::TcpStream(a, None));
+            let mut exchange_sk = exchange_sk;
+            let mut decryption: Option<Encrypt> = None;
+            while let Ok(Some(Ok(mut bytes))) = timeout(30_000, b.next()).await {
+                if let Some(sk) = exchange_sk.take() {
+                    if let Ok(message) = RendezvousMessage::parse_from_bytes(&bytes) {
+                        if let Some(rendezvous_message::Union::KeyExchange(exchange)) = message.union {
+                            if exchange.keys.len() != 2 {
+                                bail!("Invalid rendezvous key exchange");
+                            }
+                            let key = Encrypt::decode(&exchange.keys[1], &exchange.keys[0], &sk)?;
+                            decryption = Some(Encrypt::new(key.clone()));
+                            if let Some(Sink::TcpStream(_, encryption)) = sink.as_mut() {
+                                *encryption = Some(Encrypt::new(key));
+                            }
+                            continue;
+                        }
+                    }
+                }
+                if let Some(decryption) = decryption.as_mut() {
+                    decryption.dec(&mut bytes)?;
+                }
                 if !self.handle_tcp(&bytes, &mut sink, addr, key, ws).await {
                     break;
                 }

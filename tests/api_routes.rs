@@ -3,10 +3,11 @@ use axum::http::{header, Request, StatusCode};
 use hbbs::{
     api::{build_service, PublicServerConfig},
     database::Database,
+    browser_security::CookiePolicy,
     ldap::LdapConfig,
     oauth::OAuthRuntime,
 };
-use hyper::body::to_bytes;
+use axum::body::to_bytes;
 use std::{fs, path::PathBuf, time::Duration};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -39,6 +40,9 @@ async fn test_app() -> (axum::Router, PathBuf) {
         OAuthRuntime::new(Vec::new()),
         String::new(),
         LdapConfig::disabled(),
+        CookiePolicy::default(),
+        None,
+        None,
     )
     .await
     .expect("test router should initialize");
@@ -66,11 +70,14 @@ fn authenticated_json_request(
     path: &str,
     body: &str,
     cookie: &str,
+    csrf: &str,
 ) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(path)
         .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, "http://127.0.0.1:21114")
+        .header("x-csrf-token", csrf)
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_owned()))
         .expect("authenticated request should build")
@@ -89,6 +96,8 @@ fn cookie_from(response: &axum::response::Response) -> String {
 #[tokio::test]
 async fn api_routes_support_auth_groups_and_cookie_sessions() {
     let (app, database_path) = test_app().await;
+    Database::new(database_path.to_str().unwrap()).await.unwrap()
+        .insert_peer("client-a",b"uuid-a",&[3;32],"{}").await.unwrap();
 
     let health = send(
         &app,
@@ -119,7 +128,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(api_root.status(), StatusCode::OK);
-    let api_root_body = to_bytes(api_root.into_body())
+    let api_root_body = to_bytes(api_root.into_body(), 4*1024*1024)
         .await
         .expect("api root response should read");
     assert!(String::from_utf8_lossy(&api_root_body).contains("RustDesk API"));
@@ -136,11 +145,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
 
     let heartbeat = send(
         &app,
-        Request::builder()
-            .method("POST")
-            .uri("/api/heartbeat")
-            .body(Body::empty())
-            .expect("heartbeat request should build"),
+        json_request("POST","/api/heartbeat",r#"{"id":"client-a","uuid":"dXVpZC1h","ver":1004009}"#),
     )
     .await;
     assert_eq!(heartbeat.status(), StatusCode::OK);
@@ -155,7 +160,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(registration.status(), StatusCode::CREATED);
-    let registration_body = to_bytes(registration.into_body())
+    let registration_body = to_bytes(registration.into_body(), 4*1024*1024)
         .await
         .expect("registration response should read");
     let user_id = serde_json::from_slice::<serde_json::Value>(&registration_body)
@@ -175,19 +180,25 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     .await;
     assert_eq!(login.status(), StatusCode::OK);
     let cookie = cookie_from(&login);
+    let csrf_response = send(&app, Request::builder().uri("/api/session/csrf")
+        .header(header::COOKIE,&cookie).body(Body::empty()).unwrap()).await;
+    assert_eq!(csrf_response.status(),StatusCode::OK);
+    let csrf: serde_json::Value = serde_json::from_slice(&to_bytes(csrf_response.into_body(), 4*1024*1024).await.unwrap()).unwrap();
+    let csrf = csrf["csrf_token"].as_str().unwrap();
     assert!(login
         .headers()
         .get(header::SET_COOKIE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.contains("HttpOnly") && value.contains("SameSite=Lax")));
+        .is_some_and(|value| value.contains("HttpOnly") && value.contains("SameSite=Lax") && value.contains("; Secure")));
 
     let sysinfo = send(
         &app,
         authenticated_json_request(
             "POST",
             "/api/sysinfo",
-            r#"{"id":"client-a","uuid":"uuid-a","name":"Office laptop","os":"Linux","type":"desktop","info":"{}"}"#,
+            r#"{"id":"client-a","uuid":"dXVpZC1h","hostname":"Office laptop","os":"Linux"}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -203,10 +214,11 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(peers_list.status(), StatusCode::OK);
-    let peers_list_body = to_bytes(peers_list.into_body())
+    let peers_list_body = to_bytes(peers_list.into_body(), 4*1024*1024)
         .await
         .expect("peers list response should read");
-    assert!(String::from_utf8_lossy(&peers_list_body).contains("Office laptop"));
+    let peers: serde_json::Value = serde_json::from_slice(&peers_list_body).unwrap();
+    assert_eq!(peers["data"],serde_json::json!([]), "unsigned reports never grant account ownership");
 
     let current_user = send(
         &app,
@@ -218,34 +230,39 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(current_user.status(), StatusCode::OK);
-    let current_user_body = to_bytes(current_user.into_body())
+    let current_user_body = to_bytes(current_user.into_body(), 4*1024*1024)
         .await
         .expect("current user response should read");
     assert!(String::from_utf8_lossy(&current_user_body).contains("route-user"));
 
+    let book = send(&app,Request::builder().uri("/api/ab").header(header::COOKIE,&cookie).body(Body::empty()).unwrap()).await;
+    let book: serde_json::Value = serde_json::from_slice(&to_bytes(book.into_body(), 4*1024*1024).await.unwrap()).unwrap();
+    let revision = book["revision"].as_i64().unwrap();
     let peer_upsert = send(
         &app,
         authenticated_json_request(
             "POST",
-            "/api/ab/peer",
-            r#"{"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true}"#,
+            "/api/web/ab/entries",
+            &serde_json::json!({"peer_id":"peer-42","username":"alice","hostname":"office","alias":"Office","platform":"Linux","tags":["ops"],"force_always_relay":true,"revision":revision}).to_string(),
             &cookie,
+            csrf,
         ),
     )
     .await;
     assert_eq!(peer_upsert.status(), StatusCode::OK);
+    let peer_saved: serde_json::Value = serde_json::from_slice(&to_bytes(peer_upsert.into_body(), 4*1024*1024).await.unwrap()).unwrap();
 
     let peers = send(
         &app,
         Request::builder()
-            .uri("/api/ab/peers")
+            .uri("/api/web/ab/entries")
             .header(header::COOKIE, &cookie)
             .body(Body::empty())
             .expect("peers request should build"),
     )
     .await;
     assert_eq!(peers.status(), StatusCode::OK);
-    let peers_body = to_bytes(peers.into_body())
+    let peers_body = to_bytes(peers.into_body(), 4*1024*1024)
         .await
         .expect("peers response should read");
     let peers_json = serde_json::from_slice::<serde_json::Value>(&peers_body)
@@ -257,8 +274,10 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         &app,
         Request::builder()
             .method("DELETE")
-            .uri("/api/ab/peer/peer-42")
+            .uri(format!("/api/web/ab/entries/peer-42?revision={}",peer_saved["revision"].as_i64().unwrap()))
             .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "http://127.0.0.1:21114")
+            .header("x-csrf-token", csrf)
             .body(Body::empty())
             .expect("peer delete request should build"),
     )
@@ -272,6 +291,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/admin/device/delete",
             r#"{"id":"missing-device"}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -284,11 +304,12 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups",
             r#"{"name":"route-group"}"#,
             &cookie,
+            csrf,
         ),
     )
     .await;
     assert_eq!(group_create.status(), StatusCode::CREATED);
-    let group_body = to_bytes(group_create.into_body())
+    let group_body = to_bytes(group_create.into_body(), 4*1024*1024)
         .await
         .expect("group response should read");
     let group_id = serde_json::from_slice::<serde_json::Value>(&group_body)
@@ -304,6 +325,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups/members",
             &format!(r#"{{"group_id":"{group_id}","user_id":"{user_id}"}}"#),
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -319,7 +341,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(groups.status(), StatusCode::OK);
-    let groups_body = to_bytes(groups.into_body())
+    let groups_body = to_bytes(groups.into_body(), 4*1024*1024)
         .await
         .expect("groups response should read");
     let groups_json = serde_json::from_slice::<serde_json::Value>(&groups_body)
@@ -334,6 +356,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups/members/delete",
             &format!(r#"{{"group_id":"{group_id}","user_id":"{user_id}"}}"#),
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -346,6 +369,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
             "/api/groups/delete",
             &format!(r#"{{"id":"{group_id}"}}"#),
             &cookie,
+            csrf,
         ),
     )
     .await;
@@ -353,7 +377,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
 
     let logout = send(
         &app,
-        authenticated_json_request("POST", "/api/logout", "", &cookie),
+        authenticated_json_request("POST", "/api/logout", "", &cookie, csrf),
     )
     .await;
     assert_eq!(logout.status(), StatusCode::OK);
@@ -361,7 +385,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
         .headers()
         .get(header::SET_COOKIE)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.contains("Max-Age=0")));
+        .is_some_and(|value| value.contains("Max-Age=0") && value.contains("; Secure")));
 
     let revoked = send(
         &app,

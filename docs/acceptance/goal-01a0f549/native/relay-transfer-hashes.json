@@ -1,0 +1,48 @@
+{
+  "a-to-b": {
+    "expected": {
+      "随机文件.bin": {
+        "sha256": "4424222d2636f3ebbebe0e542a6fca35c70545ac1ff153b9effc4e2c08b104f6",
+        "size": 1048576
+      },
+      "空文件.txt": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      }
+    },
+    "actual": {
+      "随机文件.bin": {
+        "sha256": "4424222d2636f3ebbebe0e542a6fca35c70545ac1ff153b9effc4e2c08b104f6",
+        "size": 1048576
+      },
+      "空文件.txt": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      }
+    },
+    "passed": true
+  },
+  "b-to-a": {
+    "expected": {
+      "随机文件.bin": {
+        "sha256": "41e796f40a7a040f7795dcc30726976591d9e5d25a438eadd8be610e514edc8c",
+        "size": 1048576
+      },
+      "空文件.txt": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      }
+    },
+    "actual": {
+      "随机文件.bin": {
+        "sha256": "41e796f40a7a040f7795dcc30726976591d9e5d25a438eadd8be610e514edc8c",
+        "size": 1048576
+      },
+      "空文件.txt": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size": 0
+      }
+    },
+    "passed": true
+  }
+}

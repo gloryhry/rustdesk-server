@@ -1,0 +1,33 @@
+
+> rustdesk-api-web@0.1.0 test:browser
+> playwright test --output=/tmp/rustdesk-goal-01a0f549/browser-all
+
+
+Running 20 tests using 1 worker
+
+(node:3514817) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3514817) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/address-book.spec.js:4:1 › deleting a stable entry does not delete a peer whose ID collides with that entry (3.9s)
+  ✓   2 tests/address-book.spec.js:39:1 › whole document editor reloads canonical identities and revisions before further edits (4.4s)
+  ✓   3 tests/address-book.spec.js:73:1 › two tabs preserve all peers and reject a stale draft even after list refresh (4.9s)
+  ✓   4 tests/address-book.spec.js:118:1 › editing an imported address book alias keeps password, RDP and unknown fields (3.3s)
+  ✓   5 tests/address-book.spec.js:155:1 › imported snapshot-only entry can be deleted and stays absent after reload (3.2s)
+  ✓   6 tests/address-book.spec.js:178:1 › Peer ID edit preserves stable entry ID and duplicate targets leave data unchanged (3.4s)
+  ✓   7 tests/address-book.spec.js:223:1 › official false string restores an unchecked relay and Web edits round-trip both values (3.5s)
+  ✓   8 tests/address-book.spec.js:263:1 › tag color editing keeps alpha and renaming or deleting updates only related Peer references (3.5s)
+  ✓   9 tests/browser-sessions.spec.js:2:1 › same-origin Cookie login removes old Bearer caches and restores after refresh (3.2s)
+  ✓  10 tests/browser-sessions.spec.js:44:3 › same-site cross-origin Web › preflight, login, refresh, provider write and logout use the permitted Origin (4.0s)
+  ✓  11 tests/browser-sessions.spec.js:81:3 › unapproved cross-origin Web › browser cannot log in through an unapproved Origin (2.6s)
+  ✓  12 tests/browser-sessions.spec.js:97:3 › cross-site Cookie restrictions › blocked third-party Cookies produce a clear session error (3.3s)
+  ✓  13 tests/device-binding.spec.js:5:1 › administrator independently checks the public key before binding or unbinding a reported device (4.0s)
+  ✓  14 tests/list-pagination.spec.js:4:1 › group account selector reads users beyond the first official page (4.1s)
+  ✓  15 tests/oauth-admin.spec.js:2:1 › administrator manages persistent providers and environment rows remain read only (3.8s)
+  ✓  16 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/session/csrf is delayed (2.9s)
+  ✓  17 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/login-options is delayed (2.9s)
+  ✓  18 tests/oauth-login-options.spec.js:17:1 › logout keeps public choices, refreshes provider changes and tolerates a temporary lookup failure (5.7s)
+  ✓  19 tests/oauth-login-options.spec.js:74:1 › a revoked Cookie session clears private data while retaining the OAuth login entry (3.6s)
+  ✓  20 tests/user-groups.spec.js:4:1 › ordinary user submits their stable account ID when joining their own group (3.9s)
+
+  20 passed (1.3m)

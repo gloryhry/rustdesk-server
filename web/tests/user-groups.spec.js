@@ -1,0 +1,30 @@
+import { test, expect } from './fixtures.js';
+import { DatabaseSync } from 'node:sqlite';
+import { join } from 'node:path';
+
+test('ordinary user submits their stable account ID when joining their own group', async ({ page, service, request }) => {
+  const registered = await request.post(`${service.url}/api/register`, { data: { username: 'ordinary', password: 'temporary-user-password' } });
+  expect(registered.status()).toBe(201);
+  const id = (await registered.json()).id;
+  await page.goto(service.uiUrl);
+  await page.locator('#username').fill('ordinary');
+  await page.locator('#password').fill('temporary-user-password');
+  await page.locator('#auth-submit').click();
+  await expect(page.locator('#nav-groups')).toBeVisible();
+  await page.locator('#nav-groups').click();
+  await page.locator('#group-form [name="name"]').fill('My group');
+  await page.locator('#create-group').click();
+  const selector = page.locator('.group-list select');
+  await expect(selector.locator('option')).toHaveCount(1);
+  expect(await selector.inputValue()).toBe(id);
+  const submitted = page.waitForRequest(request => request.url().endsWith('/api/groups/members'));
+  await page.locator('[data-add-group]').click();
+  expect((await submitted).postDataJSON().user_id).toBe(id);
+  await expect(page.locator('.membership-list')).toContainText('ordinary');
+  const sqlite = new DatabaseSync(join(service.directory, 'api.sqlite3'));
+  expect(sqlite.prepare('select user_id from api_user_group_member').get().user_id).toBe(id);
+  sqlite.close();
+  await page.reload();
+  await page.locator('#nav-groups').click();
+  await expect(page.locator('.membership-list')).toContainText('ordinary');
+});

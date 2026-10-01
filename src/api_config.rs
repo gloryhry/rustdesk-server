@@ -1,7 +1,7 @@
 use hbb_common::{bail, ResultType};
 use hbbs::common;
 use hbbs::ldap::LdapConfig;
-use hbbs::oauth::{OAuthProviderConfig, OAuthRuntime};
+use hbbs::oauth::{OAuthProviderConfig, OAuthProviderKind, OAuthRuntime};
 use sodiumoxide::crypto::sign;
 
 pub(crate) fn parse_bool_arg(name: &str, default: bool) -> ResultType<bool> {
@@ -43,79 +43,52 @@ pub(crate) fn load_ldap_config() -> ResultType<LdapConfig> {
     Ok(config)
 }
 
-pub(crate) fn load_oauth_runtime() -> OAuthRuntime {
+pub(crate) fn load_oauth_runtime() -> ResultType<OAuthRuntime> {
+    load_oauth_runtime_from(common::get_arg)
+}
+
+fn load_oauth_runtime_from(read: impl Fn(&str) -> String) -> ResultType<OAuthRuntime> {
     let mut configs = Vec::new();
-    add_provider(
-        &mut configs,
-        "github",
-        "API_GITHUB_CLIENT_ID",
-        "API_GITHUB_CLIENT_SECRET",
-        "https://github.com/login/oauth/authorize",
-        "https://github.com/login/oauth/access_token",
-        "https://api.github.com/user",
-        "read:user user:email",
-    );
-    add_provider(
-        &mut configs,
-        "google",
-        "API_GOOGLE_CLIENT_ID",
-        "API_GOOGLE_CLIENT_SECRET",
-        "https://accounts.google.com/o/oauth2/v2/auth",
-        "https://oauth2.googleapis.com/token",
-        "https://openidconnect.googleapis.com/v1/userinfo",
-        "openid email profile",
-    );
-    let oidc_auth = common::get_arg("API_OIDC_AUTH_URL");
-    let oidc_token = common::get_arg("API_OIDC_TOKEN_URL");
-    let oidc_userinfo = common::get_arg("API_OIDC_USERINFO_URL");
-    let oidc_issuer = common::get_arg("API_OIDC_ISSUER_URL");
-    let oidc_jwks = common::get_arg("API_OIDC_JWKS_URL");
-    if !oidc_auth.is_empty() && !oidc_token.is_empty() && !oidc_userinfo.is_empty() {
+    for (name, prefix, kind, auth, token, userinfo, issuer, jwks, scopes) in [
+        ("github", "API_GITHUB", OAuthProviderKind::OAuth2,
+            "https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token",
+            "https://api.github.com/user", "", "", "read:user user:email"),
+        ("google", "API_GOOGLE", OAuthProviderKind::Oidc,
+            "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token",
+            "https://openidconnect.googleapis.com/v1/userinfo", "https://accounts.google.com",
+            "https://www.googleapis.com/oauth2/v3/certs", "openid email profile"),
+    ] {
+        let client_id = read(&format!("{prefix}_CLIENT_ID"));
+        let client_secret = read(&format!("{prefix}_CLIENT_SECRET"));
+        if !client_id.is_empty() || !client_secret.is_empty() {
+            configs.push(OAuthProviderConfig {
+                name: name.to_owned(), kind, client_id, client_secret,
+                authorization_url: auth.to_owned(), token_url: token.to_owned(),
+                userinfo_url: userinfo.to_owned(), issuer_url: issuer.to_owned(),
+                jwks_url: jwks.to_owned(), scopes: scopes.to_owned(),
+            });
+        }
+    }
+    let oidc_keys = ["API_OIDC_CLIENT_ID", "API_OIDC_CLIENT_SECRET", "API_OIDC_AUTH_URL",
+        "API_OIDC_TOKEN_URL", "API_OIDC_USERINFO_URL", "API_OIDC_ISSUER_URL", "API_OIDC_JWKS_URL", "API_OIDC_SCOPE"];
+    if oidc_keys.iter().any(|key| !read(key).is_empty()) {
+        let scopes = read("API_OIDC_SCOPE");
         configs.push(OAuthProviderConfig {
-            name: "oidc".to_owned(),
-            client_id: common::get_arg("API_OIDC_CLIENT_ID"),
-            client_secret: common::get_arg("API_OIDC_CLIENT_SECRET"),
-            authorization_url: oidc_auth,
-            token_url: oidc_token,
-            userinfo_url: oidc_userinfo,
-            issuer_url: oidc_issuer,
-            jwks_url: oidc_jwks,
-            scopes: common::get_arg_or("API_OIDC_SCOPE", "openid email profile".to_owned()),
+            name: "oidc".to_owned(), kind: OAuthProviderKind::Oidc,
+            client_id: read("API_OIDC_CLIENT_ID"), client_secret: read("API_OIDC_CLIENT_SECRET"),
+            authorization_url: read("API_OIDC_AUTH_URL"), token_url: read("API_OIDC_TOKEN_URL"),
+            userinfo_url: read("API_OIDC_USERINFO_URL"), issuer_url: read("API_OIDC_ISSUER_URL"),
+            jwks_url: read("API_OIDC_JWKS_URL"),
+            scopes: if scopes.is_empty() { "openid email profile".to_owned() } else { scopes },
         });
     }
-    OAuthRuntime::new(configs)
+    OAuthRuntime::try_new(configs).map_err(|message| hbb_common::anyhow::anyhow!(message))
 }
 
 pub(crate) fn load_oauth_redirect_url() -> String {
     common::get_arg("API_OAUTH_REDIRECT_URL")
 }
 
-fn add_provider(
-    configs: &mut Vec<OAuthProviderConfig>,
-    name: &str,
-    client_id_name: &str,
-    client_secret_name: &str,
-    authorization_url: &str,
-    token_url: &str,
-    userinfo_url: &str,
-    scopes: &str,
-) {
-    let client_id = common::get_arg(client_id_name);
-    let client_secret = common::get_arg(client_secret_name);
-    if !client_id.is_empty() && !client_secret.is_empty() {
-        configs.push(OAuthProviderConfig {
-            name: name.to_owned(),
-            client_id,
-            client_secret,
-            authorization_url: authorization_url.to_owned(),
-            token_url: token_url.to_owned(),
-            userinfo_url: userinfo_url.to_owned(),
-            issuer_url: String::new(),
-            jwks_url: String::new(),
-            scopes: scopes.to_owned(),
-        });
-    }
-}
 pub(crate) fn load_public_key() -> ResultType<String> {
     let value = match common::get_arg_opt("RUSTDESK_KEY") {
         Some(value) => value,
@@ -131,3 +104,42 @@ pub(crate) fn load_public_key() -> ResultType<String> {
     Ok(base64::encode(decoded))
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runtime_with(values: &[(&str, &str)]) -> ResultType<OAuthRuntime> {
+        load_oauth_runtime_from(|key| values.iter().find(|(name, _)| *name == key)
+            .map(|(_, value)| (*value).to_owned()).unwrap_or_default())
+    }
+
+    #[test]
+    fn google_has_complete_oidc_validation_endpoints() {
+        let runtime = runtime_with(&[("API_GOOGLE_CLIENT_ID", "client"), ("API_GOOGLE_CLIENT_SECRET", "secret")]).unwrap();
+        let providers = runtime.provider_views();
+        assert_eq!(providers[0].issuer_url, "https://accounts.google.com");
+        assert_eq!(providers[0].jwks_url, "https://www.googleapis.com/oauth2/v3/certs");
+    }
+
+    #[test]
+    fn incomplete_generic_oidc_configuration_is_an_explicit_error() {
+        let mut values = vec![("API_OIDC_CLIENT_ID", "client"), ("API_OIDC_CLIENT_SECRET", "secret"),
+            ("API_OIDC_AUTH_URL", "https://provider.example/authorize"),
+            ("API_OIDC_TOKEN_URL", "https://provider.example/token"),
+            ("API_OIDC_USERINFO_URL", "https://provider.example/userinfo")];
+        assert!(runtime_with(&values).is_err());
+        values.push(("API_OIDC_ISSUER_URL", "https://provider.example"));
+        assert!(runtime_with(&values).is_err());
+        values.push(("API_OIDC_JWKS_URL", "https://provider.example/jwks"));
+        assert_eq!(runtime_with(&values).unwrap().provider_names(), vec!["oidc"]);
+    }
+
+    #[test]
+    fn partial_credentials_fail_and_empty_configuration_is_valid() {
+        assert!(runtime_with(&[("API_GOOGLE_CLIENT_ID", "client")]).is_err());
+        assert!(runtime_with(&[]).unwrap().provider_names().is_empty());
+        let runtime = runtime_with(&[("API_GITHUB_CLIENT_ID", "client"), ("API_GITHUB_CLIENT_SECRET", "secret")]).unwrap();
+        assert_eq!(runtime.provider_views()[0].kind, hbbs::oauth::OAuthProviderKind::OAuth2);
+    }
+}

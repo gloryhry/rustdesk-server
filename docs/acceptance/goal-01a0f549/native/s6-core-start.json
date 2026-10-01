@@ -1,0 +1,7 @@
+{
+  "health": "healthy",
+  "keys": "eed30b7604d100ea967a41573dfc391bcdd6520be204d18b2f65545a99eb6bc0  /data/id_ed25519\nc546cb5e30cb23aa91206669ecc1fb2c90b7326da7a97d7a0814231bccb61a57  /data/id_ed25519.pub",
+  "binaries": "38265035b94d865a4d63f6e98e06068d7febdf76a2594d42ffb71b28ddcef530  /usr/bin/hbbs\n65aa2a36d170bb261b93563f0a51810beef0a8058583304c4c416db7efaaf2ec  /usr/bin/hbbr\ne09fc4d31b65f486d70a205289dbff45aa1ff8d63e97dda5c2ba48b00676c02c  /usr/bin/rustdesk-api",
+  "no_api_listener": "absent",
+  "environment": "[\"RELAY=hbbr:21117\",\"API_ENABLED=0\",\"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\",\"DB_URL=/data/db_v2.sqlite3\",\"RUSTDESK_KEY_FILE=/data/id_ed25519.pub\",\"API_WEB_ROOT=/usr/share/rustdesk-api-web\",\"S6_BEHAVIOUR_IF_STAGE2_FAILS=2\"]"
+}

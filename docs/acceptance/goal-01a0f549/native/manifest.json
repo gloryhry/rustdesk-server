@@ -1,0 +1,92 @@
+{
+  "prefix": "rustdesk-goal-70101ca759a1",
+  "network": "rustdesk-goal-70101ca759a1",
+  "containers": [
+    "rustdesk-goal-70101ca759a1-init",
+    "rustdesk-goal-70101ca759a1-hbbs",
+    "rustdesk-goal-70101ca759a1-hbbr",
+    "rustdesk-goal-70101ca759a1-api",
+    "rustdesk-goal-70101ca759a1-keycloak",
+    "rustdesk-goal-70101ca759a1-proxy",
+    "rustdesk-goal-70101ca759a1-client-a",
+    "rustdesk-goal-70101ca759a1-client-b",
+    "rustdesk-goal-70101ca759a1-elogind-fetch",
+    "rustdesk-goal-70101ca759a1-cgroup-probe",
+    "rustdesk-goal-70101ca759a1-s6-core",
+    "rustdesk-goal-70101ca759a1-registry-proof"
+  ],
+  "volumes": [
+    "rustdesk-goal-70101ca759a1-data",
+    "rustdesk-goal-70101ca759a1-home-a",
+    "rustdesk-goal-70101ca759a1-home-b"
+  ],
+  "server_image": "rustdesk-goal/server:01a0f549",
+  "client_image": "rustdesk-goal/desktop:01a0f549",
+  "api_control_url": "http://127.0.0.1:55119",
+  "clients": {
+    "a": {
+      "container": "rustdesk-goal-70101ca759a1-client-a",
+      "desktop": "http://127.0.0.1:40413/vnc.html?autoconnect=true&resize=scale",
+      "source_hashes": {
+        "\u968f\u673a\u6587\u4ef6.bin": "4424222d2636f3ebbebe0e542a6fca35c70545ac1ff153b9effc4e2c08b104f6",
+        "\u7a7a\u6587\u4ef6.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "peer_id": "288596091",
+      "program_sha256": "5677c42b7561f2d4b9e5d8561964a92b5946f0ffa6a56b35a241c5809986c023  /usr/share/rustdesk/rustdesk\n83d5baf63af8562892e0ee14cf602171e85618b307100d8fd74df4ac80b9a425  /usr/share/rustdesk/lib/librustdesk.so\n6f0fce9d3e30f7d96d8a0f9309591553c4357772ec785f35f2f1476b9ca1df50  /usr/share/rustdesk/lib/libapp.so"
+    },
+    "b": {
+      "container": "rustdesk-goal-70101ca759a1-client-b",
+      "desktop": "http://127.0.0.1:54699/vnc.html?autoconnect=true&resize=scale",
+      "source_hashes": {
+        "\u968f\u673a\u6587\u4ef6.bin": "41e796f40a7a040f7795dcc30726976591d9e5d25a438eadd8be610e514edc8c",
+        "\u7a7a\u6587\u4ef6.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "peer_id": "512499333",
+      "program_sha256": "5677c42b7561f2d4b9e5d8561964a92b5946f0ffa6a56b35a241c5809986c023  /usr/share/rustdesk/rustdesk\n83d5baf63af8562892e0ee14cf602171e85618b307100d8fd74df4ac80b9a425  /usr/share/rustdesk/lib/librustdesk.so\n6f0fce9d3e30f7d96d8a0f9309591553c4357772ec785f35f2f1476b9ca1df50  /usr/share/rustdesk/lib/libapp.so"
+    }
+  },
+  "checks": {
+    "provisioning": "passed",
+    "native_password_login": "passed",
+    "local_key_fingerprint_binding": "passed",
+    "display_name_search": "passed",
+    "web_keycloak": "passed",
+    "native_logout_token_401": "passed",
+    "native_keycloak": "passed",
+    "native_session_revocation": "passed",
+    "direct_remote_input": "passed",
+    "secure_rendezvous": "passed",
+    "direct_file_transfer": "passed",
+    "relay_remote_input": "passed",
+    "relay_file_transfer": "passed",
+    "native_oauth_repeat_and_logout": "passed",
+    "web_collision_delete": "passed",
+    "address_book_sync": "passed",
+    "restart": "passed",
+    "s6_relay": "passed",
+    "s6_direct": "passed",
+    "s6_api_disabled_native": "passed",
+    "cleanup": "passed"
+  },
+  "services": {
+    "hbbs": "rustdesk-goal-70101ca759a1-hbbs",
+    "hbbr": "rustdesk-goal-70101ca759a1-hbbr",
+    "api": "rustdesk-goal-70101ca759a1-api",
+    "keycloak": "rustdesk-goal-70101ca759a1-keycloak",
+    "proxy": "rustdesk-goal-70101ca759a1-proxy",
+    "s6_core": "rustdesk-goal-70101ca759a1-s6-core"
+  },
+  "image_ids": {
+    "rustdesk-goal/server:01a0f549": "sha256:b646bdd76d766743d0a17f34b3ba9c727b0f5632ca45f53a59cc5e8007506ae1",
+    "rustdesk-goal/desktop:01a0f549": "sha256:d5bc704cace49aedfed0dc355bd1d171b80ab59615fb05273b4ce7724524e51b",
+    "quay.io/keycloak/keycloak:26.4.0": "sha256:5f3fb534cde6bf006d79f5912473e5d2c828c707cdfc52e16972803aca9d43dd",
+    "nginx:1.28.0": "sha256:552e7481ca93ffccd046aa658dbbed22caefbc09c66fa7cd247cbb90b8a5c609"
+  },
+  "server_binary_hashes": "24005d1ab21315b8b67541ae25ef5a306d9fedc95b3bdf23885a604f32250abf  /usr/bin/hbbs\n65aa2a36d170bb261b93563f0a51810beef0a8058583304c4c416db7efaaf2ec  /usr/bin/hbbr\ne09fc4d31b65f486d70a205289dbff45aa1ff8d63e97dda5c2ba48b00676c02c  /usr/bin/rustdesk-api",
+  "official_client_package": {
+    "url": "https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.deb",
+    "sha256": "7244ba47c40e804172044bfbe659467c54ce46554c98e78c8c0406f1d612fda3"
+  },
+  "server_binary_hashes_after_secure_fix": "38265035b94d865a4d63f6e98e06068d7febdf76a2594d42ffb71b28ddcef530  /usr/bin/hbbs\n65aa2a36d170bb261b93563f0a51810beef0a8058583304c4c416db7efaaf2ec  /usr/bin/hbbr\ne09fc4d31b65f486d70a205289dbff45aa1ff8d63e97dda5c2ba48b00676c02c  /usr/bin/rustdesk-api\n",
+  "desktop_session": "real elogind/PAM X11 session, private cgroup namespace"
+}

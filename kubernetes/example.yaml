@@ -1,10 +1,21 @@
+# Build docker/Dockerfile --target runtime and push this version to your registry.
+# Create rustdesk-api-secret out of band; no usable passwords are included here.
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name: rustdesk-api-secret
-type: Opaque
-stringData:
-  API_JWT_SECRET: "replace-with-at-least-32-random-bytes"
+  name: rustdesk-config
+data:
+  API_ENABLED: "1"
+  API_BIND: "0.0.0.0"
+  API_PORT: "21114"
+  API_PUBLIC_URL: "https://api.example.com"
+  API_REGISTER_ENABLED: "0"
+  WS_TRUSTED_PROXIES: ""
+  DB_URL: "/data/db_v2.sqlite3"
+  RUSTDESK_KEY_FILE: "/data/id_ed25519.pub"
+  API_WEB_ROOT: "/usr/share/rustdesk-api-web"
+  RUSTDESK_ID_SERVER: "rustdesk.example.com:21116"
+  RUSTDESK_RELAY_SERVER: "rustdesk.example.com:21117"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -15,132 +26,93 @@ spec:
   strategy:
     type: Recreate
   selector:
-    matchLabels:
-      app: rustdesk
+    matchLabels: { app: rustdesk }
   template:
     metadata:
-      labels:
-        app: rustdesk
+      labels: { app: rustdesk }
     spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      initContainers:
+        - name: initialize
+          image: rustdesk-local/server:1.1.17-api-1.4.9
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/rustdesk-entrypoint", "init"]
+          envFrom:
+            - configMapRef: { name: rustdesk-config }
+            - secretRef: { name: rustdesk-api-secret }
+          volumeMounts: [{ mountPath: /data, name: rustdesk-data }]
       containers:
-        # id Server (HBBS)
         - name: hbbs
-          image: rustdesk/rustdesk-server:latest
-          command: ["hbbs", "-r", "rustdesk.yourdomain.tld:21117", "-k", "_"]
-          volumeMounts:
-            - mountPath: /root
-              name: rustdesk-data
-          ports:
-            - containerPort: 21115
-            - containerPort: 21116
-              protocol: TCP
-            - containerPort: 21116
-              protocol: UDP
-            - containerPort: 21118
-
-        # Relay Server (HBBR)
-        - name: hbbr
-          image: rustdesk/rustdesk-server:latest
-          command: ["hbbr", "-k", "_"]
-          volumeMounts:
-            - mountPath: /root
-              name: rustdesk-data
-          ports:
-            - containerPort: 21117
-            - containerPort: 21119
-
-        # Optional HTTP API and Web Admin backend. Serve web/dist separately or mount it at /root/web.
-        - name: rustdesk-api
-          image: rustdesk/rustdesk-server:latest
+          image: rustdesk-local/server:1.1.17-api-1.4.9
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/hbbs", "--relay-servers", "rustdesk.example.com:21117"]
           env:
-            - name: API_ENABLED
-              value: "1"
-            - name: API_BIND
-              value: "0.0.0.0"
-            - name: API_PORT
-              value: "21114"
-            - name: API_REGISTER_ENABLED
-              value: "0"
-            - name: API_JWT_SECRET
+            - { name: DB_URL, value: /data/db_v2.sqlite3 }
+            - name: WS_TRUSTED_PROXIES
               valueFrom:
-                secretKeyRef:
-                  name: rustdesk-api-secret
-                  key: API_JWT_SECRET
-            - name: DB_URL
-              value: /root/db_v2.sqlite3
-            - name: RUSTDESK_KEY_FILE
-              value: /root/id_ed25519.pub
-            - name: API_WEB_ROOT
-              value: /root/web
-          volumeMounts:
-            - mountPath: /root
-              name: rustdesk-data
+                configMapKeyRef: { name: rustdesk-config, key: WS_TRUSTED_PROXIES }
+          volumeMounts: [{ mountPath: /data, name: rustdesk-data }]
           ports:
-            - containerPort: 21114
-              protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: /health/live
-              port: 21114
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /health/live
-              port: 21114
-            initialDelaySeconds: 15
-            periodSeconds: 20
-
+            - { containerPort: 21115, name: nat }
+            - { containerPort: 21116, name: rendezvous }
+            - { containerPort: 21116, protocol: UDP, name: registration }
+            - { containerPort: 21118, name: hbbs-ws }
+          readinessProbe: { tcpSocket: { port: rendezvous }, periodSeconds: 5 }
+          livenessProbe: { tcpSocket: { port: rendezvous }, initialDelaySeconds: 15, periodSeconds: 10 }
+        - name: hbbr
+          image: rustdesk-local/server:1.1.17-api-1.4.9
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/hbbr"]
+          env:
+            - name: WS_TRUSTED_PROXIES
+              valueFrom:
+                configMapKeyRef: { name: rustdesk-config, key: WS_TRUSTED_PROXIES }
+          volumeMounts: [{ mountPath: /data, name: rustdesk-data }]
+          ports:
+            - { containerPort: 21117, name: relay }
+            - { containerPort: 21119, name: hbbr-ws }
+          readinessProbe: { tcpSocket: { port: relay }, periodSeconds: 5 }
+          livenessProbe: { tcpSocket: { port: relay }, initialDelaySeconds: 15, periodSeconds: 10 }
+        - name: rustdesk-api
+          image: rustdesk-local/server:1.1.17-api-1.4.9
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/rustdesk-api"]
+          envFrom:
+            - configMapRef: { name: rustdesk-config }
+            - secretRef: { name: rustdesk-api-secret }
+          volumeMounts: [{ mountPath: /data, name: rustdesk-data }]
+          ports: [{ containerPort: 21114, name: api }]
+          startupProbe: { httpGet: { path: /health/ready, port: api }, failureThreshold: 30, periodSeconds: 2 }
+          readinessProbe: { httpGet: { path: /health/ready, port: api }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health/live, port: api }, initialDelaySeconds: 15, periodSeconds: 10 }
       volumes:
         - name: rustdesk-data
-          persistentVolumeClaim:
-            claimName: rustdesk-pvc
+          persistentVolumeClaim: { claimName: rustdesk-pvc }
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: rustdesk-service
 spec:
-  type: LoadBalancer # Or NodePort
-  selector:
-    app: rustdesk
+  type: ClusterIP
+  selector: { app: rustdesk }
   ports:
-    - name: hbbs-tcp
-      port: 21115
-      targetPort: 21115
-      protocol: TCP
-    - name: hbbs-udp
-      port: 21116
-      targetPort: 21116
-      protocol: UDP
-    - name: hbbs-tcp-main
-      port: 21116
-      targetPort: 21116
-      protocol: TCP
-    - name: hbbr-tcp
-      port: 21117
-      targetPort: 21117
-      protocol: TCP
-    - name: api-http
-      port: 21114
-      targetPort: 21114
-      protocol: TCP
-    - name: hbbs-websocket
-      port: 21118
-      targetPort: 21118
-      protocol: TCP
-    - name: hbbr-websocket
-      port: 21119
-      targetPort: 21119
-      protocol: TCP
+    - { name: nat, port: 21115, targetPort: 21115 }
+    - { name: hbbs, port: 21116, targetPort: 21116 }
+    - { name: registration, port: 21116, targetPort: 21116, protocol: UDP }
+    - { name: relay, port: 21117, targetPort: 21117 }
+    - { name: api, port: 21114, targetPort: 21114 }
+    - { name: hbbs-ws, port: 21118, targetPort: 21118 }
+    - { name: hbbr-ws, port: 21119, targetPort: 21119 }
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: rustdesk-pvc
 spec:
-  accessModes:
-    - ReadWriteOnce # RWM would be available only with pro version
+  accessModes: [ReadWriteOnce]
   resources:
-    requests:
-      storage: 1Gi
+    requests: { storage: 1Gi }

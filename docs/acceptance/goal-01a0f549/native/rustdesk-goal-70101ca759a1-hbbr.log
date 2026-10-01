@@ -1,0 +1,38 @@
+[2026-10-01 03:37:25.931853 +00:00] INFO [src/relay_server.rs:66] #blacklist(blacklist.txt): 0
+[2026-10-01 03:37:25.931866 +00:00] INFO [src/relay_server.rs:81] #blocklist(blocklist.txt): 0
+[2026-10-01 03:37:25.931868 +00:00] INFO [src/relay_server.rs:87] Listening on tcp :21117
+[2026-10-01 03:37:25.931869 +00:00] INFO [src/relay_server.rs:89] Listening on websocket :21119
+[2026-10-01 03:37:25.931879 +00:00] INFO [src/relay_server.rs:92] Start
+[2026-10-01 03:37:25.931945 +00:00] INFO [src/relay_server.rs:116] DOWNGRADE_THRESHOLD: 0.66
+[2026-10-01 03:37:25.931958 +00:00] INFO [src/relay_server.rs:126] DOWNGRADE_START_CHECK: 1800s
+[2026-10-01 03:37:25.931965 +00:00] INFO [src/relay_server.rs:136] LIMIT_SPEED: 32Mb/s
+[2026-10-01 03:37:25.931972 +00:00] INFO [src/relay_server.rs:147] TOTAL_BANDWIDTH: 1024Mb/s
+[2026-10-01 03:37:25.931978 +00:00] INFO [src/relay_server.rs:157] SINGLE_BANDWIDTH: 128Mb/s
+[2026-10-01 05:04:27.253605 +00:00] INFO [src/relay_server.rs:471] New relay request 91dc1df0-83ac-4b37-ad39-edaa020952f9 from [::ffff:172.21.0.7]:45235
+[2026-10-01 05:04:27.254142 +00:00] INFO [src/relay_server.rs:471] New relay request 91dc1df0-83ac-4b37-ad39-edaa020952f9 from [::ffff:172.21.0.8]:38709
+[2026-10-01 05:04:28.260499 +00:00] INFO [src/relay_server.rs:471] New relay request 857e706d-4fc3-4c0d-bd79-c33d99328ac7 from [::ffff:172.21.0.8]:41261
+[2026-10-01 05:04:28.260732 +00:00] INFO [src/relay_server.rs:455] Relayrequest 857e706d-4fc3-4c0d-bd79-c33d99328ac7 from [::ffff:172.21.0.7]:42875 got paired
+[2026-10-01 05:04:28.261208 +00:00] INFO [src/relay_server.rs:461] Both are raw
+[2026-10-01 05:10:35.757615 +00:00] INFO [src/relay_server.rs:471] New relay request cad99820-af44-4bc5-a2e7-45d4ae1a93ef from [::ffff:172.21.0.8]:45895
+[2026-10-01 05:10:35.758359 +00:00] INFO [src/relay_server.rs:455] Relayrequest cad99820-af44-4bc5-a2e7-45d4ae1a93ef from [::ffff:172.21.0.7]:38633 got paired
+[2026-10-01 05:10:35.758368 +00:00] INFO [src/relay_server.rs:461] Both are raw
+[2026-10-01 05:14:13.884281 +00:00] INFO [src/relay_server.rs:467] Relay of [::ffff:172.21.0.7]:38633 closed
+[2026-10-01 05:14:58.801400 +00:00] INFO [src/relay_server.rs:467] Relay of [::ffff:172.21.0.7]:42875 closed
+[2026-10-01 05:51:03.846080 +00:00] INFO [src/common.rs:261] signal terminate
+[2026-10-01 05:51:04.090407 +00:00] INFO [src/relay_server.rs:66] #blacklist(blacklist.txt): 0
+[2026-10-01 05:51:04.090413 +00:00] INFO [src/relay_server.rs:81] #blocklist(blocklist.txt): 0
+[2026-10-01 05:51:04.090414 +00:00] INFO [src/relay_server.rs:87] Listening on tcp :21117
+[2026-10-01 05:51:04.090414 +00:00] INFO [src/relay_server.rs:89] Listening on websocket :21119
+[2026-10-01 05:51:04.090418 +00:00] INFO [src/relay_server.rs:92] Start
+[2026-10-01 05:51:04.090446 +00:00] INFO [src/relay_server.rs:116] DOWNGRADE_THRESHOLD: 0.66
+[2026-10-01 05:51:04.090450 +00:00] INFO [src/relay_server.rs:126] DOWNGRADE_START_CHECK: 1800s
+[2026-10-01 05:51:04.090453 +00:00] INFO [src/relay_server.rs:136] LIMIT_SPEED: 32Mb/s
+[2026-10-01 05:51:04.090457 +00:00] INFO [src/relay_server.rs:147] TOTAL_BANDWIDTH: 1024Mb/s
+[2026-10-01 05:51:04.090460 +00:00] INFO [src/relay_server.rs:157] SINGLE_BANDWIDTH: 128Mb/s
+[2026-10-01 05:51:25.632474 +00:00] INFO [src/relay_server.rs:471] New relay request 76a1aa8e-84fa-4665-94f0-279a6254029d from [::ffff:172.21.0.7]:33805
+[2026-10-01 05:51:25.632473 +00:00] INFO [src/relay_server.rs:471] New relay request 76a1aa8e-84fa-4665-94f0-279a6254029d from [::ffff:172.21.0.8]:41009
+[2026-10-01 05:51:26.638741 +00:00] INFO [src/relay_server.rs:471] New relay request 29eacde0-b367-4e75-ba5a-a7485d7c1570 from [::ffff:172.21.0.8]:34247
+[2026-10-01 05:51:26.639204 +00:00] INFO [src/relay_server.rs:455] Relayrequest 29eacde0-b367-4e75-ba5a-a7485d7c1570 from [::ffff:172.21.0.7]:42017 got paired
+[2026-10-01 05:51:26.639220 +00:00] INFO [src/relay_server.rs:461] Both are raw
+[2026-10-01 05:53:03.301889 +00:00] INFO [src/relay_server.rs:467] Relay of [::ffff:172.21.0.7]:42017 closed
+[2026-10-01 05:53:52.620043 +00:00] INFO [src/common.rs:261] signal terminate

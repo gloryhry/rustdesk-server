@@ -1,0 +1,17 @@
+.git
+**/.git
+target
+**/target
+web/node_modules
+web/dist
+web/test-results
+data
+*.sqlite3*
+id_ed25519*
+.env
+src/version.rs
+docker/rootfs/usr/bin/hbbs
+docker/rootfs/usr/bin/hbbr
+docker/rootfs/usr/bin/rustdesk-api
+docker/rootfs/usr/bin/rustdesk-utils
+docker/rootfs/usr/share/rustdesk-api-web

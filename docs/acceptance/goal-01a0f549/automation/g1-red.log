@@ -1,0 +1,107 @@
+warning: variable does not need to be mutable
+    --> src/rendezvous_server.rs:1085:25
+     |
+1085 |                     let mut start = arg.and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+     |                         ----^^^^^
+     |                         |
+     |                         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `key`
+   --> src/rendezvous_server.rs:352:9
+    |
+352 |         key: &str,
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_key`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ph`
+   --> src/rendezvous_server.rs:463:66
+    |
+463 |                 Some(rendezvous_message::Union::PunchHoleRequest(ph)) => {
+    |                                                                  ^^ help: if this is intentional, prefix it with an underscore: `_ph`
+
+warning: unused variable: `phs`
+   --> src/rendezvous_server.rs:467:63
+    |
+467 |                 Some(rendezvous_message::Union::PunchHoleSent(phs)) => {
+    |                                                               ^^^ help: if this is intentional, prefix it with an underscore: `_phs`
+
+warning: unused variable: `la`
+   --> src/rendezvous_server.rs:470:59
+    |
+470 |                 Some(rendezvous_message::Union::LocalAddr(la)) => {
+    |                                                           ^^ help: if this is intentional, prefix it with an underscore: `_la`
+
+warning: method `handle_udp_punch_hole_request` is never used
+   --> src/rendezvous_server.rs:903:14
+    |
+101 | impl RendezvousServer {
+    | --------------------- method in this implementation
+...
+903 |     async fn handle_udp_punch_hole_request(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: type alias `UserStatusMap` is never used
+  --> src/peer.rs:14:6
+   |
+14 | type UserStatusMap = HashMap<Vec<u8>, Arc<(Option<Vec<u8>>, bool)>>;
+   |      ^^^^^^^^^^^^^
+
+warning: method `is_in_memory` is never used
+   --> src/peer.rs:191:25
+    |
+ 69 | impl PeerMap {
+    | ------------ method in this implementation
+...
+191 |     pub(crate) async fn is_in_memory(&self, id: &str) -> bool {
+    |                         ^^^^^^^^^^^^
+
+warning: `hbbs` (lib) generated 8 warnings (run `cargo fix --lib -p hbbs` to apply 5 suggestions)
+   Compiling hbbs v1.1.17 (/home/glory/Software/rustdesk-server)
+warning: function `check_software_update` is never used
+   --> src/common.rs:282:8
+    |
+282 | pub fn check_software_update() {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `check_software_update_` is never used
+   --> src/common.rs:291:10
+    |
+291 | async fn check_software_update_() -> hbb_common::ResultType<()> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `hbbs` (bin "hbbr") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.58s
+     Running tests/deployment_initialization.rs (/tmp/rustdesk-review-target/debug/deps/deployment_initialization-87395aeb1feee2d6)
+
+running 1 test
+test keys_only_initialization_needs_no_api_settings_and_preserves_service_identity ... FAILED
+
+failures:
+
+---- keys_only_initialization_needs_no_api_settings_and_preserves_service_identity stdout ----
+
+thread 'keys_only_initialization_needs_no_api_settings_and_preserves_service_identity' (53) panicked at tests/deployment_initialization.rs:29:5:
+error: Found argument '--initialize-keys' which wasn't expected, or isn't valid in this context
+	Did you mean [32m--[0m[32minitialize[0m?
+
+USAGE:
+    rustdesk-api --initialize
+
+For more information try --help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    keys_only_initialization_needs_no_api_settings_and_preserves_service_identity
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test deployment_initialization`

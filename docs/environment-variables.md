@@ -66,20 +66,24 @@ in the inherited process environment.
 | `API_BIND` | `127.0.0.1` | Address for the HTTP API listener. Use `0.0.0.0` in a container and publish it through a TLS reverse proxy. |
 | `API_PORT` | `21114` | HTTP API port. |
 | `API_JWT_SECRET` | *(required when enabled)* | Signing secret of at least 32 bytes. Do not reuse the RustDesk private key or commit this value. |
+| `API_ALLOW_INSECURE_LOCAL_HTTP` | `0` | Explicit local HTTP development exception. Requires a loopback `API_BIND` and an HTTP `API_PUBLIC_URL` whose host is localhost or a loopback IP. Default cookies always use Secure, HttpOnly, SameSite=Lax, and Path=/; forwarded headers never change this policy. |
+| `API_ALLOWED_ORIGINS` | *(empty)* | Comma-separated exact Web origins (scheme, hostname and port). The origin of API_PUBLIC_URL is automatically allowed. Wildcards, credentials, paths and trailing slashes are rejected. Unapproved Origin headers are rejected even if a Bearer or Cookie is present. CORS credentials use explicit origins and Vary: Origin. |
+| `API_COOKIE_CROSS_SITE` | `0` | Explicit cross-site Cookie opt-in: SameSite=None; Secure. Cannot be combined with local insecure HTTP mode. Third-party Cookie policies may still prevent sessions; same-origin reverse proxy deployment avoids that restriction. |
 | `API_TOKEN_TTL` | `3600` | Access-token lifetime in seconds. |
 | `API_REGISTER_ENABLED` | `0` | Set to `1` to enable public registration. Publicly registered accounts are ordinary users. |
 | `API_BOOTSTRAP_ADMIN_USERNAME` | *(unset)* | Optional administrator username used only when the database has no users. Set together with the password. |
 | `API_BOOTSTRAP_ADMIN_PASSWORD` | *(unset)* | Optional bootstrap administrator password. Never log or commit this value. |
 | `API_PUBLIC_URL` | listener URL | Public URL returned to authenticated Web Clients. Set this explicitly behind a proxy. |
 | `API_WEB_ROOT` | `./web/dist` | Directory containing built Web Admin/Web Client assets served by `rustdesk-api`. |
-| `API_OAUTH_REDIRECT_URL` | *(unset)* | Exact HTTPS callback URL registered with the OAuth provider, for example `https://api.example.com/api/oidc/callback`. OAuth login remains unavailable until this is set. |
-| `API_GITHUB_CLIENT_ID` / `API_GITHUB_CLIENT_SECRET` | *(unset)* | Optional GitHub OAuth application credentials. The secret must remain server-side. |
-| `API_GOOGLE_CLIENT_ID` / `API_GOOGLE_CLIENT_SECRET` | *(unset)* | Optional Google OAuth application credentials. The secret must remain server-side. |
+| `API_OAUTH_CONFIG_KEY` | *(required for database providers)* | Independent base64-encoded 32-byte key for authenticated encryption of provider client secrets. Keep it outside the database and separate from the JWT signing key. Missing/wrong keys fail closed when database providers exist. Back up this key with the matching database; changing it requires an explicit re-encryption procedure. |
+| `API_OAUTH_REDIRECT_URL` | *(unset)* | Exact HTTPS callback URL registered with the OAuth provider, for example `https://api.example.com/api/oidc/callback`. OAuth login remains unavailable until this is set. Browser callbacks also require the initiating flow cookie; state is single-use and expires after 300 seconds. Native login returns a separate polling code and browser-launch URL; the callback does not log the browser in. Only the initiating code/id/uuid tuple can claim the result once. Pending native flows are limited to 10000 and expire after 300 seconds; a restart invalidates unfinished flows. |
+| `API_GITHUB_CLIENT_ID` / `API_GITHUB_CLIENT_SECRET` | *(unset)* | Optional GitHub OAuth2 application credentials. Both credentials are required when enabled; no ID token is required. The secret must remain server-side. |
+| `API_GOOGLE_CLIENT_ID` / `API_GOOGLE_CLIENT_SECRET` | *(unset)* | Optional Google OIDC application credentials. Both credentials are required when enabled; issuer is https://accounts.google.com and JWKS is https://www.googleapis.com/oauth2/v3/certs. The secret must remain server-side. |
 | `API_OIDC_CLIENT_ID` / `API_OIDC_CLIENT_SECRET` | *(unset)* | Optional generic OIDC client credentials. |
 | `API_OIDC_AUTH_URL` | *(unset)* | Generic OIDC authorization endpoint. |
 | `API_OIDC_TOKEN_URL` | *(unset)* | Generic OIDC token endpoint. |
 | `API_OIDC_USERINFO_URL` | *(unset)* | Generic OIDC userinfo endpoint. |
-| `API_OIDC_ISSUER_URL` / `API_OIDC_JWKS_URL` | *(unset)* | Optional OIDC ID-token validation endpoints. Set both to require signed ID-token verification with issuer, audience, expiry, subject, and nonce checks. |
+| `API_OIDC_ISSUER_URL` / `API_OIDC_JWKS_URL` | *(unset)* | Both endpoints are required when generic OIDC is configured. Invalid or partial provider configuration prevents startup with an explicit configuration error; it never falls back to an unvalidated provider. OIDC callbacks require an ID token with a valid signature, issuer, audience, expiry, nonce and subject; userinfo.sub must match. Multiple audiences require a matching azp. |
 | `API_OIDC_SCOPE` | `openid email profile` | Generic OIDC scopes requested during authorization. |
 | `API_LDAP_ENABLED` | `0` | Enables validation and exposure of LDAP configuration to administrators. Directory bind authentication requires the LDAP protocol adapter and is not enabled by this setting alone. |
 | `API_LDAP_URL` | *(unset)* | LDAP endpoint using `ldap://` or `ldaps://`. |
@@ -197,10 +201,7 @@ At runtime the database location comes from **`DB_URL`** (default
 `./db_v2.sqlite3`). If unset, `hbbs` creates the SQLite file in its working
 directory.
 
-> **Do not confuse `DB_URL` with `DATABASE_URL`.** The `DATABASE_URL` entry in
-> the repository's `.env` is used **only at compile time** by `sqlx` to check SQL
-> queries; it is **not** read by the running server. Setting `DATABASE_URL` on a
-> running server has no effect — use `DB_URL`.
+> **Do not confuse `DB_URL` with `DATABASE_URL`.** Queries are now runtime typed queries; source builds do not require an external SQLite database or `DATABASE_URL`. The server uses `DB_URL`. Container paths, `--initialize`, required independent secrets and readiness are documented in [deployment.md](deployment.md).
 
 ---
 
@@ -333,3 +334,233 @@ ExecStart=/usr/bin/hbbs
 
 Ports 21118/21119 are only needed for the web client; you can omit them
 otherwise.
+
+### Persisted OAuth provider management
+
+Administrators can list/create providers with `GET`/`POST /api/admin/oauth/providers`,
+edit with `POST /api/admin/oauth/providers/update`, change enabled state with
+`POST /api/admin/oauth/providers/toggle`, and delete with
+`POST /api/admin/oauth/providers/delete`. Edits, toggles and deletes use the stable
+`id` from the list. Provider requests include `kind` (`oauth2` or `oidc`), `name`,
+`client_id`, the authorization/token/userinfo endpoints, scopes and `enabled`.
+OIDC also requires issuer/JWKS URLs and the `openid` scope. Creation requires a
+secret; an empty or whitespace-only edit preserves the existing secret.
+Responses expose only `secret_configured`, never the secret or ciphertext.
+Environment providers are marked `source=environment, read_only=true` and cannot
+be modified through these APIs.
+
+Migration version 1 reserves historical provider names and stores stable IDs and
+identity namespaces. SQLite transactions serialize migrations; failed lock
+upgrades retry the whole transaction. Provider names and identity authority
+(type, client ID and identity endpoints) are immutable, including after deletion.
+Use a new name for a new authority. Secret/scope edits preserve account links.
+Successful mutations replace the runtime configuration atomically and invalidate
+older pending and unclaimed native authorizations; disabling also blocks new
+flows immediately. A restart preserves configurations but invalidates unfinished
+OAuth flows. Run only one API process per registry database: runtime replacement
+is process-local; hbbs/hbbr may share the database.
+
+Before upgrading a real database, stop writers and create a consistent SQLite
+backup with its encrypted-configuration key; rehearse migration on a copy. A
+rollback must restore the matching program version, database backup and key.
+Neither tests nor local commits here migrate a production database.
+
+For browser acceptance, build `rustdesk-api`, run `npm ci && npm run build` in
+`web`, then set `RUSTDESK_API_BINARY` to its absolute path and run
+`npm run test:browser`. The harness uses a temporary database, random loopback
+port and temporary keys. `PLAYWRIGHT_CHROME` optionally selects a local Chrome
+executable (default `/usr/bin/google-chrome`); it does not download a browser.
+
+### Web origins and browser session protection
+
+Web login and refresh use the HttpOnly Cookie; JavaScript no longer caches Bearer
+tokens in localStorage or sessionStorage. Fetch requests always include
+credentials. After login or reload, `GET /api/session/csrf` returns the authenticated
+user and a session-bound `csrf_token` with `Cache-Control: no-store`. Cookie-authenticated
+modifications must include both an approved Origin and `X-CSRF-Token`; the token
+from another session is rejected. Read-only POST compatibility aliases for
+currentUser/user info/server configuration do not require CSRF. JSON login,
+registration and native OAuth initiation remain available to clients without a
+browser session. Bearer-authenticated native mutations do not require CSRF;
+an invalid or malformed Authorization header never falls back to Cookie auth.
+
+For same-site Web/API origins such as `https://web.example.com` and
+`https://api.example.com`, set API_PUBLIC_URL to the API URL,
+API_ALLOWED_ORIGINS to the exact Web origin and build Web with
+VITE_API_BASE pointing to the API. Default SameSite=Lax remains appropriate.
+For unrelated sites, additionally opt into API_COOKIE_CROSS_SITE=1 and HTTPS.
+Browser third-party Cookie restrictions can still reject login: the Web UI reports
+that the Cookie session is unavailable. Prefer serving Web and /api through the
+same HTTPS reverse proxy when this occurs. CORS does not bypass browser Cookie
+policies. A failed logout keeps the error visible rather than claiming server
+session revocation succeeded.
+
+### Unsigned device reports and explicit ownership
+
+Official 1.4.9 sends `POST /api/sysinfo` and `/api/heartbeat` without a Bearer.
+Both require `id` and a base64 UUID that decodes to the UUID of a registered hbbs
+Peer. Unknown IDs or mismatched UUIDs return the exact text `ID_NOT_FOUND`.
+Malformed identities fail with 400; only a committed sysinfo report returns
+`SYSINFO_UPDATED`. Heartbeats return a `sysinfo` marker when a matching sysinfo
+report is absent, including after the registered key/UUID changes.
+`/api/sysinfo_ver` returns `unsigned-report-v1` so existing clients refresh their
+old report cache. The full JSON is retained as untrusted telemetry, including
+unknown fields; username, UUID and any claimed owner/status/key cannot prove
+ownership or change the account association, public key, management status or
+observed online time.
+
+Each report body is limited to 64 KiB. Sysinfo and heartbeat each allow one write
+per matching Peer every 5 seconds; concurrent duplicates receive 429. At most
+10000 report rows are stored. When a new report needs space, the oldest unverified
+reports are reclaimed by their latest server-written sysinfo/heartbeat timestamp,
+with Peer GUID breaking ties. Unsigned telemetry has best-effort retention;
+recreating an evicted report through heartbeat requests fresh sysinfo. A report is
+protected only while its GUID, UUID and public key match both the current hbbs Peer
+and an administrator-verified binding. Claimed ownership fields do not protect
+reports; stale bindings and old key/UUID reports remain reclaimable. If insufficient
+reclaimable rows exist, new reports fail with 503 `device_report_capacity`; existing
+reports can still update at capacity. Reclamation and report storage commit together,
+and any failure rolls back both without changing Peer, ownership or audit records.
+There is no unbounded in-memory report cache. Storage failures return 500.
+API reports do not refresh trusted registration time.
+
+Administrators inspect `GET /api/admin/device/registry`, which returns up to 100
+registered Peers in stable ID order; use `?peer_id=...` to inspect a specific ID.
+It separates `untrusted_sysinfo`/`untrusted_heartbeat` from `pk_fingerprint`, owner
+and hbbs observations. In the Web device page, select the account and independently
+verify the public key from the controlled device over an existing trusted channel
+before typing its `sha256:<hex>` fingerprint. Copying a report's username/UUID is
+not such verification. `POST /api/admin/device/bind` takes `peer_id`, `user_id`
+and `pk_fingerprint`; it rechecks the currently registered key transactionally.
+`POST /api/admin/device/unbind` takes the stable device `id`. Bind, unbind and
+administrator deletion store an audit record in the same transaction; if audit
+storage fails, ownership changes roll back. Account transfers retain the stable
+internal device ID and reject conflicting verified records.
+
+Migration version 2 retains historical API devices and group membership data,
+marking old associations pending verification. Ordinary users cannot list or add
+unverified devices to their groups. Existing links whose registered key/UUID has
+changed are also hidden until an administrator verifies them again. Reports alone
+cannot upgrade these links. No real database is migrated by the local test suite.
+
+hbbs observes successful registrations and uses a bounded queue of 4096 events;
+the background worker persists at most 256 per transaction, with three bounded
+retries on storage failure. A full queue never blocks the network loop. Dropped
+or failed observations leave API online state conservative. Registration records
+match the Peer GUID, UUID and key, preserve the newest observation and survive
+API restarts. API online status expires after the existing hbbs timeout of
+30000 milliseconds. This means hbbs observed a registration under its existing
+protocol rules; it is separate from API ownership verification and remote-control
+or relay authorization. Build and deploy the updated hbbs together with the API.
+
+### Native device list and management identifiers
+
+`GET /api/peers` now uses a separate RustDesk 1.4.9 PeerPayload DTO: `id` is the
+actual registered RustDesk ID, `info` is a JSON object with string
+`username`, `os` and `device_name`, and `user`/`user_name` refer to the verified
+account association. Registered reports provide presentation fields only;
+legacy JSON extension fields are retained. `status` remains the management
+state, while `online` and `registered_at_ms` report hbbs observations separately.
+Only currently verified associations are returned; administrators inspect pending
+records through management routes. Device-group names respect the requesting
+account's existing group scope.
+
+`GET /api/devices` and `/api/admin/device/list` retain stable internal device IDs
+for management deletion and group membership. Do not pass a native PeerPayload
+`id` to these management operations. A damaged legacy info document does not
+break the native object shape: available name/OS fields provide a safe fallback
+and `info_error` explicitly reports the corruption. Reads never rewrite or discard
+the original stored information, which remains available to administrators.
+
+### Official list pagination (RustDesk 1.4.9)
+
+`GET /api/users`, `/api/peers`, and `/api/device-group/accessible` return
+root `total` and `data`. `current` defaults to 1; `pageSize` defaults to 100
+and must be between 1 and 100. Invalid or overflowing parameters return 400;
+pages past the end return empty data with the filtered total. Sorting is stable
+by name/ID (users and groups) or RustDesk ID/internal ID (peers).
+Authorization is applied before counting, and `accessible` never broadens scope.
+Users/peers accept management `status=0|1`; groups have no status filter.
+An optional `name` filter matches literal substrings in account name, group name,
+or Peer ID/managed device name. `%` and `_` are not wildcards.
+The Web group selector reads all account pages; management-specific list routes
+retain their existing complete responses.
+
+`/api/users.data[].id` is the stable API account ID for both administrators and
+ordinary users. The latter still see only themselves. Web group membership
+uses this ID, and usernames are never accepted as substitute member IDs.
+
+### Address book partial edits
+
+The Web entry API (`POST /api/web/ab/entries`) treats omitted editable fields as
+unchanged. Explicit empty strings/arrays clear the relevant values. Stored
+hash/password, RDP settings, note, and unknown JSON fields survive edits and
+appear in the Web entry response. Identity and server timestamp fields are
+reserved. The document snapshot and structured entry update commit together;
+a failed write leaves both unchanged. Full legacy `/api/ab` upload retains its
+whole-document replacement behavior.
+
+Web entry deletion also accepts entries present only in a legacy snapshot.
+Existence is checked within the authenticated account's complete document;
+missing/repeated deletion returns 404. Snapshot and index deletion are atomic.
+
+Web entry `id` is immutable once assigned; `peer_id` is the editable RustDesk ID.
+An edit with `id` resolves only within its account and may omit `peer_id` to
+keep the current value. A new target already used by another entry returns 409
+without changes; an unknown/foreign entry ID returns 404. Imported entries
+without entry identity acquire a stable ID when loaded or uploaded. The snapshot
+Peer key and index are changed in one transaction, preserving extension fields.
+
+Address book `forceAlwaysRelay` accepts exact strings `"true"`/`"false"` or JSON
+booleans. Internal snapshots use booleans; legacy `/api/ab` responses use the
+official string form. Web entry responses use booleans. Partial entry edits
+also accept `force_always_relay`; omitted values are preserved, while null,
+numbers, arrays, and other strings are rejected. Conflicting aliases in a
+legacy document are rejected. Invalid historical values fail reads without
+rewriting the snapshot.
+
+### Address book tag colors and references
+
+Internal `tag_colors` is a map of unsigned 32-bit ARGB integers (0..4294967295).
+Legacy `/api/ab` returns this map encoded as a JSON string. The canonical new
+personal-book tag DTO uses integer `color`; its owned GUID routes are completed
+with the new address-book protocol work. Web colors use CSS `#RRGGBB` or
+`#RRGGBBAA`, so the last byte is alpha; existing six-digit RGB is opaque, and
+three-digit CSS shorthand is also accepted. Existing hexadecimal-object and
+JSON-string maps are converted without rewriting stored data on reads.
+
+Web `POST /api/web/ab/tags` accepts `name`, optional `old_name` for rename, and
+optional `color`. Omitted color retains it; empty color removes only that tag's
+color. Rename conflicts return 409. Rename/delete update the related Peer tag
+references in both document and index in one transaction, preserving other
+colors and connection fields. Invalid historical color maps return the explicit
+`invalid_tag_colors` error; they are never silently replaced with an empty map.
+
+
+The complete official 1.4.9 personal-book protocol and Web management route
+changes are documented in [rustdesk-1.4.9-protocol.md](rustdesk-1.4.9-protocol.md).
+Address-book migration version 3 and revision conflicts are documented in
+[address-book-storage.md](address-book-storage.md).
+
+
+## WebSocket proxy identity
+
+`WS_TRUSTED_PROXIES` is an optional inherited process environment variable for hbbs/hbbr.
+It has no CLI/INI alias; configure it in the launched process or deployment environment.
+Default is empty: use the actual TCP peer. Supply at most 128 exact comma-separated
+IPv4/IPv6 proxy addresses; invalid values fail startup. IPv4-mapped IPv6 peers
+match the equivalent IPv4 address. CIDRs, wildcard, hostnames, unspecified and
+multicast proxy addresses are rejected. Compose and Kubernetes forward this option.
+
+Only a listed TCP peer may supply one valid `X-Real-IP` or `X-Forwarded-For` IP.
+Duplicate headers, multi-hop lists, IP:port, invalid values and conflicting headers
+retain the actual TCP peer. If both headers are present, both must parse and match.
+The forwarded port is 0 because no original source port is available.
+
+A trusted reverse proxy must overwrite these headers with its observed client IP;
+for nginx use `proxy_set_header X-Real-IP $remote_addr;` and
+`proxy_set_header X-Forwarded-For $remote_addr;`. Keep proxy access controlled and
+list the address actually seen by the server, including container/NAT translation.
+The initial hbbr blocklist check continues to use the actual TCP peer before the
+WebSocket handshake; this repair protects subsequent source identity, accounting
+and logs rather than claiming that the initial check was bypassed.

@@ -21,11 +21,18 @@ fn main() -> ResultType<()> {
         .write_mode(WriteMode::Async)
         .start()?;
     common::init_args(
-        "-c --config=[FILE] +takes_value 'Sets a custom config file'",
+        "-c --config=[FILE] +takes_value 'Sets a custom config file'\n--initialize 'Prepare keys, migrations and API configuration without listening'\n--initialize-keys 'Prepare or validate only the RustDesk keypair without API configuration'",
         "rustdesk-api",
         "RustDesk HTTP API Server",
     );
+    let initialize = std::env::args().any(|arg|arg=="--initialize");
+    let initialize_keys = std::env::args().any(|arg|arg=="--initialize-keys");
+    if initialize_keys {
+        if initialize { bail!("--initialize-keys and --initialize are mutually exclusive"); }
+        return hbbs::deployment::prepare_keypair(&std::env::current_dir()?);
+    }
     if common::get_arg_or("API_ENABLED", "0".to_owned()).to_lowercase() != "1" {
+        if initialize { bail!("API_ENABLED=1 is required for initialization"); }
         log::info!("API_ENABLED=0, exiting without starting the API server");
         return Ok(());
     }
@@ -42,6 +49,7 @@ fn main() -> ResultType<()> {
     }
     let registration_enabled = parse_bool_arg("API_REGISTER_ENABLED", false)?;
     let db_url = common::get_arg_or("DB_URL", "./db_v2.sqlite3".to_owned());
+    if initialize { hbbs::deployment::prepare_keypair(&std::env::current_dir()?)?; }
     let key = load_public_key()?;
     let bootstrap_username = common::get_arg("API_BOOTSTRAP_ADMIN_USERNAME");
     let bootstrap_password = common::get_arg("API_BOOTSTRAP_ADMIN_PASSWORD");
@@ -51,7 +59,7 @@ fn main() -> ResultType<()> {
         Some((bootstrap_username, bootstrap_password))
     };
     let web_root = common::get_arg_or("API_WEB_ROOT", "./web/dist".to_owned());
-    let oauth = load_oauth_runtime();
+    let oauth = load_oauth_runtime()?;
     let oauth_redirect_url = load_oauth_redirect_url();
     let ldap = load_ldap_config()?;
     let server_config = api::PublicServerConfig {
@@ -63,6 +71,28 @@ fn main() -> ResultType<()> {
         relay_server: common::get_arg("RUSTDESK_RELAY_SERVER"),
         key,
     };
+    let mut cookie_policy = if parse_bool_arg("API_ALLOW_INSECURE_LOCAL_HTTP", false)? {
+        api::CookiePolicy::local_http(bind_addr.ip(), &server_config.api_server)
+            .map_err(|message| hbb_common::anyhow::anyhow!(message))?
+    } else {
+        api::CookiePolicy::default()
+    };
+    if parse_bool_arg("API_COOKIE_CROSS_SITE", false)? {
+        cookie_policy = cookie_policy.cross_site().map_err(|message| hbb_common::anyhow::anyhow!(message))?;
+    }
+    let allowed_origins = common::get_arg("API_ALLOWED_ORIGINS").split(',')
+        .map(str::trim).filter(|origin| !origin.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let browser_policy = api::BrowserPolicy::new(&server_config.api_server, &allowed_origins)
+        .map_err(|message| hbb_common::anyhow::anyhow!(message))?;
+    let provider_key = match common::get_arg_opt("API_OAUTH_CONFIG_KEY") {
+        Some(value) => {
+            let bytes = base64::decode(&value)?;
+            if bytes == secret.as_bytes() { bail!("API_OAUTH_CONFIG_KEY must be independent from API_JWT_SECRET"); }
+            Some(hbbs::oauth_admin::ProviderSecretKey::from_bytes(&bytes).map_err(|message| hbb_common::anyhow::anyhow!(message))?)
+        }
+        None => None,
+    };
+    if initialize && provider_key.is_none() { bail!("API_OAUTH_CONFIG_KEY is required for container initialization"); }
     start(
         bind_addr,
         db_url,
@@ -75,6 +105,10 @@ fn main() -> ResultType<()> {
         oauth,
         oauth_redirect_url,
         ldap,
+        cookie_policy,
+        provider_key,
+        browser_policy,
+        initialize,
     )
 }
 
@@ -91,8 +125,17 @@ async fn start(
     oauth: hbbs::oauth::OAuthRuntime,
     oauth_redirect_url: String,
     ldap: hbbs::ldap::LdapConfig,
+    cookie_policy: api::CookiePolicy,
+    provider_key: Option<hbbs::oauth_admin::ProviderSecretKey>,
+    browser_policy: api::BrowserPolicy,
+    initialize: bool,
 ) -> ResultType<()> {
+    if initialize { hbbs::deployment::check_web_assets(std::path::Path::new(&web_root))?; }
     let database = Database::new(&db_url).await?;
+    if initialize && bootstrap_admin.is_none() && database.api_user_count().await?==0 {
+        bail!("API_BOOTSTRAP_ADMIN_USERNAME and API_BOOTSTRAP_ADMIN_PASSWORD are required for a new database");
+    }
+    database.check_api_readiness().await?;
     let router = api::build_service(
         database,
         secret,
@@ -104,12 +147,15 @@ async fn start(
         oauth,
         oauth_redirect_url,
         ldap,
+        cookie_policy,
+        provider_key,
+        Some(browser_policy),
     )
         .await
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;
+    if initialize { log::info!("RustDesk keys, API configuration and database initialization complete"); return Ok(()); }
     log::info!("RustDesk API listening on http://{bind_addr}");
-    axum::Server::bind(&bind_addr)
-        .serve(router.into_make_service())
+    axum::serve(tokio::net::TcpListener::bind(bind_addr).await?, router.into_make_service())
         .await?;
     Ok(())
 }

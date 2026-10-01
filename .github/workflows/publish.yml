@@ -137,31 +137,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Download Rust binaries
-        uses: actions/download-artifact@v4
         with:
-          name: release-binaries
-          path: docker/rootfs/usr/bin
-
-      - name: Download Web assets
-        uses: actions/download-artifact@v4
-        with:
-          name: release-web
-          path: docker/rootfs/usr/share/rustdesk-api-web
-
-      - name: Normalize Web asset path
-        shell: bash
-        run: |
-          set -euo pipefail
-          web_root=docker/rootfs/usr/share/rustdesk-api-web
-          if [ -d "$web_root/dist" ]; then
-            cp -a "$web_root/dist/." "$web_root/"
-            rm -rf "$web_root/dist"
-          fi
-
-      - name: Make binaries executable
-        run: chmod a+x docker/rootfs/usr/bin/*
+          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -187,7 +164,9 @@ jobs:
       - name: Build and push GHCR image
         uses: docker/build-push-action@v6
         with:
-          context: docker
+          context: .
+          file: docker/Dockerfile
+          target: runtime
           push: true
           provenance: false
           tags: ${{ steps.meta.outputs.tags }}

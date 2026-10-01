@@ -1,0 +1,75 @@
+
+> rustdesk-api-web@0.1.0 test:browser
+> playwright test tests/oauth-login-options.spec.js --output=/tmp/rustdesk-goal-01a0f549/browser-expanded
+
+
+Running 4 tests using 1 worker
+
+(node:3459438) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3459438) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/session/csrf is delayed (3.0s)
+  ✓  2 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/login-options is delayed (2.9s)
+  ✘  3 tests/oauth-login-options.spec.js:17:1 › logout keeps public choices, refreshes provider changes and tolerates a temporary lookup failure (8.7s)
+(node:3460781) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3460781) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  4 tests/oauth-login-options.spec.js:73:1 › a revoked Cookie session clears private data while retaining the OAuth login entry (8.8s)
+
+
+  1) tests/oauth-login-options.spec.js:17:1 › logout keeps public choices, refreshes provider changes and tolerates a temporary lookup failure 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('[data-oauth-provider="github"]')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('[data-oauth-provider="github"]')[22m
+
+
+      29 |   const provider = await created.json();
+      30 |   await page.locator('#logout').click();
+    > 31 |   await expect(page.locator('[data-oauth-provider="github"]')).toBeVisible();
+         |                                                                ^
+      32 |   await expect(page.locator('[data-oauth-provider="public-choice"]')).toBeVisible();
+      33 |   await signIn(page, service);
+      34 |   const disabled = await page.request.post(`${service.url}/api/admin/oauth/providers/toggle`, {
+        at /home/glory/Software/rustdesk-server/web/tests/oauth-login-options.spec.js:31:64
+
+    Error Context: ../../../../../tmp/rustdesk-goal-01a0f549/browser-expanded/oauth-login-options-logout-8b05d--a-temporary-lookup-failure/error-context.md
+
+  2) tests/oauth-login-options.spec.js:73:1 › a revoked Cookie session clears private data while retaining the OAuth login entry 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('#auth-form')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('#auth-form')[22m
+
+
+      59 |   }
+      60 |   await page.locator('#nav-users').click();
+    > 61 |   await expect(page.locator('#auth-form')).toBeVisible();
+         |                                            ^
+      62 |   await expect(page.locator('#nav-users')).toHaveCount(0);
+      63 |   await expect(page.locator('[data-oauth-provider="github"]')).toBeVisible();
+      64 | });
+        at /home/glory/Software/rustdesk-server/web/tests/oauth-login-options.spec.js:61:44
+
+    Error Context: ../../../../../tmp/rustdesk-goal-01a0f549/browser-expanded/oauth-login-options-a-revo-5a6da-ining-the-OAuth-login-entry/error-context.md
+
+  2 failed
+    tests/oauth-login-options.spec.js:17:1 › logout keeps public choices, refreshes provider changes and tolerates a temporary lookup failure 
+    tests/oauth-login-options.spec.js:73:1 › a revoked Cookie session clears private data while retaining the OAuth login entry 
+  2 passed (24.7s)

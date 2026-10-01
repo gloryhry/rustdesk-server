@@ -1,0 +1,42 @@
+{
+  "baseline": "40e9a132c80b7dd0fbc5aace98e6603e1d877965",
+  "branch": "codex/rustdesk-client-compat-fixes",
+  "images": {
+    "rustdesk-goal/server:01a0f549": "sha256:b646bdd76d766743d0a17f34b3ba9c727b0f5632ca45f53a59cc5e8007506ae1",
+    "rustdesk-goal/server:01a0f549-s6": "sha256:e0beef4df1e58847de2f914915fb17b0a2fe3413e0826d8476908be4540cbba5",
+    "rustdesk-goal/desktop:01a0f549": "sha256:d5bc704cace49aedfed0dc355bd1d171b80ab59615fb05273b4ce7724524e51b",
+    "quay.io/keycloak/keycloak:26.4.0": "sha256:5f3fb534cde6bf006d79f5912473e5d2c828c707cdfc52e16972803aca9d43dd",
+    "nginx:1.28.0": "sha256:552e7481ca93ffccd046aa658dbbed22caefbc09c66fa7cd247cbb90b8a5c609"
+  },
+  "running_container_images": {
+    "rustdesk-goal-70101ca759a1-hbbs": "sha256:b646bdd76d766743d0a17f34b3ba9c727b0f5632ca45f53a59cc5e8007506ae1",
+    "rustdesk-goal-70101ca759a1-hbbr": "sha256:d5b9e5c57d0339878f9b92008c3d366c94a37765007c8b105202484ec59b8d28",
+    "rustdesk-goal-70101ca759a1-api": "sha256:d5b9e5c57d0339878f9b92008c3d366c94a37765007c8b105202484ec59b8d28",
+    "rustdesk-goal-70101ca759a1-keycloak": "sha256:5f3fb534cde6bf006d79f5912473e5d2c828c707cdfc52e16972803aca9d43dd",
+    "rustdesk-goal-70101ca759a1-proxy": "sha256:552e7481ca93ffccd046aa658dbbed22caefbc09c66fa7cd247cbb90b8a5c609",
+    "rustdesk-goal-70101ca759a1-s6-core": "sha256:e0beef4df1e58847de2f914915fb17b0a2fe3413e0826d8476908be4540cbba5",
+    "rustdesk-goal-70101ca759a1-client-a": "sha256:d5bc704cace49aedfed0dc355bd1d171b80ab59615fb05273b4ce7724524e51b",
+    "rustdesk-goal-70101ca759a1-client-b": "sha256:d5bc704cace49aedfed0dc355bd1d171b80ab59615fb05273b4ce7724524e51b"
+  },
+  "client_package": {
+    "url": "https://github.com/rustdesk/rustdesk/releases/download/1.4.9/rustdesk-1.4.9-x86_64.deb",
+    "sha256": "7244ba47c40e804172044bfbe659467c54ce46554c98e78c8c0406f1d612fda3"
+  },
+  "client_binaries": {
+    "a": "5677c42b7561f2d4b9e5d8561964a92b5946f0ffa6a56b35a241c5809986c023  /usr/share/rustdesk/rustdesk\n83d5baf63af8562892e0ee14cf602171e85618b307100d8fd74df4ac80b9a425  /usr/share/rustdesk/lib/librustdesk.so\n6f0fce9d3e30f7d96d8a0f9309591553c4357772ec785f35f2f1476b9ca1df50  /usr/share/rustdesk/lib/libapp.so",
+    "b": "5677c42b7561f2d4b9e5d8561964a92b5946f0ffa6a56b35a241c5809986c023  /usr/share/rustdesk/rustdesk\n83d5baf63af8562892e0ee14cf602171e85618b307100d8fd74df4ac80b9a425  /usr/share/rustdesk/lib/librustdesk.so\n6f0fce9d3e30f7d96d8a0f9309591553c4357772ec785f35f2f1476b9ca1df50  /usr/share/rustdesk/lib/libapp.so"
+  },
+  "server_binaries": "38265035b94d865a4d63f6e98e06068d7febdf76a2594d42ffb71b28ddcef530  /usr/bin/hbbs\n65aa2a36d170bb261b93563f0a51810beef0a8058583304c4c416db7efaaf2ec  /usr/bin/hbbr\ne09fc4d31b65f486d70a205289dbff45aa1ff8d63e97dda5c2ba48b00676c02c  /usr/bin/rustdesk-api",
+  "cargo_lock_sha256": "42722c2c52ceeffc095a87be61d0c3d90ff29bd3968ca3547c38a0365cdf8c52",
+  "submodule": "-f94e3fef6c962814e71b7547848e06526b235062 libs/hbb_common",
+  "tool_versions": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "node": "v24.16.0",
+    "npm": "11.13.0",
+    "docker": "Docker version 29.8.1, build 4a63305"
+  },
+  "kind": "kind v0.30.0 go1.24.6 linux/amd64",
+  "build": "default release; Dockerfile runtime and supervisor targets",
+  "production_diff_sha256": "264a1017394f53dbe29348a8ed442807ca8ffcdad222a43a2e37c70e3dd59b96"
+}

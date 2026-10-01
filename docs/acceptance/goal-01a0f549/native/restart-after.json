@@ -1,0 +1,47 @@
+{
+  "book": {
+    "data": "{\"peers\":[{\"alias\":\"Web Sync A\",\"createdAt\":\"2026-10-01 05:47:37.731195592\",\"entryId\":\"64843fbf-ec79-4ea4-8d8c-c8e1130e8ff4\",\"forceAlwaysRelay\":\"true\",\"hash\":\"fixture-hash\",\"hostname\":\"Goal-A-Laptop\",\"id\":\"288596091\",\"loginName\":\"goal-login\",\"note\":\"goal-fields\",\"peerId\":\"288596091\",\"platform\":\"Linux\",\"rdpPort\":\"3390\",\"rdpUsername\":\"goal-rdp\",\"tags\":[\"goal-tag\",\"web-tag\"],\"updatedAt\":\"2026-10-01 05:47:37.731195592\",\"username\":\"tester\"},{\"alias\":\"Goal B Book\",\"entryId\":\"e68a8a81-dd1d-4490-b6c6-a35ab2728620\",\"hostname\":\"Goal-B-Laptop\",\"id\":\"512499333\",\"peerId\":\"512499333\",\"platform\":\"Linux\",\"tags\":[],\"updatedAt\":\"2026-10-01T05:43:39.108736002+00:00\"}],\"tag_colors\":\"{\\\"goal-tag\\\":4281558681}\",\"tags\":[\"goal-tag\"]}",
+    "guid": "e685b17b-c772-4edc-a173-c9cd43a5a5a6",
+    "revision": 9
+  },
+  "devices": {
+    "code": 0,
+    "data": [
+      {
+        "created_at": "2026-10-01 04:03:56",
+        "device_type": "",
+        "id": "21f76f5f-185f-43e1-81a1-14215e036885",
+        "info": "",
+        "last_seen_at": "2026-10-01 04:03:56",
+        "name": "",
+        "online": true,
+        "os": "",
+        "peer_id": "512499333",
+        "registered_at_ms": 1790833864750,
+        "status": 1,
+        "updated_at": "2026-10-01 04:03:56",
+        "user_id": "5b6762fe-6ddf-46bd-99b3-57a3c5d9161b",
+        "uuid": "MmJlNzNjODhiMWI5NjI2ZDUxNjVmMzk2NmFiZGRiMDU=",
+        "verified": true
+      },
+      {
+        "created_at": "2026-10-01 04:03:56",
+        "device_type": "",
+        "id": "5b5b9af4-862a-4603-a3ae-33caaf7ea887",
+        "info": "",
+        "last_seen_at": "2026-10-01 04:03:56",
+        "name": "",
+        "online": true,
+        "os": "",
+        "peer_id": "288596091",
+        "registered_at_ms": 1790833868018,
+        "status": 1,
+        "updated_at": "2026-10-01 04:03:56",
+        "user_id": "5b6762fe-6ddf-46bd-99b3-57a3c5d9161b",
+        "uuid": "MDVmZjQwNzZjMDZkYjI1ZGNhOTM2NTMyNmFiZGRiMDM=",
+        "verified": true
+      }
+    ]
+  },
+  "keys": "eed30b7604d100ea967a41573dfc391bcdd6520be204d18b2f65545a99eb6bc0  /data/id_ed25519\nc546cb5e30cb23aa91206669ecc1fb2c90b7326da7a97d7a0814231bccb61a57  /data/id_ed25519.pub"
+}

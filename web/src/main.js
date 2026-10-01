@@ -2,6 +2,8 @@ import './style.css';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const TOKEN_KEY = 'rustdesk_api_token';
+sessionStorage.removeItem(TOKEN_KEY);
+localStorage.removeItem(TOKEN_KEY);
 const LOCALE_KEY = 'rustdesk_api_locale';
 
 const messages = {
@@ -9,6 +11,7 @@ const messages = {
     brand: 'RustDesk API',
     login: '登录',
     register: '注册',
+    providerReadOnly: '环境变量（只读）',
     username: '用户名',
     email: '邮箱',
     password: '密码',
@@ -37,8 +40,8 @@ const messages = {
      clientId: 'Client ID',
      clientSecret: 'Client Secret（留空则保持不变）',
      tokenEndpoint: '令牌端点',
-     issuerEndpoint: 'Issuer（可选）',
-     jwksEndpoint: 'JWKS（可选）',
+     issuerEndpoint: 'Issuer（OIDC 必填）',
+     jwksEndpoint: 'JWKS（OIDC 必填）',
      scopes: 'Scopes',
      providerEnabled: '已启用',
      providerDisabled: '已禁用',
@@ -49,6 +52,15 @@ const messages = {
     sessionId: '会话 ID',
     noSessions: '暂无会话',
     devices: '设备',
+    deviceRegistry: '已登记设备与未认证报告',
+    untrustedReport: '未认证报告，仅供参考',
+    verifiedBinding: '已核验归属',
+    pendingBinding: '待核验归属',
+    fingerprint: '公钥指纹（从设备独立核对后填写）',
+    bindDevice: '确认绑定',
+    unbindDevice: '解除绑定',
+    online: '在线',
+    offline: '离线',
     groups: '用户组',
     deviceGroups: '设备组',
     groupName: '组名称',
@@ -108,17 +120,25 @@ const messages = {
     publicKey: '公开 KEY',
     tags: '标签',
     tagName: '标签名称',
-    tagColor: '颜色（可选）',
+    tagColor: '颜色（#RRGGBB 或 #RRGGBBAA）',
+    editTag: '编辑标签',
+    jsonDraftChanged: 'JSON 有未保存修改；刷新和标签操作会保留草稿。',
+    jsonDraftStale: '地址簿已变更，JSON 草稿仍保留原版本；保存会提示冲突。请复制需要的内容后加载最新。',
+    discardJsonDraft: '放弃 JSON 草稿并加载最新',
+    confirmDiscardJsonDraft: '确认放弃当前 JSON 草稿并加载最新地址簿？',
+    savedRefreshFailed: '已保存，但刷新失败。草稿已保留，请刷新地址簿后继续。',
     noTags: '暂无标签',
     language: 'English',
     loading: '加载中...',
     signedInAs: '已登录账户',
+    cookieUnavailable: 'Cookie 会话不可用，请允许站点 Cookie 或使用同源反向代理',
     apiUnavailable: '无法连接 API 服务'
   },
   'en-US': {
     brand: 'RustDesk API',
     login: 'Sign in',
     register: 'Register',
+    providerReadOnly: 'Environment (read only)',
     username: 'Username',
     email: 'Email',
     password: 'Password',
@@ -148,8 +168,8 @@ const messages = {
      clientId: 'Client ID',
      clientSecret: 'Client secret (leave blank to keep)',
      tokenEndpoint: 'Token endpoint',
-     issuerEndpoint: 'Issuer (optional)',
-     jwksEndpoint: 'JWKS (optional)',
+     issuerEndpoint: 'Issuer (required for OIDC)',
+     jwksEndpoint: 'JWKS (required for OIDC)',
      scopes: 'Scopes',
      providerEnabled: 'Enabled',
      providerDisabled: 'Disabled',
@@ -160,6 +180,15 @@ const messages = {
     sessionId: 'Session ID',
     noSessions: 'No sessions found',
     devices: 'Devices',
+    deviceRegistry: 'Registered devices and unsigned reports',
+    untrustedReport: 'Unsigned report, for reference only',
+    verifiedBinding: 'Verified ownership',
+    pendingBinding: 'Ownership pending verification',
+    fingerprint: 'Public key fingerprint (verify independently on device)',
+    bindDevice: 'Confirm binding',
+    unbindDevice: 'Unbind',
+    online: 'Online',
+    offline: 'Offline',
     groups: 'User groups',
     deviceGroups: 'Device groups',
     groupName: 'Group name',
@@ -219,24 +248,34 @@ const messages = {
     publicKey: 'Public key',
     tags: 'Tags',
     tagName: 'Tag name',
-    tagColor: 'Color (optional)',
+    tagColor: 'Color (#RRGGBB or #RRGGBBAA)',
+    editTag: 'Edit tag',
+    jsonDraftChanged: 'JSON has unsaved changes; refresh and tag actions will keep the draft.',
+    jsonDraftStale: 'The address book changed. This JSON draft keeps its original revision and will conflict on save. Copy what you need before loading the latest version.',
+    discardJsonDraft: 'Discard JSON draft and load latest',
+    confirmDiscardJsonDraft: 'Discard the current JSON draft and load the latest address book?',
+    savedRefreshFailed: 'Saved, but refresh failed. The draft was kept; refresh the address book before continuing.',
     noTags: 'No tags found',
     language: '简体中文',
     loading: 'Loading...',
     signedInAs: 'Signed in as',
+    cookieUnavailable: 'Cookie session unavailable. Allow site cookies or use a same-origin reverse proxy.',
     apiUnavailable: 'Unable to reach the API server'
   }
 };
 
 const state = {
   locale: localStorage.getItem(LOCALE_KEY) || 'zh-CN',
-  token: sessionStorage.getItem(TOKEN_KEY) || '',
+  csrfToken: '',
   cookieSession: false,
   user: null,
   activeView: 'profile',
   authMode: 'login',
-  addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
-  addressBookEntries: [],
+  addressBookSnapshot: null,
+  addressBookJsonDraft: { text: '', baseText: '', baseRevision: null },
+  addressBookWritable: false,
+  addressBookBusy: false,
+  addressBookRequest: 0,
   addressBookDraft: {
     id: '',
     peer_id: '',
@@ -247,7 +286,6 @@ const state = {
     tags: '',
     force_always_relay: false
   },
-  tags: [],
   tagDraft: { name: '', color: '' },
   serverConfig: null,
   users: [],
@@ -258,6 +296,9 @@ const state = {
   oauthRedirectConfigured: false,
   oauthDraft: null,
   devices: [],
+  registeredDevices: [],
+  registryUsers: [],
+  registrySearch: '',
   groups: [],
   groupMemberships: [],
   groupUsers: [],
@@ -291,10 +332,11 @@ function render() {
 
   const shell = element('div', 'app-shell');
   shell.append(header());
-  shell.append(state.user && (state.token || state.cookieSession) ? workspace() : authView());
+  shell.append(state.user && state.cookieSession ? workspace() : authView());
   if (state.notice) shell.append(notice());
   app.append(shell);
   bindEvents();
+  updateAddressBookDraftStatus();
 }
 
 function header() {
@@ -308,7 +350,7 @@ function header() {
   const locale = button('locale-toggle', t('language'), 'secondary');
   locale.type = 'button';
   actions.append(locale);
-  if (state.user && (state.token || state.cookieSession)) actions.append(button('logout', t('logout'), 'secondary'));
+  if (state.user && state.cookieSession) actions.append(button('logout', t('logout'), 'secondary'));
   node.append(actions);
   return node;
 }
@@ -411,6 +453,8 @@ function addressBookView() {
     button('refresh-address-book', t('refresh'), 'secondary'),
     button('save-address-book', state.busy ? t('saving') : t('save'), 'primary')
   ]);
+  view.querySelector('#refresh-address-book').disabled = state.addressBookBusy;
+  view.querySelector('#save-address-book').disabled = state.addressBookBusy || !state.addressBookWritable;
   view.append(peerEditor());
   const tableWrap = element('div', 'table-wrap');
   const table = document.createElement('table');
@@ -421,14 +465,14 @@ function addressBookView() {
   head.append(headRow);
   table.append(head);
   const body = document.createElement('tbody');
-  if (!state.addressBookEntries.length) {
+  if (!(state.addressBookSnapshot?.entries || []).length) {
     const row = document.createElement('tr');
     const cell = element('td', 'empty-cell', t('noPeers'));
     cell.colSpan = 6;
     row.append(cell);
     body.append(row);
   } else {
-    state.addressBookEntries.forEach(peer => {
+    (state.addressBookSnapshot?.entries || []).forEach(peer => {
       const row = document.createElement('tr');
       row.append(element('td', 'strong-cell', peer.peerId || peer.id || '—'));
       row.append(element('td', '', peer.alias || '—'));
@@ -439,11 +483,11 @@ function addressBookView() {
       const actions = element('div', 'button-group');
       const edit = button('', t('updatePeer'), 'secondary');
       edit.dataset.editPeer = peer.id || peer.peerId || '';
-      edit.disabled = state.busy;
+      edit.disabled = state.addressBookBusy || !state.addressBookWritable;
       actions.append(edit);
       const remove = button('', t('delete'), 'secondary');
       remove.dataset.deletePeer = peer.id || peer.peerId || '';
-      remove.disabled = state.busy;
+      remove.disabled = state.addressBookBusy || !state.addressBookWritable;
       actions.append(remove);
       const cell = document.createElement('td');
       cell.append(actions);
@@ -459,9 +503,12 @@ function addressBookView() {
   editor.id = 'address-book-editor';
   editor.className = 'json-editor';
   editor.spellcheck = false;
-  editor.value = state.addressBook;
-  editor.disabled = state.busy;
+  editor.value = state.addressBookJsonDraft.text;
+  editor.disabled = state.addressBookBusy;
   view.append(editor);
+  const status = element('div', '');
+  status.id = 'address-book-draft-status';
+  view.append(status);
   view.append(tagsPanel());
   return view;
 }
@@ -483,15 +530,16 @@ function peerEditor() {
     ? t('saving')
     : (draft.id ? t('updatePeer') : t('addPeer')), 'primary');
   submit.type = 'submit';
-  submit.disabled = state.busy;
+  submit.disabled = state.addressBookBusy || !state.addressBookWritable;
   actions.append(submit);
   if (draft.id) {
     const clear = button('clear-peer', t('cancel'), 'secondary');
     clear.type = 'button';
-    clear.disabled = state.busy;
+    clear.disabled = state.addressBookBusy || !state.addressBookWritable;
     actions.append(clear);
   }
   form.append(actions);
+  form.querySelectorAll('input').forEach(input => { input.disabled = state.addressBookBusy || !state.addressBookWritable; });
   panel.append(form);
   return panel;
 }
@@ -507,22 +555,22 @@ function tagsPanel() {
   name.maxLength = 64;
   name.required = true;
   name.value = state.tagDraft.name;
-  name.disabled = state.busy;
+  name.disabled = state.addressBookBusy || !state.addressBookWritable;
   const color = document.createElement('input');
   color.name = 'color';
   color.placeholder = t('tagColor');
-  color.maxLength = 7;
+  color.maxLength = 9;
   color.value = state.tagDraft.color;
-  color.disabled = state.busy;
+  color.disabled = state.addressBookBusy || !state.addressBookWritable;
   form.append(name, color);
   const submit = button('save-tag', t('save'), 'primary');
   submit.type = 'submit';
-  submit.disabled = state.busy;
+  submit.disabled = state.addressBookBusy || !state.addressBookWritable;
   form.append(submit);
   panel.append(form);
   const list = element('div', 'tag-list');
-  if (!state.tags.length) list.append(element('p', 'empty-state', t('noTags')));
-  state.tags.forEach(tag => {
+  if (!(state.addressBookSnapshot?.tags || []).length) list.append(element('p', 'empty-state', t('noTags')));
+  (state.addressBookSnapshot?.tags || []).forEach(tag => {
     const row = element('div', 'tag-row');
     row.append(element('span', '', tag.name || '—'));
     if (tag.color) {
@@ -531,9 +579,13 @@ function tagsPanel() {
       swatch.title = tag.color;
       row.append(swatch);
     }
+    const edit = button('', t('editTag'), 'secondary');
+    edit.dataset.editTag = tag.name || '';
+    edit.disabled = state.addressBookBusy || !state.addressBookWritable;
+    row.append(edit);
     const remove = button('', t('delete'), 'secondary');
     remove.dataset.deleteTag = tag.name || '';
-    remove.disabled = state.busy;
+    remove.disabled = state.addressBookBusy || !state.addressBookWritable;
     row.append(remove);
     list.append(row);
   });
@@ -642,10 +694,18 @@ function oauthView() {
   const form = element('form', 'panel-form oauth-provider-form');
   form.id = 'oauth-provider-form';
   const draft = state.oauthDraft || {};
+  const kindLabel = element('label', 'field');
+  kindLabel.append(element('span', '', 'OAuth / OIDC'));
+  const kind = document.createElement('select'); kind.id = 'oauth-kind'; kind.name = 'kind';
+  for (const value of ['oauth2', 'oidc']) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'oidc' ? 'OIDC' : 'OAuth2'; kind.append(option); }
+  kind.value = draft.kind || 'oidc';
+  kind.disabled = Boolean(editing); kindLabel.append(kind); form.append(kindLabel);
   [['name', t('providerName'), 'text'], ['client_id', t('clientId'), 'text'], ['client_secret', t('clientSecret'), 'password'], ['authorization_url', t('authorizationEndpoint'), 'url'], ['token_url', t('tokenEndpoint'), 'url'], ['userinfo_url', t('userInfoEndpoint'), 'url'], ['issuer_url', t('issuerEndpoint'), 'url'], ['jwks_url', t('jwksEndpoint'), 'url'], ['scopes', t('scopes'), 'text']].forEach(([key, label, type]) => {
     const input = field(`oauth-${key}`, label, type, 'off', key === 'name' || key === 'client_id' || key === 'authorization_url' || key === 'token_url' || key === 'userinfo_url');
     input.querySelector('input').name = key;
     input.querySelector('input').value = draft[key] || '';
+    input.querySelector('input').readOnly = Boolean(editing) && !['client_secret', 'scopes'].includes(key);
+    if (key === 'client_secret') input.querySelector('input').required = !editing;
     form.append(input);
   });
   const enabled = element('label', 'checkbox-field');
@@ -660,8 +720,8 @@ function oauthView() {
   [t('provider'), t('authorizationEndpoint'), t('userInfoEndpoint'), t('status'), t('actions')].forEach(label => row.append(element('th', '', label))); head.append(row); table.append(head);
   const body = document.createElement('tbody');
   state.oauthProviders.forEach(provider => {
-    const item = document.createElement('tr'); item.append(element('td', 'strong-cell', provider.name || '—')); item.append(element('td', '', provider.authorization_url || '—')); item.append(element('td', '', provider.userinfo_url || '—')); item.append(element('td', '', provider.enabled === false ? t('providerDisabled') : t('providerEnabled')));
-    const cell = document.createElement('td'); const edit = button('', t('editProvider'), 'secondary'); edit.dataset.editOauth = provider.id || provider.name; cell.append(edit); const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary'); toggle.dataset.toggleOauth = provider.id || provider.name; toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true'; cell.append(toggle); const remove = button('', t('delete'), 'secondary'); remove.dataset.deleteOauth = provider.id || provider.name; cell.append(remove); item.append(cell); body.append(item);
+    const item = document.createElement('tr'); item.append(element('td', 'strong-cell', provider.name || '—')); item.append(element('td', '', provider.authorization_url || '—')); item.append(element('td', '', provider.userinfo_url || '—')); item.append(element('td', '', provider.read_only ? t('providerReadOnly') : (provider.enabled === false ? t('providerDisabled') : t('providerEnabled'))));
+    const cell = document.createElement('td'); const edit = button('', t('editProvider'), 'secondary'); edit.dataset.editOauth = provider.id || provider.name; edit.disabled = Boolean(provider.read_only); cell.append(edit); const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary'); toggle.dataset.toggleOauth = provider.id || provider.name; toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true'; toggle.disabled = Boolean(provider.read_only); cell.append(toggle); const remove = button('', t('delete'), 'secondary'); remove.dataset.deleteOauth = provider.id || provider.name; remove.disabled = Boolean(provider.read_only); cell.append(remove); item.append(cell); body.append(item);
   });
   if (!state.oauthProviders.length) { const empty = document.createElement('tr'); const cell = element('td', 'empty-cell', t('noProviders')); cell.colSpan = 5; empty.append(cell); body.append(empty); }
   table.append(body); tableWrap.append(table); view.append(tableWrap); return view;
@@ -690,10 +750,10 @@ function devicesView() {
   } else {
     state.devices.forEach(device => {
       const row = document.createElement('tr');
-      row.append(element('td', 'strong-cell', device.name || device.id || '—'));
+      row.append(element('td', 'strong-cell', device.name || device.peer_id || device.id || '—'));
       row.append(element('td', '', device.uuid || '—'));
       row.append(element('td', '', [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
-      row.append(element('td', '', Number(device.status) === 1 ? t('enabled') : t('disabled')));
+      row.append(element('td', '', `${Number(device.status) === 1 ? t('enabled') : t('disabled')} / ${device.verified ? t('verifiedBinding') : t('pendingBinding')}`));
       if (state.user.is_admin) {
         const remove = button('', t('deleteDevice'), 'secondary');
         remove.dataset.deleteDevice = device.id;
@@ -708,7 +768,35 @@ function devicesView() {
   table.append(body);
   tableWrap.append(table);
   view.append(tableWrap);
+  if (state.user.is_admin) view.append(deviceRegistryView());
   return view;
+}
+
+function deviceRegistryView() {
+  const section = element('section', 'tags-panel');
+  section.append(element('h2', '', t('deviceRegistry')));
+  const search = element('form', 'inline-form'); search.id = 'registry-search';
+  const query = document.createElement('input'); query.name = 'peer_id'; query.placeholder = t('peerId'); query.value = state.registrySearch;
+  const searchButton = button('', t('refresh'), 'secondary'); searchButton.type = 'submit'; search.append(query, searchButton); section.append(search);
+  for (const peer of state.registeredDevices) {
+    const panel = element('section', 'panel-form'); panel.dataset.registryPeer = peer.peer_id;
+    panel.append(element('strong', '', `${peer.peer_id} / ${peer.online ? t('online') : t('offline')}`));
+    panel.append(element('p', '', `UUID: ${peer.uuid}`));
+    panel.append(element('code', '', peer.pk_fingerprint));
+    panel.append(element('p', '', `${t('untrustedReport')}: ${peer.untrusted_sysinfo?.hostname || peer.untrusted_sysinfo?.device_name || '—'}`));
+    panel.append(element('p', '', peer.verified ? t('verifiedBinding') : t('pendingBinding')));
+    const form = element('form', 'inline-form'); form.dataset.bindPeer = peer.peer_id;
+    const owner = document.createElement('select'); owner.name = 'user_id'; owner.required = true;
+    const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = t('account'); owner.append(placeholder);
+    for (const user of state.registryUsers) { const option = document.createElement('option'); option.value = user.id; option.textContent = user.name || user.id; owner.append(option); }
+    owner.value = peer.owner_id || '';
+    const fingerprint = document.createElement('input'); fingerprint.name = 'pk_fingerprint'; fingerprint.required = true; fingerprint.placeholder = t('fingerprint');
+    const submit = button('', t('bindDevice'), 'primary'); submit.type = 'submit'; submit.disabled = state.busy;
+    form.append(owner, fingerprint, submit); panel.append(form);
+    if (peer.device_id && peer.verified) { const unbind = button('', t('unbindDevice'), 'secondary'); unbind.dataset.unbindDevice = peer.device_id; panel.append(unbind); }
+    section.append(panel);
+  }
+  return section;
 }
 
 function groupsView() {
@@ -1021,7 +1109,6 @@ function bindEvents() {
     render();
     if (state.activeView === 'addressBook') {
       await loadAddressBook();
-      await loadTags();
     }
     if (state.activeView === 'devices') await loadDevices();
     if (state.activeView === 'groups') await loadGroups();
@@ -1033,6 +1120,10 @@ function bindEvents() {
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
+  document.querySelector('#address-book-editor')?.addEventListener('input', event => {
+    state.addressBookJsonDraft.text = event.currentTarget.value;
+    updateAddressBookDraftStatus();
+  });
   document.querySelector('#peer-form')?.addEventListener('submit', savePeer);
   document.querySelector('#peer-form')?.addEventListener('input', preservePeerDraft);
   document.querySelector('#peer-form')?.addEventListener('change', preservePeerDraft);
@@ -1048,9 +1139,18 @@ function bindEvents() {
   tagForm?.addEventListener('input', event => {
     const data = new FormData(event.currentTarget);
     state.tagDraft = {
+      ...state.tagDraft,
+      revision: state.tagDraft.revision ?? state.addressBookSnapshot?.revision,
       name: String(data.get('name') || ''),
       color: String(data.get('color') || '')
     };
+  });
+  document.querySelectorAll('[data-edit-tag]').forEach(node => {
+    node.addEventListener('click', () => {
+      if (state.addressBookBusy || !state.addressBookWritable) return;
+      const tag = (state.addressBookSnapshot?.tags || []).find(tag => tag.name === node.dataset.editTag);
+      if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '', revision: state.addressBookSnapshot?.revision }; render(); }
+    });
   });
   document.querySelectorAll('[data-delete-tag]').forEach(node => {
     node.addEventListener('click', () => deleteTag(node.dataset.deleteTag));
@@ -1075,6 +1175,9 @@ function bindEvents() {
     node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
   });
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
+  document.querySelector('#registry-search')?.addEventListener('submit', event => { event.preventDefault(); state.registrySearch = new FormData(event.currentTarget).get('peer_id') || ''; loadDevices(); });
+  document.querySelectorAll('[data-bind-peer]').forEach(form => form.addEventListener('submit', bindRegisteredDevice));
+  document.querySelectorAll('[data-unbind-device]').forEach(node => node.addEventListener('click', () => unbindRegisteredDevice(node.dataset.unbindDevice)));
   document.querySelectorAll('[data-delete-device]').forEach(node => {
     node.addEventListener('click', () => deleteDevice(node.dataset.deleteDevice));
   });
@@ -1141,10 +1244,7 @@ async function submitAuth(event) {
       state.authMode = 'login';
       setNotice('success', t('registered'));
     } else {
-      state.token = result.access_token || result.data?.access_token || '';
-      if (!state.token) throw new Error(t('requestFailed'));
-      sessionStorage.setItem(TOKEN_KEY, state.token);
-      await loadCurrentUser(false);
+      await loadCurrentUser(false, true);
     }
   } catch (error) {
     setNotice('error', error.message);
@@ -1163,100 +1263,153 @@ async function loadLoginOptions() {
       .map(option => option.slice('oidc/'.length))
       .filter(Boolean);
   } catch {
-    state.oauthLoginProviders = [];
+    // A transient public lookup failure must not erase previously loaded choices.
   }
 }
 
-async function loadCurrentUser(renderAfter = true) {
-  const hadToken = Boolean(state.token);
+async function loadCurrentUser(renderAfter = true, requireSession = false) {
   try {
-    const result = await api('/api/currentUser');
-    state.user = safeUser(result);
+    const result = await api('/api/session/csrf');
+    state.csrfToken = result.csrf_token || '';
+    if (!state.csrfToken) throw new Error(t('cookieUnavailable'));
+    state.user = safeUser(result.user);
     if (!state.user || typeof state.user !== 'object') throw new Error(t('requestFailed'));
-    state.cookieSession = !state.token;
+    state.cookieSession = true;
     await loadBootstrapData();
   } catch (error) {
     clearSession();
-    if (hadToken) setNotice('error', error.message);
+    if (requireSession) throw new Error(error.message === t('sessionExpired') ? t('cookieUnavailable') : error.message);
   }
   if (renderAfter) render();
 }
 
 async function loadBootstrapData() {
-  const [serverResult, addressResult] = await Promise.allSettled([
+  const [serverResult] = await Promise.allSettled([
     api('/api/server-config', { method: 'POST', body: '{}' }),
-    api('/api/ab')
+    loadAddressBook()
   ]);
   if (serverResult.status === 'fulfilled') {
     state.serverConfig = serverResult.value.data || serverResult.value;
   }
-  if (addressResult.status === 'fulfilled') {
-    const raw = addressResult.value.data ?? addressResult.value;
-    try {
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      state.addressBook = JSON.stringify(parsed, null, 2);
-    } catch {
-      setNotice('error', t('requestFailed'));
+}
+
+function jsonDraftChanged() {
+  return state.addressBookJsonDraft.text !== state.addressBookJsonDraft.baseText;
+}
+
+function updateAddressBookDraftStatus() {
+  const status = document.querySelector('#address-book-draft-status');
+  if (!status) return;
+  status.replaceChildren();
+  const stale = state.addressBookSnapshot && state.addressBookJsonDraft.baseRevision !== state.addressBookSnapshot.revision;
+  if (!jsonDraftChanged() && !stale) return;
+  status.append(element('p', 'empty-state', t(stale ? 'jsonDraftStale' : 'jsonDraftChanged')));
+  const discard = button('discard-address-book-draft', t('discardJsonDraft'), 'secondary');
+  discard.disabled = state.addressBookBusy;
+  discard.addEventListener('click', () => {
+    if (!state.addressBookBusy && window.confirm(t('confirmDiscardJsonDraft'))) {
+      loadAddressBook({ discardJsonDraft: true });
+    }
+  });
+  status.append(discard);
+}
+
+async function fetchAddressBookSnapshot() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const [book, entries, tags] = await Promise.all([
+      api('/api/ab'), api('/api/web/ab/entries'), api('/api/web/ab/tags')
+    ]);
+    const results = [book, entries, tags];
+    if (results.some(result => !Number.isSafeInteger(result?.revision) || result.revision < 1 || typeof result.guid !== 'string' || !result.guid)) {
+      throw new Error(t('requestFailed'));
+    }
+    if (results.some(result => result.revision !== book.revision || result.guid !== book.guid)) {
+      if (attempt === 0) continue;
+      throw new Error('address_book_revision_conflict');
+    }
+    const parsed = typeof book.data === 'string' ? JSON.parse(book.data) : book.data;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || !Array.isArray(entries.data) || !Array.isArray(tags.data)
+      || entries.data.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))
+      || tags.data.some(tag => !tag || typeof tag.name !== 'string' || typeof tag.color !== 'string')) {
+      throw new Error(t('requestFailed'));
+    }
+    return { guid: book.guid, revision: book.revision, text: JSON.stringify(parsed, null, 2), entries: entries.data, tags: tags.data };
+  }
+}
+
+function applyAddressBookSnapshot(snapshot, discardJsonDraft) {
+  if (discardJsonDraft || !jsonDraftChanged()) {
+    state.addressBookJsonDraft = { text: snapshot.text, baseText: snapshot.text, baseRevision: snapshot.revision };
+  }
+  state.addressBookSnapshot = snapshot;
+  state.addressBookWritable = true;
+}
+
+async function addressBookOperation(write, onSaved, discardJsonDraft = false) {
+  if (state.addressBookBusy || !state.user || (write && !state.addressBookWritable)) return false;
+  const user = state.user;
+  const request = ++state.addressBookRequest;
+  const current = () => state.user === user && state.addressBookRequest === request;
+  let saved = false;
+  state.addressBookBusy = true;
+  state.busy = true;
+  render();
+  try {
+    if (write) {
+      await write();
+      if (!current()) return false;
+      saved = true;
+      state.addressBookWritable = false;
+      onSaved?.();
+    }
+    const snapshot = await fetchAddressBookSnapshot();
+    if (!current()) return false;
+    applyAddressBookSnapshot(snapshot, discardJsonDraft);
+    setNotice(saved ? 'success' : null, saved ? t('saved') : null);
+    return true;
+  } catch (error) {
+    if (current()) {
+      if (!write || saved) state.addressBookWritable = false;
+      setNotice('error', saved ? t('savedRefreshFailed') : error.message);
+    }
+    return false;
+  } finally {
+    if (current()) {
+      state.addressBookBusy = false;
+      state.busy = false;
+      render();
     }
   }
 }
 
-async function loadAddressBook() {
-  state.busy = true;
-  render();
-  try {
-    const [result, entriesResult] = await Promise.all([
-      api('/api/ab'),
-      api('/api/ab/peers')
-    ]);
-    const raw = result.data ?? result;
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    state.addressBook = JSON.stringify(parsed, null, 2);
-    const entries = entriesResult.data?.list || entriesResult.data || entriesResult.list || entriesResult;
-    state.addressBookEntries = Array.isArray(entries) ? entries : [];
-    setNotice(null, null);
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+async function loadAddressBook({ discardJsonDraft = false } = {}) {
+  return addressBookOperation(null, null, discardJsonDraft);
 }
 
 async function saveAddressBook() {
-  const editor = document.querySelector('#address-book-editor');
-  const raw = editor?.value || '';
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const draft = state.addressBookJsonDraft;
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(draft.text);
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
   } catch {
     setNotice('error', t('invalidJson'));
     render();
     return;
   }
-  state.busy = true;
-  render();
-  try {
-    await api('/api/ab', { method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed) }) });
-    state.addressBook = JSON.stringify(parsed, null, 2);
-    const entriesResult = await api('/api/ab/peers');
-    const entries = entriesResult.data?.list || entriesResult.data || entriesResult.list || entriesResult;
-    state.addressBookEntries = Array.isArray(entries) ? entries : [];
-    setNotice('success', t('saved'));
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await addressBookOperation(() => api('/api/ab', {
+    method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed), revision: draft.baseRevision })
+  }), null, true);
 }
 
 async function savePeer(event) {
   event.preventDefault();
+  if (state.addressBookBusy || !state.addressBookWritable) return;
   const data = new FormData(event.currentTarget);
   const payload = {
     id: state.addressBookDraft.id || undefined,
+    revision: state.addressBookDraft.revision ?? state.addressBookSnapshot.revision,
     peer_id: String(data.get('peer-id') || '').trim(),
     username: String(data.get('peer-username') || '').trim(),
     hostname: String(data.get('peer-hostname') || '').trim(),
@@ -1270,25 +1423,16 @@ async function savePeer(event) {
   };
   if (!payload.peer_id) return;
   state.addressBookDraft = { ...state.addressBookDraft, ...payload, tags: payload.tags.join(', ') };
-  state.busy = true;
-  render();
-  try {
-    await api('/api/ab/peer', { method: 'POST', body: JSON.stringify(payload) });
-    clearPeerDraft();
-    await loadAddressBook();
-    setNotice('success', t('saved'));
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await addressBookOperation(() => api('/api/web/ab/entries', {
+    method: 'POST', body: JSON.stringify(payload)
+  }), clearPeerDraft);
 }
 
 function preservePeerDraft(event) {
   const data = new FormData(event.currentTarget);
   state.addressBookDraft = {
     ...state.addressBookDraft,
+    revision: state.addressBookDraft.revision ?? state.addressBookSnapshot?.revision,
     peer_id: String(data.get('peer-id') || ''),
     username: String(data.get('peer-username') || ''),
     hostname: String(data.get('peer-hostname') || ''),
@@ -1300,10 +1444,12 @@ function preservePeerDraft(event) {
 }
 
 function editPeer(id) {
-  const peer = state.addressBookEntries.find(value => value.id === id || value.peerId === id);
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const peer = (state.addressBookSnapshot?.entries || []).find(value => value.id === id || value.peerId === id);
   if (!peer) return;
   state.addressBookDraft = {
     id: peer.id || '',
+    revision: state.addressBookSnapshot?.revision,
     peer_id: peer.peerId || peer.id || '',
     username: peer.username || '',
     hostname: peer.hostname || '',
@@ -1329,71 +1475,36 @@ function clearPeerDraft() {
 }
 
 async function deletePeer(id) {
-  if (!id) return;
-  state.busy = true;
-  render();
-  try {
-    await api(`/api/ab/peer/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    clearPeerDraft();
-    await loadAddressBook();
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
-}
-
-async function loadTags() {
-  try {
-    const result = await api('/api/ab/tags');
-    const value = result.data || result;
-    state.tags = Array.isArray(value) ? value.filter(tag => tag && typeof tag === 'object') : [];
-  } catch (error) {
-    setNotice('error', error.message);
-  }
-  render();
+  if (!id || state.addressBookBusy || !state.addressBookWritable) return;
+  const revision = state.addressBookSnapshot.revision;
+  await addressBookOperation(() => api(`/api/web/ab/entries/${encodeURIComponent(id)}?revision=${revision}`, {
+    method: 'DELETE'
+  }), clearPeerDraft);
 }
 
 async function saveTag(event) {
   event.preventDefault();
+  if (state.addressBookBusy || !state.addressBookWritable) return;
   const data = new FormData(event.currentTarget);
   const payload = {
+    old_name: state.tagDraft.old_name,
+    revision: state.tagDraft.revision ?? state.addressBookSnapshot.revision,
     name: String(data.get('name') || '').trim(),
     color: String(data.get('color') || '').trim()
   };
   if (!payload.name) return;
   state.tagDraft = payload;
-  state.busy = true;
-  render();
-  try {
-    await api('/api/ab/tags', { method: 'POST', body: JSON.stringify(payload) });
-    state.tagDraft = { name: '', color: '' };
-    await loadTags();
-    setNotice('success', t('saved'));
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await addressBookOperation(() => api('/api/web/ab/tags', {
+    method: 'POST', body: JSON.stringify(payload)
+  }), () => { state.tagDraft = { name: '', color: '' }; });
 }
 
 async function deleteTag(name) {
-  state.busy = true;
-  render();
-  try {
-    await api('/api/ab/tags/delete', {
-      method: 'POST',
-      body: JSON.stringify({ name })
-    });
-    await loadTags();
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const revision = state.addressBookSnapshot.revision;
+  await addressBookOperation(() => api('/api/web/ab/tags/delete', {
+    method: 'POST', body: JSON.stringify({ name, revision })
+  }));
 }
 
 async function loadDevices() {
@@ -1401,10 +1512,12 @@ async function loadDevices() {
   state.busy = true;
   render();
   try {
-    const result = await api('/api/devices');
+    const [result, registry, users] = await Promise.all([api('/api/devices'), state.user.is_admin ? api(`/api/admin/device/registry?peer_id=${encodeURIComponent(state.registrySearch)}`.replace(/\?peer_id=$/, '')) : null, state.user.is_admin ? api('/api/admin/user/list') : null]);
     if (request !== state.devicesRequest || state.activeView !== 'devices') return;
     const value = result.data?.list || result.data || result.list || result;
     state.devices = Array.isArray(value) ? value : [];
+    state.registeredDevices = registry?.data || [];
+    state.registryUsers = users?.data || [];
     setNotice(null, null);
   } catch (error) {
     if (request === state.devicesRequest && state.user) setNotice('error', error.message);
@@ -1417,6 +1530,20 @@ async function loadDevices() {
       render();
     }
   }
+}
+
+async function bindRegisteredDevice(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget)); data.peer_id = event.currentTarget.dataset.bindPeer;
+  state.busy = true; render();
+  try { await api('/api/admin/device/bind', { method: 'POST', body: JSON.stringify(data) }); await loadDevices(); }
+  catch (error) { state.busy = false; setNotice('error', error.message); render(); }
+}
+
+async function unbindRegisteredDevice(id) {
+  state.busy = true; render();
+  try { await api('/api/admin/device/unbind', { method: 'POST', body: JSON.stringify({ id }) }); await loadDevices(); }
+  catch (error) { state.busy = false; setNotice('error', error.message); render(); }
 }
 
 async function deleteDevice(id) {
@@ -1443,13 +1570,14 @@ async function loadGroups() {
   try {
     const [result, userResult] = await Promise.all([
       api('/api/groups'),
-      api('/api/users')
+      apiAllPages('/api/users')
     ]);
     const value = result.data?.list || result.data || result.list || result;
     const users = userResult.data?.list || userResult.data || userResult.list || userResult;
     state.groups = Array.isArray(value) ? value : [];
     state.groupMemberships = Array.isArray(result.memberships) ? result.memberships : [];
-    state.groupUsers = Array.isArray(users) ? users : [];
+    if (!Array.isArray(users) || users.some(user => typeof user.id !== 'string' || !user.id)) throw new Error(t('requestFailed'));
+    state.groupUsers = users;
     setNotice(null, null);
   } catch (error) {
     setNotice('error', error.message);
@@ -1656,8 +1784,9 @@ async function loadOauthProviders() {
 }
 
 async function saveOauthProvider(event) {
-  event.preventDefault(); state.busy = true; render();
-  const data = Object.fromEntries(new FormData(event.currentTarget)); data.enabled = event.currentTarget.elements.enabled.checked;
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget)); data.enabled = event.currentTarget.elements.enabled.checked; data.kind = event.currentTarget.elements.kind.value;
+  state.busy = true; render();
   const editing = state.oauthDraft?.id; if (editing) data.id = editing;
   try { await api(editing ? '/api/admin/oauth/providers/update' : '/api/admin/oauth/providers', { method: 'POST', body: JSON.stringify(data) }); state.oauthDraft = null; setNotice('success', t('providerSaved')); await loadOauthProviders(); } catch (error) { setNotice('error', error.message); state.busy = false; render(); }
 }
@@ -1856,21 +1985,37 @@ async function saveLdap(event) {
 async function logout() {
   try {
     await api('/api/logout', { method: 'POST' });
-  } catch {
-    // Local session cleanup is still required when the server session expired.
+    clearSession();
+    await loadLoginOptions();
+    setNotice(null, null);
+  } catch (error) {
+    setNotice('error', error.message);
   }
-  clearSession();
-  setNotice(null, null);
   render();
 }
 
+async function apiAllPages(path) {
+  const data = [];
+  let total = 0;
+  for (let current = 1; ; current += 1) {
+    const separator = path.includes('?') ? '&' : '?';
+    const page = await api(`${path}${separator}current=${current}&pageSize=100`);
+    if (!Number.isSafeInteger(page?.total) || page.total < 0 || !Array.isArray(page.data)) throw new Error(t('requestFailed'));
+    if (current === 1) total = page.total;
+    if (page.total !== total || (page.data.length === 0 && data.length < total)) throw new Error(t('requestFailed'));
+    data.push(...page.data);
+    if (data.length >= total) return { total, data };
+  }
+}
+
 async function api(path, options = {}) {
+  const user = state.user;
   const headers = { Accept: 'application/json', ...options.headers };
   if (options.body) headers['Content-Type'] = 'application/json';
-  if (options.authenticated !== false && state.token) headers.Authorization = `Bearer ${state.token}`;
+  if (options.authenticated !== false && state.csrfToken && !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers['X-CSRF-Token'] = state.csrfToken;
   let response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    response = await fetch(`${API_BASE}${path}`, { ...options, credentials: 'include', headers });
   } catch {
     throw new Error(t('apiUnavailable'));
   }
@@ -1881,7 +2026,10 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     if (response.status === 401) {
-      clearSession();
+      if (state.user === user) {
+        clearSession();
+        render();
+      }
       throw new Error(t('sessionExpired'));
     }
     const message = payload?.message || payload?.error || `${t('requestFailed')} (${response.status})`;
@@ -1891,22 +2039,28 @@ async function api(path, options = {}) {
 }
 
 function clearSession() {
-  state.token = '';
+  state.csrfToken = '';
   state.cookieSession = false;
   state.user = null;
   state.users = [];
   state.userDraft = { username: '', email: '', password: '' };
   state.sessions = [];
   state.oauthProviders = [];
-  state.oauthLoginProviders = [];
   state.oauthRedirectConfigured = false;
   state.devices = [];
+  state.registeredDevices = [];
+  state.registryUsers = [];
+  state.registrySearch = '';
   state.groups = [];
   state.groupMemberships = [];
   state.groupUsers = [];
   state.groupDraft = '';
-  state.tags = [];
-  state.addressBookEntries = [];
+  state.addressBookSnapshot = null;
+  state.addressBookJsonDraft = { text: '', baseText: '', baseRevision: null };
+  state.addressBookWritable = false;
+  state.addressBookBusy = false;
+  state.addressBookRequest += 1;
+  state.busy = false;
   state.addressBookDraft = {
     id: '',
     peer_id: '',
@@ -1932,8 +2086,4 @@ function clearSession() {
 }
 
 render();
-if (state.token) {
-  loadCurrentUser();
-} else {
-  Promise.all([loadCurrentUser(false), loadLoginOptions()]).then(() => render());
-}
+Promise.all([loadCurrentUser(false), loadLoginOptions()]).then(() => render());

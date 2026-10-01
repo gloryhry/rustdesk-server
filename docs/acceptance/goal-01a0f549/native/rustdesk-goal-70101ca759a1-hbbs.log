@@ -1,0 +1,42 @@
+[2026-10-01 04:36:59.547421 +00:00] INFO [src/common.rs:210] Private key comes from id_ed25519
+[2026-10-01 04:36:59.547433 +00:00] INFO [src/rendezvous_server.rs:1310] Key: ZCnH+d75Z6iasy+4AK5zyM7zUd7k6A9M1e6Z2Lz+W0E=
+[2026-10-01 04:36:59.547436 +00:00] INFO [src/peer.rs:85] DB_URL=/data/db_v2.sqlite3
+[2026-10-01 04:36:59.547814 +00:00] WARN [libs/hbb_common/src/config.rs:636] ID is invalid, generating new one
+[2026-10-01 04:36:59.547928 +00:00] INFO [libs/hbb_common/src/config.rs:1064] Generated id 303304200
+[2026-10-01 04:36:59.547971 +00:00] ERROR [libs/hbb_common/src/lib.rs:370] Failed to get machine uid: No such file or directory (os error 2)
+[2026-10-01 04:36:59.548322 +00:00] INFO [libs/hbb_common/src/config.rs:1125] Generated new keypair for id: 
+[2026-10-01 04:36:59.548428 +00:00] ERROR [libs/hbb_common/src/config.rs:605] Failed to store  config: Failed to create directory
+[2026-10-01 04:36:59.548451 +00:00] ERROR [libs/hbb_common/src/lib.rs:370] Failed to get machine uid: No such file or directory (os error 2)
+[2026-10-01 04:36:59.548473 +00:00] ERROR [libs/hbb_common/src/config.rs:605] Failed to store  config: Failed to create directory
+[2026-10-01 04:36:59.555667 +00:00] INFO [src/rendezvous_server.rs:119] serial=0
+[2026-10-01 04:36:59.555685 +00:00] INFO [src/common.rs:103] rendezvous-servers=[]
+[2026-10-01 04:36:59.555741 +00:00] INFO [src/rendezvous_server.rs:155] mask: None
+[2026-10-01 04:36:59.555745 +00:00] INFO [src/rendezvous_server.rs:156] local-ip: ""
+[2026-10-01 04:36:59.556059 +00:00] INFO [src/common.rs:103] relay-servers=["hbbr:21117"]
+[2026-10-01 04:36:59.556099 +00:00] INFO [src/rendezvous_server.rs:163] Listening on tcp/udp [::]:21116
+[2026-10-01 04:36:59.556102 +00:00] INFO [src/rendezvous_server.rs:164] Listening on tcp [::]:21115, extra port for NAT test
+[2026-10-01 04:36:59.556103 +00:00] INFO [src/rendezvous_server.rs:168] Listening on websocket [::]:21118
+[2026-10-01 04:36:59.556126 +00:00] INFO [src/rendezvous_server.rs:173] ALWAYS_USE_RELAY=N
+[2026-10-01 04:36:59.556150 +00:00] INFO [src/rendezvous_server.rs:205] Start
+[2026-10-01 05:51:04.099354 +00:00] INFO [src/common.rs:261] signal terminate
+[2026-10-01 05:51:04.376470 +00:00] INFO [src/common.rs:210] Private key comes from id_ed25519
+[2026-10-01 05:51:04.376480 +00:00] INFO [src/rendezvous_server.rs:1310] Key: ZCnH+d75Z6iasy+4AK5zyM7zUd7k6A9M1e6Z2Lz+W0E=
+[2026-10-01 05:51:04.376482 +00:00] INFO [src/peer.rs:85] DB_URL=/data/db_v2.sqlite3
+[2026-10-01 05:51:04.377101 +00:00] WARN [libs/hbb_common/src/config.rs:636] ID is invalid, generating new one
+[2026-10-01 05:51:04.377212 +00:00] INFO [libs/hbb_common/src/config.rs:1064] Generated id 403566911
+[2026-10-01 05:51:04.377257 +00:00] ERROR [libs/hbb_common/src/lib.rs:370] Failed to get machine uid: No such file or directory (os error 2)
+[2026-10-01 05:51:04.377266 +00:00] INFO [libs/hbb_common/src/config.rs:1125] Generated new keypair for id: 
+[2026-10-01 05:51:04.377371 +00:00] ERROR [libs/hbb_common/src/config.rs:605] Failed to store  config: Failed to create directory
+[2026-10-01 05:51:04.377394 +00:00] ERROR [libs/hbb_common/src/lib.rs:370] Failed to get machine uid: No such file or directory (os error 2)
+[2026-10-01 05:51:04.377417 +00:00] ERROR [libs/hbb_common/src/config.rs:605] Failed to store  config: Failed to create directory
+[2026-10-01 05:51:04.398415 +00:00] INFO [src/rendezvous_server.rs:119] serial=0
+[2026-10-01 05:51:04.398443 +00:00] INFO [src/common.rs:103] rendezvous-servers=[]
+[2026-10-01 05:51:04.398481 +00:00] INFO [src/rendezvous_server.rs:155] mask: None
+[2026-10-01 05:51:04.398481 +00:00] INFO [src/rendezvous_server.rs:156] local-ip: ""
+[2026-10-01 05:51:04.398641 +00:00] INFO [src/common.rs:103] relay-servers=["hbbr:21117"]
+[2026-10-01 05:51:04.398666 +00:00] INFO [src/rendezvous_server.rs:163] Listening on tcp/udp [::]:21116
+[2026-10-01 05:51:04.398668 +00:00] INFO [src/rendezvous_server.rs:164] Listening on tcp [::]:21115, extra port for NAT test
+[2026-10-01 05:51:04.398669 +00:00] INFO [src/rendezvous_server.rs:168] Listening on websocket [::]:21118
+[2026-10-01 05:51:04.398677 +00:00] INFO [src/rendezvous_server.rs:173] ALWAYS_USE_RELAY=N
+[2026-10-01 05:51:04.398680 +00:00] INFO [src/rendezvous_server.rs:205] Start
+[2026-10-01 05:53:52.420413 +00:00] INFO [src/common.rs:261] signal terminate

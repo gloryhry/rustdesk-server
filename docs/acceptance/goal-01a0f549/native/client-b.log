@@ -1,0 +1,190 @@
+(rustdesk:918): dbind-WARNING **: 04:56:05.750: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+Cannot load libcuda.so.1
+Cannot load libcuda.so.1
+
+(rustdesk:918): Atk-CRITICAL **: 04:56:05.849: atk_socket_embed: assertion 'plug_id != NULL' failed
+Try setting transparent
+flutter: launch args: []
+flutter: initializing FFI main
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:main,info1-id:2be73c88b1b9626d5165f3966abddb05,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler native_ui native_ui
+flutter: registerEventHandler check_software_update_finish check_software_update_finish
+flutter: reset ab model
+flutter: registerEventHandler callback_query_onlines AllPeersLoader
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: No window position saved, trying to center the window.
+flutter: handled by uni links: false
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: pull ab list
+flutter: pull ab "My address book"
+
+(rustdesk:1627): dbind-WARNING **: 04:57:36.244: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+
+(rustdesk:1627): Atk-CRITICAL **: 04:57:36.365: atk_socket_embed: assertion 'plug_id != NULL' failed
+Try setting transparent
+flutter: launch args: [--cm]
+flutter: --cm started
+flutter: initializing FFI cm
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:cm,info1-id:2be73c88b1b9626d5165f3966abddb05,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler theme theme
+flutter: registerEventHandler language language
+flutter: registerEventHandler native_ui native_ui
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: reset ab model
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+flutter: pull ab "My address book"
+flutter: pull ab "My address book"
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: model  closed
+
+(rustdesk:1627): Gtk-CRITICAL **: 05:53:03.308: gtk_widget_set_opacity: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(rustdesk:1627): Gtk-CRITICAL **: 05:53:03.308: gtk_window_get_position: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:1627): Gtk-CRITICAL **: 05:53:03.308: gtk_window_get_size: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:1627): Gtk-CRITICAL **: 05:53:03.308: gtk_widget_hide: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(rustdesk:1627): Gtk-CRITICAL **: 05:53:03.308: gtk_window_move: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:1627): Gtk-CRITICAL **: 05:53:03.308: gtk_window_resize: assertion 'GTK_IS_WINDOW (window)' failed
+
+** (rustdesk:1627): WARNING **: 05:53:03.335: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+** (rustdesk:1627): WARNING **: 05:53:03.336: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+** (rustdesk:1627): WARNING **: 05:53:03.337: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+(rustdesk:25052): dbind-WARNING **: 05:55:35.654: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+
+(rustdesk:25052): Atk-CRITICAL **: 05:55:35.979: atk_socket_embed: assertion 'plug_id != NULL' failed
+Try setting transparent
+flutter: launch args: [--cm]
+flutter: --cm started
+flutter: initializing FFI cm
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:cm,info1-id:2be73c88b1b9626d5165f3966abddb05,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler theme theme
+flutter: registerEventHandler language language
+flutter: registerEventHandler native_ui native_ui
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: model  closed
+
+(rustdesk:25052): Gtk-CRITICAL **: 06:01:10.724: gtk_widget_set_opacity: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(rustdesk:25052): Gtk-CRITICAL **: 06:01:10.724: gtk_window_get_position: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:25052): Gtk-CRITICAL **: 06:01:10.724: gtk_window_get_size: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:25052): Gtk-CRITICAL **: 06:01:10.724: gtk_widget_hide: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(rustdesk:25052): Gtk-CRITICAL **: 06:01:10.724: gtk_window_move: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:25052): Gtk-CRITICAL **: 06:01:10.724: gtk_window_resize: assertion 'GTK_IS_WINDOW (window)' failed
+
+** (rustdesk:25052): WARNING **: 06:01:10.743: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+** (rustdesk:25052): WARNING **: 06:01:10.745: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+** (rustdesk:25052): WARNING **: 06:01:10.745: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+(rustdesk:31099): dbind-WARNING **: 06:03:20.216: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+
+(rustdesk:31099): Atk-CRITICAL **: 06:03:20.314: atk_socket_embed: assertion 'plug_id != NULL' failed
+Try setting transparent
+flutter: launch args: [--cm]
+flutter: --cm started
+flutter: initializing FFI cm
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:cm,info1-id:2be73c88b1b9626d5165f3966abddb05,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler theme theme
+flutter: registerEventHandler language language
+flutter: registerEventHandler native_ui native_ui
+flutter: Bring window 'null' on top
+flutter: Bring window 'null' on top
+flutter: model  closed
+
+(rustdesk:31099): Gtk-CRITICAL **: 06:08:48.533: gtk_widget_set_opacity: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(rustdesk:31099): Gtk-CRITICAL **: 06:08:48.533: gtk_window_get_position: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:31099): Gtk-CRITICAL **: 06:08:48.533: gtk_window_get_size: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:31099): Gtk-CRITICAL **: 06:08:48.533: gtk_widget_hide: assertion 'GTK_IS_WIDGET (widget)' failed
+
+(rustdesk:31099): Gtk-CRITICAL **: 06:08:48.533: gtk_window_move: assertion 'GTK_IS_WINDOW (window)' failed
+
+(rustdesk:31099): Gtk-CRITICAL **: 06:08:48.533: gtk_window_resize: assertion 'GTK_IS_WINDOW (window)' failed
+
+** (rustdesk:31099): WARNING **: 06:08:48.551: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+** (rustdesk:31099): WARNING **: 06:08:48.552: Attempted to set message handler on an FlBinaryMessenger without an engine
+
+** (rustdesk:31099): WARNING **: 06:08:48.552: Attempted to set message handler on an FlBinaryMessenger without an engine

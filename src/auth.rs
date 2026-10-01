@@ -35,6 +35,7 @@ pub struct PublicUser {
     pub note: String,
     pub is_admin: bool,
     pub status: i64,
+    pub info: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -97,6 +98,12 @@ impl AuthService {
             dummy_password_hash: Arc::new(dummy_password_hash),
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         })
+    }
+
+    pub(crate) fn csrf_token(&self, principal: &Principal) -> String {
+        let key = sodiumoxide::crypto::auth::Key(sodiumoxide::crypto::hash::sha256::hash(&self.secret).0);
+        let message = format!("rustdesk-browser-csrf:{}:{}", principal.user_id, principal.session_id);
+        base64::encode(sodiumoxide::crypto::auth::authenticate(message.as_bytes(), &key).as_ref())
     }
 
     pub fn db(&self) -> Database {
@@ -464,6 +471,7 @@ fn public_user(user: &ApiUser) -> PublicUser {
         note: user.nickname.clone(),
         is_admin: user.is_admin != 0,
         status: user.status,
+        info: serde_json::json!({}),
     }
 }
 

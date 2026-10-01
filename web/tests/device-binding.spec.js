@@ -1,0 +1,31 @@
+import { test, expect, signIn } from './fixtures.js';
+import { DatabaseSync } from 'node:sqlite';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+
+test('administrator independently checks the public key before binding or unbinding a reported device', async ({ page, service, request }) => {
+  const sqlite = new DatabaseSync(join(service.directory, 'api.sqlite3'));
+  const pk = Buffer.alloc(32, 3);
+  sqlite.prepare('insert into peer(guid,id,uuid,pk,info) values(?,?,?,?,?)').run(Buffer.alloc(16, 1), '123456', Buffer.from('device-uuid'), pk, '{}');
+  const response = await request.post(`${service.url}/api/sysinfo`, { data: { id: '123456', uuid: Buffer.from('device-uuid').toString('base64'), hostname: 'unsigned-laptop', username: 'untrusted' } });
+  expect(await response.text()).toBe('SYSINFO_UPDATED');
+  await signIn(page, service);
+  await page.locator('#nav-devices').click();
+  const peer = page.locator('[data-registry-peer="123456"]');
+  await expect(peer).toContainText('unsigned-laptop');
+  await expect(peer).toContainText(/待核验|pending verification/);
+  const account = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
+  await peer.locator('[name="user_id"]').selectOption(account);
+  await peer.locator('[name="pk_fingerprint"]').fill(`sha256:${'0'.repeat(64)}`);
+  await peer.locator('[type="submit"]').click();
+  await expect(page.locator('.notice')).toContainText('device_binding_conflict');
+  await peer.locator('[name="user_id"]').selectOption(account);
+  await peer.locator('[name="pk_fingerprint"]').fill(`sha256:${createHash('sha256').update(pk).digest('hex')}`);
+  await peer.locator('[type="submit"]').click();
+  await expect(peer.locator('[data-unbind-device]')).toBeVisible();
+  await expect(page.locator('.content .table-wrap table').first()).toContainText('123456');
+  await peer.locator('[data-unbind-device]').click();
+  await expect(peer.locator('[data-unbind-device]')).toHaveCount(0);
+  expect(sqlite.prepare('select count(*) as n from api_device_binding_audit').get().n).toBe(2);
+  sqlite.close();
+});

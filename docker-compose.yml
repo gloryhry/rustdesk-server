@@ -1,60 +1,82 @@
-version: '3'
+x-image: &image
+  image: ${RUSTDESK_IMAGE:-rustdesk-local/server:1.1.17-api-1.4.9}
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+    target: runtime
 
-networks:
-  rustdesk-net:
-    external: false
+x-api-environment: &api-environment
+  API_ENABLED: "1"
+  API_BIND: 0.0.0.0
+  API_PUBLIC_URL: ${API_PUBLIC_URL:?Set the public HTTPS API URL}
+  API_JWT_SECRET: ${API_JWT_SECRET:?Set an independent random JWT signing secret}
+  API_OAUTH_CONFIG_KEY: ${API_OAUTH_CONFIG_KEY:?Set an independent base64 32-byte configuration key}
+  API_BOOTSTRAP_ADMIN_USERNAME: ${API_BOOTSTRAP_ADMIN_USERNAME:-}
+  API_BOOTSTRAP_ADMIN_PASSWORD: ${API_BOOTSTRAP_ADMIN_PASSWORD:-}
+  API_REGISTER_ENABLED: ${API_REGISTER_ENABLED:-0}
+  API_OAUTH_REDIRECT_URL: ${API_OAUTH_REDIRECT_URL:-}
+  DB_URL: /data/db_v2.sqlite3
+  RUSTDESK_KEY_FILE: /data/id_ed25519.pub
+  API_WEB_ROOT: /usr/share/rustdesk-api-web
 
 services:
+  init:
+    <<: *image
+    command: ["init"]
+    environment: *api-environment
+    volumes: ["rustdesk-data:/data"]
+    restart: "no"
   hbbs:
-    container_name: hbbs
-    ports:
-      - 21115:21115
-      - 21116:21116
-      - 21116:21116/udp
-      - 21118:21118
-    image: rustdesk/rustdesk-server:latest
-    command: hbbs -r rustdesk.example.com:21117
-    volumes:
-      - ./data:/root
-    networks:
-      - rustdesk-net
-    depends_on:
-      - hbbr
-    restart: unless-stopped
-
-  rustdesk-api:
-    container_name: rustdesk-api
-    profiles: ["api"]
-    ports:
-      - 127.0.0.1:21114:21114
-    image: rustdesk/rustdesk-server:latest
-    command: rustdesk-api
+    <<: *image
+    command: ["hbbs", "--relay-servers", "${RUSTDESK_RELAY_SERVER:?Set the advertised relay address}"]
     environment:
-      - API_ENABLED=1
-      - API_BIND=0.0.0.0
-      - API_JWT_SECRET=${API_JWT_SECRET:-local-test-jwt-secret-32-bytes-minimum}
-      - API_BOOTSTRAP_ADMIN_USERNAME=${API_BOOTSTRAP_ADMIN_USERNAME:-admin}
-      - API_BOOTSTRAP_ADMIN_PASSWORD=${API_BOOTSTRAP_ADMIN_PASSWORD:-admin1234}
-      - API_REGISTER_ENABLED=${API_REGISTER_ENABLED:-0}
-      - DB_URL=/root/db_v2.sqlite3
-      - RUSTDESK_KEY_FILE=/root/id_ed25519.pub
-    volumes:
-      - ./data:/root
-    networks:
-      - rustdesk-net
+      DB_URL: /data/db_v2.sqlite3
+      WS_TRUSTED_PROXIES: ${WS_TRUSTED_PROXIES:-}
+    ports:
+      - "${HBBS_NAT_PORT:-21115}:21115"
+      - "${HBBS_PORT:-21116}:21116/tcp"
+      - "${HBBS_PORT:-21116}:21116/udp"
+      - "${HBBS_WS_PORT:-21118}:21118"
+    volumes: ["rustdesk-data:/data"]
     depends_on:
-      - hbbs
+      init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -s /data/id_ed25519.pub && nc -z -w 2 127.0.0.1 21116"]
+      interval: 10s
+      timeout: 5s
+    restart: unless-stopped
+  hbbr:
+    <<: *image
+    command: ["hbbr"]
+    environment:
+      WS_TRUSTED_PROXIES: ${WS_TRUSTED_PROXIES:-}
+    ports:
+      - "${HBBR_PORT:-21117}:21117"
+      - "${HBBR_WS_PORT:-21119}:21119"
+    volumes: ["rustdesk-data:/data"]
+    depends_on:
+      init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "nc", "-z", "-w", "2", "127.0.0.1", "21117"]
+      interval: 10s
+      timeout: 5s
+    restart: unless-stopped
+  rustdesk-api:
+    <<: *image
+    command: ["rustdesk-api"]
+    environment:
+      <<: *api-environment
+      RUSTDESK_ID_SERVER: ${RUSTDESK_ID_SERVER:-}
+      RUSTDESK_RELAY_SERVER: ${RUSTDESK_RELAY_SERVER}
+    ports: ["127.0.0.1:${API_HOST_PORT:-21114}:21114"]
+    volumes: ["rustdesk-data:/data"]
+    depends_on:
+      init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:21114/health/ready"]
+      interval: 10s
+      timeout: 5s
     restart: unless-stopped
 
-  hbbr:
-    container_name: hbbr
-    ports:
-      - 21117:21117
-      - 21119:21119
-    image: rustdesk/rustdesk-server:latest
-    command: hbbr
-    volumes:
-      - ./data:/root
-    networks:
-      - rustdesk-net
-    restart: unless-stopped
+volumes:
+  rustdesk-data:
