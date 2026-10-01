@@ -442,7 +442,7 @@ async fn validate_id_token(
         .map_err(|_| OAuthError::InvalidResponse)?;
     let key_id = header.kid.as_deref().ok_or(OAuthError::InvalidResponse)?;
     let jwk = key_set.find(key_id).ok_or(OAuthError::InvalidResponse)?;
-    if jwk.common.algorithm.is_some_and(|algorithm| algorithm != header.alg) {
+    if jwk.common.key_algorithm.is_some_and(|algorithm| algorithm.to_string().parse::<jsonwebtoken::Algorithm>().ok() != Some(header.alg)) {
         return Err(OAuthError::InvalidResponse);
     }
     let parameters = match &jwk.algorithm {

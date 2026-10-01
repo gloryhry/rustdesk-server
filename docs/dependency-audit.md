@@ -10,7 +10,7 @@
 | #24 | remove_dir_all 0.5.3 / RUSTSEC-2023-0018 | 已完成 |
 | #25 | rustls 0.23.42 / RUSTSEC-2026-0285 | 已完成 |
 | #26 | tungstenite 0.17.2 / RUSTSEC-2023-0065 | 已完成 |
-| #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 待处理 |
+| #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 已完成 |
 | #28 | libsqlite3-sys 0.24.2 / RUSTSEC-2022-0090; sqlx 0.6.0 / RUSTSEC-2024-0363; rustls 0.20.4 / RUSTSEC-2024-0336; webpki 0.22.0 / RUSTSEC-2023-0052 | 已完成 |
 | #29 | h2 0.3.26 / RUSTSEC-2026-0258; rustls-webpki 0.101.7 / RUSTSEC-2026-0098; rustls-webpki 0.101.7 / RUSTSEC-2026-0099; rustls-webpki 0.101.7 / RUSTSEC-2026-0104 | 已完成 |
 | #30 | quick-xml 0.39.4 / RUSTSEC-2026-0194; quick-xml 0.39.4 / RUSTSEC-2026-0195 | 待处理 |
@@ -61,3 +61,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 四条 HTTP/旧 TLS 公告在基线定向审计失败。Axum 0.8.9、tower-http 0.6.11、reqwest 0.12.28、http 1/tower 0.5 更新后通过；删除旧 git reqwest、hyper 0.14 测试依赖和未使用 headers，剩余 4 条。适配路径参数、middleware、监听器和静态服务，测试响应读取采用明确上限；保留两平台 TLS、代理、JSON、gzip 与 HTTP/2 支持。
 
 真实随机回环 HTTP/1.1 与 HTTP/2 API/静态资源/413 回归通过；根包 145 项、locked 全目标检查、Web 构建与 Chrome 15 项通过。锁文件 SHA-256：0b7a50b740ca96fab736a5aa1bdc9bc166a1f6d4ee5527db509716bfa9a8b258；用户数据库保持基线。最终部署还须重建包含本项的镜像。
+
+## #27 验收
+
+ring 定向公告基线失败；jsonwebtoken 9.3.1 移除 ring 0.16.20，检查通过，剩余 3 条。JWK 新 key_algorithm 转换失败或不匹配签名算法均拒绝；不放宽既有 RSA 白名单。OIDC 7 项签名/算法/issuer/audience/nonce/有效期/subject/多受众攻击回归、Cookie/原生 OAuth 与根包 145 项全部通过，locked 全目标 check 通过。无 Web 代码变更；锁文件 SHA-256：f1e3e6aa32cf93cc1d8793c7215ce09159cc9115a369382359c940764f1f847e，用户数据库未变。
