@@ -44,7 +44,7 @@ jobs:
       - name: Audit Rust dependencies
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
-          cargo audit
+          cargo audit --deny unsound
 
   deployment:
     name: Source images, Compose, s6 and disposable Kubernetes

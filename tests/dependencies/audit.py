@@ -12,6 +12,7 @@ report = json.loads(result.stdout)
 if result.returncode not in (0, 1) or 'vulnerabilities' not in report:
     raise RuntimeError('audit could not run: ' + result.stderr)
 remaining = {item['advisory']['id'] for item in report['vulnerabilities']['list']}
+remaining.update(item['advisory']['id'] for item in report.get('warnings', {}).get('unsound', []))
 failed = remaining.intersection(args.advisories)
 if failed:
     raise SystemExit('Selected advisory regression failed: ' + ', '.join(sorted(failed)))
