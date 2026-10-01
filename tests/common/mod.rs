@@ -57,7 +57,7 @@ impl TestApp {
             let cookie = request.headers()[header::COOKIE].clone();
             let csrf = self.send_raw(Request::builder().uri("/api/session/csrf").header(header::COOKIE,cookie).body(Body::empty()).unwrap()).await;
             if csrf.status() == StatusCode::OK {
-                let value: Value = serde_json::from_slice(&hyper::body::to_bytes(csrf.into_body()).await.unwrap()).unwrap();
+                let value: Value = serde_json::from_slice(&axum::body::to_bytes(csrf.into_body(), 4*1024*1024).await.unwrap()).unwrap();
                 request.headers_mut().insert("x-csrf-token",value["csrf_token"].as_str().unwrap().parse().unwrap());
             }
             request.headers_mut().insert(header::ORIGIN,"https://api.example".parse().unwrap());
@@ -130,7 +130,7 @@ impl MockOAuth {
             .route("/userinfo", axum::routing::get(|| async {
                 axum::Json(serde_json::json!({"id":"42","login":"alice","email":"alice@example.com"}))
             }));
-        let server = axum::Server::from_tcp(listener).unwrap().serve(router.into_make_service());
+        let server = axum::serve(tokio::net::TcpListener::from_std(listener).unwrap(), router.into_make_service());
         let task = tokio::spawn(async { server.await.unwrap(); });
         Self { base, token_requests, pause_tokens, token_entered, token_release, task }
     }

@@ -7,11 +7,10 @@ use crate::oauth::{OAuthError, OAuthRuntime, OAuthFlowKind};
 use crate::native_oauth::NativeOAuthStore;
 use crate::oauth_admin::{AdminError, OAuthProviderAdmin, ProviderRequest, ProviderSecretKey};
 use axum::{
-    error_handling::HandleErrorLayer,
     extract::{Extension, Json, Path, Query},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Redirect, Response},
-    routing::{delete as delete_route, get, get_service, post, put},
+    routing::{delete as delete_route, get, post, put},
     Router,
 };
 use serde::Deserialize;
@@ -300,18 +299,18 @@ fn build_router(
         .route("/api/ab/settings", get(official_address_book::settings).post(official_address_book::settings))
         .route("/api/ab/shared/profiles", get(official_address_book::shared_profiles).post(official_address_book::shared_profiles))
         .route("/api/ab/peers", get(official_address_book::peers).post(official_address_book::peers))
-        .route("/api/ab/peer/add/:guid", post(official_address_book::add_peer))
-        .route("/api/ab/peer/:guid", delete_route(official_address_book::delete_peers))
-        .route("/api/ab/peer/update/:guid", put(official_address_book::update_peer))
-        .route("/api/ab/tags/:guid", get(official_address_book::tags).post(official_address_book::tags))
-        .route("/api/ab/tag/add/:guid", post(official_address_book::add_tag))
-        .route("/api/ab/tag/rename/:guid", put(official_address_book::rename_tag))
-        .route("/api/ab/tag/update/:guid", put(official_address_book::update_tag))
-        .route("/api/ab/tag/:guid", delete_route(official_address_book::delete_tags))
+        .route("/api/ab/peer/add/{guid}", post(official_address_book::add_peer))
+        .route("/api/ab/peer/{guid}", delete_route(official_address_book::delete_peers))
+        .route("/api/ab/peer/update/{guid}", put(official_address_book::update_peer))
+        .route("/api/ab/tags/{guid}", get(official_address_book::tags).post(official_address_book::tags))
+        .route("/api/ab/tag/add/{guid}", post(official_address_book::add_tag))
+        .route("/api/ab/tag/rename/{guid}", put(official_address_book::rename_tag))
+        .route("/api/ab/tag/update/{guid}", put(official_address_book::update_tag))
+        .route("/api/ab/tag/{guid}", delete_route(official_address_book::delete_tags))
         .route("/api/web/ab/entries", get(list_address_book_entries).post(upsert_address_book_entry))
         .route("/api/web/ab/entries/batch", post(post_address_book_entries))
         .route("/api/web/ab/entries/delete", post(delete_address_book_entry))
-        .route("/api/web/ab/entries/:id", delete_route(delete_web_address_book_entry))
+        .route("/api/web/ab/entries/{id}", delete_route(delete_web_address_book_entry))
         .route("/api/web/ab/tags", get(list_tags).post(upsert_tag))
         .route("/api/web/ab/tags/delete", post(delete_tag))
         .route("/api/groups", get(list_groups).post(create_group))
@@ -332,16 +331,7 @@ fn build_router(
         .route("/api/server-config-v2", post(server_config_v2))
         .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(RequestBodyTimeoutLayer::new(Duration::from_secs(15)))
-        .fallback(
-            get_service(ServeDir::new(web_root)).layer(HandleErrorLayer::new(
-                |_: std::io::Error| async {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": "static_asset_error" })),
-                    )
-                },
-            )),
-        )
+        .fallback_service(ServeDir::new(web_root))
         .layer(axum::middleware::from_fn(browser_request))
         .layer(Extension(state))
 }
@@ -528,7 +518,7 @@ async fn session_csrf(Extension(state): Extension<Arc<ApiState>>, headers: Heade
 
 async fn browser_request(
     request: axum::http::Request<axum::body::Body>,
-    next: axum::middleware::Next<axum::body::Body>,
+    next: axum::middleware::Next,
 ) -> Response {
     if !request.uri().path().starts_with("/api/") { return next.run(request).await; }
     let state = match request.extensions().get::<Arc<ApiState>>().cloned() {

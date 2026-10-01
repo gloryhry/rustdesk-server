@@ -16,7 +16,7 @@ struct OfficialAuthBody { access_token: String, r#type: String, user: OfficialUs
 struct OfficialUser { name: String, info: Value }
 
 async fn body(response: axum::response::Response) -> Value {
-    serde_json::from_slice(&hyper::body::to_bytes(response.into_body()).await.unwrap()).unwrap()
+    serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap()).unwrap()
 }
 
 #[tokio::test]
@@ -85,7 +85,7 @@ async fn native_browser_completes_without_logging_in_and_client_claims_auth_once
     let response = callback(&app, &state, Some(&binding), false).await;
     assert_eq!(response.status(), StatusCode::OK);
     no_credentials_in_browser(&response);
-    let browser_body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let browser_body = axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap();
     assert!(!String::from_utf8_lossy(&browser_body).contains("access_token"));
     assert!(poll(&app, &auth.code, "other-device", "device-uuid").await.get("access_token").is_none());
     assert!(poll(&app, &auth.code, "123456", "other-uuid").await.get("access_token").is_none());

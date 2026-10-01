@@ -5,7 +5,7 @@ use hbbs::{api::CookiePolicy,oauth::OAuthRuntime};
 use serde::Deserialize;
 use serde_json::{json,Value};
 
-async fn value(response: axum::response::Response) -> Value { serde_json::from_slice(&hyper::body::to_bytes(response.into_body()).await.unwrap()).unwrap() }
+async fn value(response: axum::response::Response) -> Value { serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap()).unwrap() }
 async fn auth(app: &TestApp, method: &str, path: &str, body: Value, token: &str) -> axum::response::Response {
     let mut request = request(method,path,body); request.headers_mut().insert(header::AUTHORIZATION,format!("Bearer {token}").parse().unwrap()); app.send(request).await
 }

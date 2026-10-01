@@ -7,7 +7,7 @@ use hbbs::{
     ldap::LdapConfig,
     oauth::OAuthRuntime,
 };
-use hyper::body::to_bytes;
+use axum::body::to_bytes;
 use std::{fs, path::PathBuf, time::Duration};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -128,7 +128,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(api_root.status(), StatusCode::OK);
-    let api_root_body = to_bytes(api_root.into_body())
+    let api_root_body = to_bytes(api_root.into_body(), 4*1024*1024)
         .await
         .expect("api root response should read");
     assert!(String::from_utf8_lossy(&api_root_body).contains("RustDesk API"));
@@ -160,7 +160,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(registration.status(), StatusCode::CREATED);
-    let registration_body = to_bytes(registration.into_body())
+    let registration_body = to_bytes(registration.into_body(), 4*1024*1024)
         .await
         .expect("registration response should read");
     let user_id = serde_json::from_slice::<serde_json::Value>(&registration_body)
@@ -183,7 +183,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     let csrf_response = send(&app, Request::builder().uri("/api/session/csrf")
         .header(header::COOKIE,&cookie).body(Body::empty()).unwrap()).await;
     assert_eq!(csrf_response.status(),StatusCode::OK);
-    let csrf: serde_json::Value = serde_json::from_slice(&to_bytes(csrf_response.into_body()).await.unwrap()).unwrap();
+    let csrf: serde_json::Value = serde_json::from_slice(&to_bytes(csrf_response.into_body(), 4*1024*1024).await.unwrap()).unwrap();
     let csrf = csrf["csrf_token"].as_str().unwrap();
     assert!(login
         .headers()
@@ -214,7 +214,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(peers_list.status(), StatusCode::OK);
-    let peers_list_body = to_bytes(peers_list.into_body())
+    let peers_list_body = to_bytes(peers_list.into_body(), 4*1024*1024)
         .await
         .expect("peers list response should read");
     let peers: serde_json::Value = serde_json::from_slice(&peers_list_body).unwrap();
@@ -230,13 +230,13 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(current_user.status(), StatusCode::OK);
-    let current_user_body = to_bytes(current_user.into_body())
+    let current_user_body = to_bytes(current_user.into_body(), 4*1024*1024)
         .await
         .expect("current user response should read");
     assert!(String::from_utf8_lossy(&current_user_body).contains("route-user"));
 
     let book = send(&app,Request::builder().uri("/api/ab").header(header::COOKIE,&cookie).body(Body::empty()).unwrap()).await;
-    let book: serde_json::Value = serde_json::from_slice(&to_bytes(book.into_body()).await.unwrap()).unwrap();
+    let book: serde_json::Value = serde_json::from_slice(&to_bytes(book.into_body(), 4*1024*1024).await.unwrap()).unwrap();
     let revision = book["revision"].as_i64().unwrap();
     let peer_upsert = send(
         &app,
@@ -250,7 +250,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(peer_upsert.status(), StatusCode::OK);
-    let peer_saved: serde_json::Value = serde_json::from_slice(&to_bytes(peer_upsert.into_body()).await.unwrap()).unwrap();
+    let peer_saved: serde_json::Value = serde_json::from_slice(&to_bytes(peer_upsert.into_body(), 4*1024*1024).await.unwrap()).unwrap();
 
     let peers = send(
         &app,
@@ -262,7 +262,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(peers.status(), StatusCode::OK);
-    let peers_body = to_bytes(peers.into_body())
+    let peers_body = to_bytes(peers.into_body(), 4*1024*1024)
         .await
         .expect("peers response should read");
     let peers_json = serde_json::from_slice::<serde_json::Value>(&peers_body)
@@ -309,7 +309,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(group_create.status(), StatusCode::CREATED);
-    let group_body = to_bytes(group_create.into_body())
+    let group_body = to_bytes(group_create.into_body(), 4*1024*1024)
         .await
         .expect("group response should read");
     let group_id = serde_json::from_slice::<serde_json::Value>(&group_body)
@@ -341,7 +341,7 @@ async fn api_routes_support_auth_groups_and_cookie_sessions() {
     )
     .await;
     assert_eq!(groups.status(), StatusCode::OK);
-    let groups_body = to_bytes(groups.into_body())
+    let groups_body = to_bytes(groups.into_body(), 4*1024*1024)
         .await
         .expect("groups response should read");
     let groups_json = serde_json::from_slice::<serde_json::Value>(&groups_body)

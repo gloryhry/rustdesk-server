@@ -150,8 +150,7 @@ async fn start(
         .map_err(|err| hbb_common::anyhow::anyhow!("failed to initialize API authentication: {err:?}"))?;
     if initialize { log::info!("RustDesk keys, API configuration and database initialization complete"); return Ok(()); }
     log::info!("RustDesk API listening on http://{bind_addr}");
-    axum::Server::bind(&bind_addr)
-        .serve(router.into_make_service())
+    axum::serve(tokio::net::TcpListener::bind(bind_addr).await?, router.into_make_service())
         .await?;
     Ok(())
 }

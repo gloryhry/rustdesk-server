@@ -129,9 +129,9 @@ async fn rejected_oidc_callback_creates_neither_account_nor_session() {
     }
     let login = app.send(request("POST", "/api/admin/login", json!({"username":"admin","password":"admin-password"}))).await;
     let response = app.send(Request::builder().uri("/api/admin/user/list").header(header::COOKIE, cookie(&login)).body(Body::empty()).unwrap()).await;
-    let body: Value = serde_json::from_slice(&hyper::body::to_bytes(response.into_body()).await.unwrap()).unwrap();
+    let body: Value = serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap()).unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
     let sessions = app.send(Request::builder().uri("/api/admin/session/list").header(header::COOKIE, cookie(&login)).body(Body::empty()).unwrap()).await;
-    let body: Value = serde_json::from_slice(&hyper::body::to_bytes(sessions.into_body()).await.unwrap()).unwrap();
+    let body: Value = serde_json::from_slice(&axum::body::to_bytes(sessions.into_body(), 4*1024*1024).await.unwrap()).unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 1);
 }

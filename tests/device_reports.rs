@@ -7,7 +7,7 @@ use serde_json::json;
 async fn unknown_official_device_report_cannot_claim_to_have_been_saved() {
     let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
     let response = app.send(request("POST","/api/sysinfo",json!({"id":"123456","uuid":"ZGV2aWNlLXV1aWQ=","username":"alice","hostname":"Laptop","os":"Linux"}))).await;
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap();
     assert_eq!(&body[..],b"ID_NOT_FOUND");
 }
 
@@ -16,7 +16,7 @@ use hbbs::{database::Database,device_registry::{RegistrationObservation,Registra
 use serde_json::Value;
 
 async fn body(response: axum::response::Response) -> String {
-    String::from_utf8(hyper::body::to_bytes(response.into_body()).await.unwrap().to_vec()).unwrap()
+    String::from_utf8(axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap().to_vec()).unwrap()
 }
 async fn value(response: axum::response::Response) -> Value { serde_json::from_str(&body(response).await).unwrap() }
 async fn db(app: &TestApp) -> Database { Database::new(app.database_path().to_str().unwrap()).await.unwrap() }

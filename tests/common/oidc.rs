@@ -31,7 +31,7 @@ impl MockOidc {
                 Json(serde_json::from_str::<Value>(include_str!("../fixtures/oidc-test-jwks.json")).unwrap())
             }))
             .layer(Extension(tokens.clone())).layer(Extension(profile.clone()));
-        let server = axum::Server::from_tcp(listener).unwrap().serve(router.into_make_service());
+        let server = axum::serve(tokio::net::TcpListener::from_std(listener).unwrap(), router.into_make_service());
         let task = tokio::spawn(async { server.await.unwrap(); });
         Self { base, tokens, profile, task }
     }

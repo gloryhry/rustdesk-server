@@ -31,7 +31,7 @@ async fn administrator_can_create_an_oauth_provider() {
 }
 
 async fn value(response: axum::response::Response) -> Value {
-    serde_json::from_slice(&hyper::body::to_bytes(response.into_body()).await.unwrap()).unwrap()
+    serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap()).unwrap()
 }
 
 async fn get(app: &TestApp, path: &str, cookie: &str) -> axum::response::Response {

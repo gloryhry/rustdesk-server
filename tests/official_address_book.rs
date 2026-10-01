@@ -5,7 +5,7 @@ use hbbs::{api::CookiePolicy,oauth::OAuthRuntime};
 use serde::{Deserialize};
 use serde_json::{json,Value};
 
-async fn value(response: Response) -> Value { serde_json::from_slice(&hyper::body::to_bytes(response.into_body()).await.unwrap()).unwrap() }
+async fn value(response: Response) -> Value { serde_json::from_slice(&axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap()).unwrap() }
 async fn call(app: &TestApp, token: &str, method: &str, path: &str, body: Option<Value>) -> Response {
     let request = Request::builder().method(method).uri(path).header(header::AUTHORIZATION,format!("Bearer {token}"))
         .header(header::CONTENT_TYPE,"application/json").body(body.map_or_else(Body::empty,|body|Body::from(body.to_string()))).unwrap();
@@ -17,7 +17,7 @@ async fn fixture() -> (TestApp,String,String) {
     let guid = value(call(&app,&token,"GET","/api/ab",None).await).await["guid"].as_str().unwrap().to_owned();
     (app,token,guid)
 }
-async fn action(response: Response) { assert_eq!(response.status(),StatusCode::OK); assert!(hyper::body::to_bytes(response.into_body()).await.unwrap().is_empty(),"official action parser requires an empty successful response"); }
+async fn action(response: Response) { assert_eq!(response.status(),StatusCode::OK); assert!(axum::body::to_bytes(response.into_body(), 4*1024*1024).await.unwrap().is_empty(),"official action parser requires an empty successful response"); }
 #[derive(Deserialize)]
 struct Personal { guid: String }
 #[derive(Deserialize)]
