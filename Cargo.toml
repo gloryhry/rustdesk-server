@@ -35,7 +35,7 @@ whoami = "1.2"
 base64 = "0.13"
 axum = { version = "0.8.9", features = ["http2"] }
 sqlx = { version = "0.8.6", default-features = false, features = [ "runtime-tokio", "sqlite", "derive" ] }
-deadpool = "0.8"
+deadpool = { version = "0.8", default-features = false, features = ["managed"] }
 async-trait = "0.1"
 async-speed-limit = { git = "https://github.com/open-trade/async-speed-limit" }
 uuid = { version = "1.0", features = ["v4"] }
