@@ -86,7 +86,7 @@ quick-xml 两条定向公告基线失败；wayland-scanner 0.31.11 使用 quick-
 | #35 | atty 0.2.14 / RUSTSEC-2021-0145 | 待处理 |
 | #36 | bumpalo 3.9.1 / RUSTSEC-2022-0078 | 已完成 |
 | #37 | lexical-core 0.7.6 / RUSTSEC-2023-0086 | 已完成 |
-| #38 | rand 0.8.5 / RUSTSEC-2026-0097 | 待处理 |
+| #38 | rand 0.8.5 / RUSTSEC-2026-0097 | 已完成 |
 
 后续定向脚本与 CI 必须检查 unsound，最终完整审计使用 cargo audit --deny unsound，不忽略公告。
 
@@ -101,3 +101,7 @@ bumpalo 迭代器生命周期定向公告基线失败，锁定至 3.19.0 后通�
 ## #37 验收
 
 lexical-core 定向公告基线失败；其唯一路径为 deadpool 默认 config → config 0.11 → nom 5。项目只使用 managed 连接池，禁用未使用默认配置/非托管功能后整个旧路径移除，公告通过，剩余 rand/atty 两条。保留原连接池实现与参数，无临时修补旧解析器。根包 146 项与 locked check 通过，涵盖 10,000 条 Peer 并发读写、迁移、CAS 与失败回滚。锁文件 SHA-256：82c5149dc15dcf3edbc2ed12d5dc6f5a76f09794011b46956150b94e6f03b29b；用户数据库未变。
+
+## #38 验收
+
+rand 日志重入借用公告基线定向检查失败；0.8.6 修补版本后通过，剩余 atty 一条。hbb_common、ping 和构建/测试依赖使用同一更新，不改随机协议或密钥格式；未确认本项目日志满足公告全部重入触发条件，未声称运行时复现 UB。根包 146 项与 locked check 通过。锁文件 SHA-256：d5589b36cd6e0121e3ff661c4cd2475d52ee7dcb646180622640ae752e49dded；用户数据库未变。
