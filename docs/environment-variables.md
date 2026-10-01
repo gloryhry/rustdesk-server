@@ -532,3 +532,26 @@ The complete official 1.4.9 personal-book protocol and Web management route
 changes are documented in [rustdesk-1.4.9-protocol.md](rustdesk-1.4.9-protocol.md).
 Address-book migration version 3 and revision conflicts are documented in
 [address-book-storage.md](address-book-storage.md).
+
+
+## WebSocket proxy identity
+
+`WS_TRUSTED_PROXIES` is an optional inherited process environment variable for hbbs/hbbr.
+It has no CLI/INI alias; configure it in the launched process or deployment environment.
+Default is empty: use the actual TCP peer. Supply at most 128 exact comma-separated
+IPv4/IPv6 proxy addresses; invalid values fail startup. IPv4-mapped IPv6 peers
+match the equivalent IPv4 address. CIDRs, wildcard, hostnames, unspecified and
+multicast proxy addresses are rejected. Compose and Kubernetes forward this option.
+
+Only a listed TCP peer may supply one valid `X-Real-IP` or `X-Forwarded-For` IP.
+Duplicate headers, multi-hop lists, IP:port, invalid values and conflicting headers
+retain the actual TCP peer. If both headers are present, both must parse and match.
+The forwarded port is 0 because no original source port is available.
+
+A trusted reverse proxy must overwrite these headers with its observed client IP;
+for nginx use `proxy_set_header X-Real-IP $remote_addr;` and
+`proxy_set_header X-Forwarded-For $remote_addr;`. Keep proxy access controlled and
+list the address actually seen by the server, including container/NAT translation.
+The initial hbbr blocklist check continues to use the actual TCP peer before the
+WebSocket handshake; this repair protects subsequent source identity, accounting
+and logs rather than claiming that the initial check was bypassed.

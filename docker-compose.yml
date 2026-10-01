@@ -31,6 +31,7 @@ services:
     command: ["hbbs", "--relay-servers", "${RUSTDESK_RELAY_SERVER:?Set the advertised relay address}"]
     environment:
       DB_URL: /data/db_v2.sqlite3
+      WS_TRUSTED_PROXIES: ${WS_TRUSTED_PROXIES:-}
     ports:
       - "${HBBS_NAT_PORT:-21115}:21115"
       - "${HBBS_PORT:-21116}:21116/tcp"
@@ -47,6 +48,8 @@ services:
   hbbr:
     <<: *image
     command: ["hbbr"]
+    environment:
+      WS_TRUSTED_PROXIES: ${WS_TRUSTED_PROXIES:-}
     ports:
       - "${HBBR_PORT:-21117}:21117"
       - "${HBBR_WS_PORT:-21119}:21119"

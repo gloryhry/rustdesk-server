@@ -4,6 +4,10 @@ pub struct MockHbbs { child: Child, pub port: u16 }
 
 impl MockHbbs {
     pub async fn start(directory: &Path, database: &Path) -> Self {
+        Self::start_with_proxy(directory,database,None).await
+    }
+
+    pub async fn start_with_proxy(directory: &Path, database: &Path, proxy: Option<&str>) -> Self {
         let (port,guards,udp) = loop {
             let main = TcpListener::bind("127.0.0.1:0").unwrap();
             let port = main.local_addr().unwrap().port();
@@ -13,13 +17,16 @@ impl MockHbbs {
             }
         };
         drop(guards); drop(udp);
-        let child = Command::new(env!("CARGO_BIN_EXE_hbbs"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_hbbs"));
+        command
             .args(["--bind","127.0.0.1","--port",&port.to_string(),"--key",""])
             .current_dir(directory).env_clear().env("DB_URL",database).env("TEST_HBBS","no")
             .env("HOME",directory.join("home")).env("XDG_CONFIG_HOME",directory.join("client-config"))
             // The existing updater cannot reach an external server during this isolated test.
             .env("HTTP_PROXY","http://127.0.0.1:9").env("HTTPS_PROXY","http://127.0.0.1:9")
-            .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+            .stdout(Stdio::null()).stderr(Stdio::null());
+        if let Some(proxy) = proxy { command.env("WS_TRUSTED_PROXIES",proxy); }
+        let child = command.spawn().unwrap();
         let mut server = Self { child,port };
         for _ in 0..100 {
             if std::net::TcpStream::connect(("127.0.0.1",port)).is_ok() { return server; }

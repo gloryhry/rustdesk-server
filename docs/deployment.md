@@ -42,3 +42,8 @@ python3 tests/deployment/run.py
 4. 回滚恢复**匹配的程序版本和数据库备份**，并保持对应密钥。不能只降级镜像后继续读取已升级数据库。
 
 本轮开发不执行生产迁移或发布。
+
+WebSocket ports preserve the actual TCP source by default. If using a reverse
+proxy, configure exact proxy IPs with `WS_TRUSTED_PROXIES` and overwrite client
+forwarding headers as documented in environment-variables.md. Invalid configuration
+fails startup; an empty value is appropriate for directly exposed ports.
