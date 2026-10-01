@@ -41,6 +41,28 @@ async fn bind(app: &TestApp, owner: &str, token: &str) -> String {
     value(response).await["id"].as_str().unwrap().to_owned()
 }
 
+async fn seed_capacity(pool: &sqlx::SqlitePool, count: i64) {
+    sqlx::query("with recursive n(x) as (select 1 union all select x+1 from n where x<?)
+        insert into peer(guid,id,uuid,pk,info) select cast('capacity-'||x as blob),'capacity-'||x,cast('uuid-'||x as blob),?,'{}' from n")
+        .bind(count).bind(&[7_u8;32][..]).execute(pool).await.unwrap();
+    sqlx::query("insert into api_device_report(peer_guid,uuid,pk,sysinfo,sysinfo_at_ms)
+        select guid,uuid,pk,'{\"kept\":true}',100 from peer where id like 'capacity-%'").execute(pool).await.unwrap();
+}
+fn capacity_report(number: i64) -> Value {
+    json!({"id":format!("capacity-{number}"),"uuid":base64::encode(format!("uuid-{number}"))})
+}
+async fn report_count(pool: &sqlx::SqlitePool) -> i64 {
+    sqlx::query_scalar("select count(*) from api_device_report").fetch_one(pool).await.unwrap()
+}
+async fn has_report(pool: &sqlx::SqlitePool, guid: &[u8]) -> bool {
+    sqlx::query_scalar("select exists(select 1 from api_device_report where peer_guid=?)").bind(guid).fetch_one(pool).await.unwrap()
+}
+async fn protect_capacity(pool: &sqlx::SqlitePool, owner: &str) {
+    // Distinct fixture UUID strings satisfy the account/UUID uniqueness constraint.
+    sqlx::query("insert into api_device(id,user_id,uuid,peer_guid,verified,verified_uuid,verified_pk)
+        select id,?,id,guid,1,uuid,pk from peer where id like 'capacity-%'").bind(owner).execute(pool).await.unwrap();
+}
+
 #[tokio::test]
 async fn official_unsigned_sysinfo_and_heartbeat_persist_without_ownership_or_online_claims() {
     let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
@@ -155,7 +177,7 @@ async fn registration_queue_is_bounded_flushes_and_online_expires_without_api_re
 }
 
 #[tokio::test]
-async fn oversized_reports_and_capacity_are_rejected_without_success_or_growth() {
+async fn oversized_reports_are_rejected_without_storage() {
     let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
     seed(&app).await;
     let mut oversized = report(); oversized["padding"] = json!("x".repeat(65_536));
@@ -164,12 +186,188 @@ async fn oversized_reports_and_capacity_are_rejected_without_success_or_growth()
     large_request.headers_mut().insert(header::CONTENT_LENGTH,length.to_string().parse().unwrap());
     assert_eq!(app.send(large_request).await.status(),StatusCode::PAYLOAD_TOO_LARGE);
     let pool = pool(&app).await;
-    sqlx::query("with recursive n(x) as (select 1 union all select x+1 from n where x<10000)
-        insert into peer(guid,id,uuid,pk,info) select cast('capacity-'||x as blob),'capacity-'||x,x'01',x'01','{}' from n").execute(&pool).await.unwrap();
-    sqlx::query("insert into api_device_report(peer_guid,uuid,pk) select guid,uuid,pk from peer where id like 'capacity-%'").execute(&pool).await.unwrap();
+    assert_eq!(report_count(&pool).await,0);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn public_reports_reclaim_full_capacity_and_evicted_heartbeats_request_sysinfo() {
+    for path in ["/api/sysinfo","/api/heartbeat"] {
+        let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+        let guid = seed(&app).await; let pool = pool(&app).await;
+        seed_capacity(&pool,10_000).await;
+        let response = app.send(request("POST",path,report())).await;
+        assert_eq!(response.status(),StatusCode::OK,"{path}: unsigned reports must reclaim capacity");
+        if path.ends_with("sysinfo") { assert_eq!(body(response).await,"SYSINFO_UPDATED"); }
+        else { assert_eq!(value(response).await["sysinfo"],true); }
+        assert_eq!(report_count(&pool).await,10_000);
+        assert!(has_report(&pool,&guid).await);
+        assert!(!has_report(&pool,b"capacity-1").await);
+        let recreated = app.send(request("POST","/api/heartbeat",capacity_report(1))).await;
+        assert_eq!(recreated.status(),StatusCode::OK);
+        assert_eq!(value(recreated).await["sysinfo"],true);
+        assert_eq!(report_count(&pool).await,10_000);
+        assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from peer").fetch_one(&pool).await.unwrap(),10_001);
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
+async fn report_reclamation_uses_latest_server_time_and_guid_ties() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    seed(&app).await; let database = db(&app).await; let pool = pool(&app).await;
+    database.insert_peer("654321",b"second-device",&[3;32],"{}").await.unwrap();
+    seed_capacity(&pool,10_000).await;
+    sqlx::query("update api_device_report set sysinfo_at_ms=1,heartbeat_at_ms=200 where peer_guid=cast('capacity-1' as blob);
+        update api_device_report set heartbeat_at_ms=2 where peer_guid=cast('capacity-2' as blob);
+        update api_device_report set sysinfo_at_ms=4,heartbeat_at_ms=4 where peer_guid in (cast('capacity-3' as blob),cast('capacity-30' as blob))")
+        .execute(&pool).await.unwrap();
+    assert_eq!(body(app.send(request("POST","/api/sysinfo",report())).await).await,"SYSINFO_UPDATED");
+    assert!(!has_report(&pool,b"capacity-3").await);
+    assert!(has_report(&pool,b"capacity-30").await);
+    let second = json!({"id":"654321","uuid":base64::encode(b"second-device")});
+    assert_eq!(app.send(request("POST","/api/heartbeat",second)).await.status(),StatusCode::OK);
+    assert!(!has_report(&pool,b"capacity-30").await);
+    assert!(has_report(&pool,b"capacity-1").await);
+    assert!(has_report(&pool,b"capacity-2").await);
+    assert_eq!(report_count(&pool).await,10_000); pool.close().await;
+}
+
+#[tokio::test]
+async fn verified_reports_survive_pressure_and_reported_ownership_does_not_protect_rows() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    let guid = seed(&app).await; let (owner,_) = owner(&app).await; let admin = admin(&app).await;
+    let device = bind(&app,&owner,&admin).await;
+    assert_eq!(body(app.send(request("POST","/api/sysinfo",report())).await).await,"SYSINFO_UPDATED");
+    let pool = pool(&app).await; seed_capacity(&pool,9_999).await;
+    let mut spoofed = capacity_report(2); spoofed["verified"] = json!(true); spoofed["owner_id"] = json!(owner); spoofed["user_id"] = json!(owner);
+    assert_eq!(app.send(request("POST","/api/sysinfo",spoofed)).await.status(),StatusCode::OK);
+    sqlx::query("update api_device_report set sysinfo_at_ms=1 where peer_guid=?").bind(&guid).execute(&pool).await.unwrap();
+    sqlx::query("update api_device_report set sysinfo_at_ms=2 where peer_guid=cast('capacity-2' as blob)").execute(&pool).await.unwrap();
+    let database = db(&app).await;
+    let newcomer = database.insert_peer("654321",b"new-device",&[3;32],"{}").await.unwrap();
+    let incoming = json!({"id":"654321","uuid":base64::encode(b"new-device")});
+    assert_eq!(app.send(request("POST","/api/sysinfo",incoming)).await.status(),StatusCode::OK);
+    assert!(has_report(&pool,&guid).await); assert!(has_report(&pool,&newcomer).await);
+    assert!(!has_report(&pool,b"capacity-2").await);
+    assert_eq!(sqlx::query_scalar::<_,String>("select user_id from api_device where id=?").bind(&device).fetch_one(&pool).await.unwrap(),owner);
+    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device_binding_audit").fetch_one(&pool).await.unwrap(),1);
+    assert_eq!(report_count(&pool).await,10_000); pool.close().await;
+}
+
+#[tokio::test]
+async fn full_verified_capacity_rejects_new_rows_but_allows_existing_updates() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    seed(&app).await; let (owner,_) = owner(&app).await; let pool = pool(&app).await;
+    seed_capacity(&pool,10_000).await; protect_capacity(&pool,&owner).await;
+    for path in ["/api/sysinfo","/api/heartbeat"] {
+        let response = app.send(request("POST",path,report())).await;
+        assert_eq!(response.status(),StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(value(response).await["error"],"device_report_capacity");
+    }
+    assert_eq!(report_count(&pool).await,10_000);
+    assert_eq!(body(app.send(request("POST","/api/sysinfo",capacity_report(1))).await).await,"SYSINFO_UPDATED");
+    assert_eq!(app.send(request("POST","/api/heartbeat",capacity_report(1))).await.status(),StatusCode::OK);
+    assert_eq!(report_count(&pool).await,10_000); pool.close().await;
+}
+
+#[tokio::test]
+async fn stale_bindings_pending_links_and_stale_reports_are_reclaimable() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    let (owner,_) = owner(&app).await; let database = db(&app).await; let pool = pool(&app).await;
+    seed_capacity(&pool,10_000).await; protect_capacity(&pool,&owner).await;
+    for (index,change) in ["binding_key","binding_uuid","pending","report_key","report_uuid"].into_iter().enumerate() {
+        let number = index+1; let victim = format!("capacity-{number}").into_bytes();
+        let sql = match change {
+            "binding_key" => "update api_device set verified_pk=x'00' where peer_guid=?",
+            "binding_uuid" => "update api_device set verified_uuid=x'00' where peer_guid=?",
+            "pending" => "update api_device set verified=0 where peer_guid=?",
+            "report_key" => "update api_device_report set pk=x'00' where peer_guid=?",
+            _ => "update api_device_report set uuid=x'00' where peer_guid=?",
+        };
+        sqlx::query(sql).bind(&victim).execute(&pool).await.unwrap();
+        let id = format!("new-{number}"); let uuid = format!("new-uuid-{number}");
+        database.insert_peer(&id,uuid.as_bytes(),&[3;32],"{}").await.unwrap();
+        let response = app.send(request("POST","/api/sysinfo",json!({"id":id,"uuid":base64::encode(uuid)}))).await;
+        assert_eq!(response.status(),StatusCode::OK,"{change}");
+        assert!(!has_report(&pool,&victim).await,"{change}");
+        assert_eq!(report_count(&pool).await,10_000);
+    }
+    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device").fetch_one(&pool).await.unwrap(),10_000);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn reclamation_and_report_storage_roll_back_together_on_failure() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    let guid = seed(&app).await; let pool = pool(&app).await; seed_capacity(&pool,10_000).await;
+    for operation in ["delete","insert","update"] {
+        let trigger = format!("deny_report_{operation}");
+        sqlx::query(&format!("create trigger {trigger} before {operation} on api_device_report begin select raise(abort,'test report failure'); end"))
+            .execute(&pool).await.unwrap();
+        let response = app.send(request("POST","/api/sysinfo",report())).await;
+        assert_eq!(response.status(),StatusCode::INTERNAL_SERVER_ERROR,"{operation}");
+        assert_eq!(value(response).await["error"],"device_registry_storage_failed");
+        assert_eq!(report_count(&pool).await,10_000);
+        assert!(has_report(&pool,b"capacity-1").await); assert!(!has_report(&pool,&guid).await);
+        let preserved: String = sqlx::query_scalar("select sysinfo from api_device_report where peer_guid=cast('capacity-1' as blob)").fetch_one(&pool).await.unwrap();
+        assert_eq!(preserved,"{\"kept\":true}");
+        sqlx::query(&format!("drop trigger {trigger}")).execute(&pool).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from sqlite_schema where type='trigger'").fetch_one(&pool).await.unwrap(),0);
+    }
+    assert_eq!(body(app.send(request("POST","/api/sysinfo",report())).await).await,"SYSINFO_UPDATED");
+    assert_eq!(report_count(&pool).await,10_000); pool.close().await;
+}
+
+#[tokio::test]
+async fn overfull_capacity_is_reclaimed_or_rolled_back_when_protected_space_is_insufficient() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    let guid = seed(&app).await; let (owner,_) = owner(&app).await; let pool = pool(&app).await;
+    seed_capacity(&pool,10_001).await; protect_capacity(&pool,&owner).await;
+    sqlx::query("update api_device set verified=0 where peer_guid=cast('capacity-1' as blob)").execute(&pool).await.unwrap();
     let response = app.send(request("POST","/api/sysinfo",report())).await;
     assert_eq!(response.status(),StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device_report").fetch_one(&pool).await.unwrap(),10_000);
+    assert_eq!(report_count(&pool).await,10_001);
+    assert!(has_report(&pool,b"capacity-1").await); assert!(!has_report(&pool,&guid).await);
+    sqlx::query("update api_device set verified=0 where peer_guid=cast('capacity-10' as blob)").execute(&pool).await.unwrap();
+    assert_eq!(body(app.send(request("POST","/api/sysinfo",report())).await).await,"SYSINFO_UPDATED");
+    assert_eq!(report_count(&pool).await,10_000);
+    assert!(!has_report(&pool,b"capacity-1").await); assert!(!has_report(&pool,b"capacity-10").await);
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn concurrent_admissions_from_separate_connections_keep_capacity_bounded() {
+    let mut app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    let first_guid = seed(&app).await;
+    let second_guid = db(&app).await.insert_peer("654321",b"second-device",&[3;32],"{}").await.unwrap();
+    let pool = pool(&app).await; seed_capacity(&pool,9_999).await;
+    let first_router = app.router.clone();
+    app.reopen(OAuthRuntime::new(Vec::new()),Some(hbbs::oauth_admin::ProviderSecretKey::from_bytes(&[7;32]).unwrap())).await.unwrap();
+    use tower::ServiceExt;
+    let (one,two) = tokio::join!(first_router.oneshot(request("POST","/api/sysinfo",report())),
+        app.send(request("POST","/api/heartbeat",json!({"id":"654321","uuid":base64::encode(b"second-device")}))));
+    assert_eq!(one.unwrap().status(),StatusCode::OK); assert_eq!(two.status(),StatusCode::OK);
+    assert_eq!(report_count(&pool).await,10_000);
+    assert!(has_report(&pool,&first_guid).await); assert!(has_report(&pool,&second_guid).await);
+    assert!(!has_report(&pool,b"capacity-1").await); pool.close().await;
+}
+
+#[tokio::test]
+async fn rejected_reports_do_not_reclaim_capacity() {
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    seed(&app).await; let pool = pool(&app).await; seed_capacity(&pool,10_000).await;
+    assert_eq!(body(app.send(request("POST","/api/sysinfo",json!({"id":"unknown","uuid":base64::encode(b"device-uuid")}))).await).await,"ID_NOT_FOUND");
+    let mut mismatch = report(); mismatch["uuid"] = json!(base64::encode(b"wrong-uuid"));
+    assert_eq!(body(app.send(request("POST","/api/heartbeat",mismatch)).await).await,"ID_NOT_FOUND");
+    assert_eq!(app.send(request("POST","/api/sysinfo",json!({}))).await.status(),StatusCode::BAD_REQUEST);
+    let mut oversized = report(); oversized["padding"] = json!("x".repeat(65_536));
+    let length = oversized.to_string().len(); let mut oversized = request("POST","/api/sysinfo",oversized);
+    oversized.headers_mut().insert(header::CONTENT_LENGTH,length.to_string().parse().unwrap());
+    assert_eq!(app.send(oversized).await.status(),StatusCode::PAYLOAD_TOO_LARGE);
+    sqlx::query("update api_device_report set sysinfo_at_ms=? where peer_guid=cast('capacity-2' as blob)").bind(now_ms()).execute(&pool).await.unwrap();
+    assert_eq!(app.send(request("POST","/api/sysinfo",capacity_report(2))).await.status(),StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(report_count(&pool).await,10_000); assert!(has_report(&pool,b"capacity-1").await);
     pool.close().await;
 }
 

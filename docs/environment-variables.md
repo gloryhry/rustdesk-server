@@ -411,9 +411,18 @@ observed online time.
 
 Each report body is limited to 64 KiB. Sysinfo and heartbeat each allow one write
 per matching Peer every 5 seconds; concurrent duplicates receive 429. At most
-10000 report rows are stored; new rows above that limit fail with 503 rather than
-claim success. There is no unbounded in-memory report cache. Storage failures
-return 500 and roll back. API reports do not refresh trusted registration time.
+10000 report rows are stored. When a new report needs space, the oldest unverified
+reports are reclaimed by their latest server-written sysinfo/heartbeat timestamp,
+with Peer GUID breaking ties. Unsigned telemetry has best-effort retention;
+recreating an evicted report through heartbeat requests fresh sysinfo. A report is
+protected only while its GUID, UUID and public key match both the current hbbs Peer
+and an administrator-verified binding. Claimed ownership fields do not protect
+reports; stale bindings and old key/UUID reports remain reclaimable. If insufficient
+reclaimable rows exist, new reports fail with 503 `device_report_capacity`; existing
+reports can still update at capacity. Reclamation and report storage commit together,
+and any failure rolls back both without changing Peer, ownership or audit records.
+There is no unbounded in-memory report cache. Storage failures return 500.
+API reports do not refresh trusted registration time.
 
 Administrators inspect `GET /api/admin/device/registry`, which returns up to 100
 registered Peers in stable ID order; use `?peer_id=...` to inspect a specific ID.

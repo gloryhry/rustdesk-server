@@ -1175,7 +1175,19 @@ impl Database {
         }
         if existing.is_none() {
             let count: i64 = sqlx::query_scalar("select count(*) from api_device_report").fetch_one(&mut *tx).await.map_err(|_| RegistryError::Storage)?;
-            if count >= MAX_REPORTS { return Err(RegistryError::Capacity); }
+            if count >= MAX_REPORTS {
+                let needed = count-MAX_REPORTS+1;
+                // Public registrations cannot permanently reserve report capacity. Only telemetry
+                // matching a current administrator-verified binding is protected from reclamation.
+                let reclaimed = sqlx::query("delete from api_device_report where peer_guid in (
+                    select t.peer_guid from api_device_report t where not exists (
+                        select 1 from api_device d join peer p on p.guid=d.peer_guid
+                        where d.peer_guid=t.peer_guid and d.verified=1 and d.verified_uuid=p.uuid and d.verified_pk=p.pk
+                            and t.uuid=p.uuid and t.pk=p.pk)
+                    order by max(t.sysinfo_at_ms,t.heartbeat_at_ms),t.peer_guid limit ?)")
+                    .bind(needed).execute(&mut *tx).await.map_err(|_| RegistryError::Storage)?.rows_affected();
+                if reclaimed < needed as u64 { return Err(RegistryError::Capacity); }
+            }
         }
         if !same_identity {
             sqlx::query("insert into api_device_report(peer_guid,uuid,pk) values(?,?,?) on conflict(peer_guid) do update set
