@@ -84,7 +84,7 @@ quick-xml 两条定向公告基线失败；wayland-scanner 0.31.11 使用 quick-
 | --- | --- | --- |
 | #34 | anyhow 1.0.57 / RUSTSEC-2026-0190 | 已完成 |
 | #35 | atty 0.2.14 / RUSTSEC-2021-0145 | 待处理 |
-| #36 | bumpalo 3.9.1 / RUSTSEC-2022-0078 | 待处理 |
+| #36 | bumpalo 3.9.1 / RUSTSEC-2022-0078 | 已完成 |
 | #37 | lexical-core 0.7.6 / RUSTSEC-2023-0086 | 待处理 |
 | #38 | rand 0.8.5 / RUSTSEC-2026-0097 | 待处理 |
 
@@ -93,3 +93,7 @@ quick-xml 两条定向公告基线失败；wayland-scanner 0.31.11 使用 quick-
 ## #34 验收
 
 新增定向脚本纳入 unsound，并在依赖更新前实际拒绝 RUSTSEC-2026-0190。anyhow 1.0.103 升级后通过，剩余 4 条内存安全公告；CI 完整审计改为 --deny unsound，禁止只按漏洞计数判定安全。公告是 context/downcast_mut 的借用边界错误，未在本项目发现直接 downcast_mut 调用，也未宣称动态复现 UB 或完成 Miri 验证。根包 146 项和 locked check 通过；锁文件 SHA-256：ee486f0d46727ebc0b4a64f9fb002a8fcab749770cb8e7b3b99d68fe7ba69c22；用户数据库未变。
+
+## #36 验收
+
+bumpalo 迭代器生命周期定向公告基线失败，锁定至 3.19.0 后通过，剩余 3 条 unsound。来源为 wasm-bindgen-backend 的目标相关代码生成路径；本项未宣称在 Linux 服务输入中动态复现 UAF，也未执行 WASM 目标构建。根包 146 项与 locked 全目标检查通过。锁文件 SHA-256：a2f4191e247e0f422b7c4a0816bacd4a8ce4eac5490e7f261af85d1a1aca7eb1；用户数据库未变。
