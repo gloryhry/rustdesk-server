@@ -13,7 +13,7 @@
 | #27 | ring 0.16.20 / RUSTSEC-2025-0009 | 已完成 |
 | #28 | libsqlite3-sys 0.24.2 / RUSTSEC-2022-0090; sqlx 0.6.0 / RUSTSEC-2024-0363; rustls 0.20.4 / RUSTSEC-2024-0336; webpki 0.22.0 / RUSTSEC-2023-0052 | 已完成 |
 | #29 | h2 0.3.26 / RUSTSEC-2026-0258; rustls-webpki 0.101.7 / RUSTSEC-2026-0098; rustls-webpki 0.101.7 / RUSTSEC-2026-0099; rustls-webpki 0.101.7 / RUSTSEC-2026-0104 | 已完成 |
-| #30 | quick-xml 0.39.4 / RUSTSEC-2026-0194; quick-xml 0.39.4 / RUSTSEC-2026-0195 | 待处理 |
+| #30 | quick-xml 0.39.4 / RUSTSEC-2026-0194; quick-xml 0.39.4 / RUSTSEC-2026-0195 | 已完成 |
 | #31 | users 0.11.0 / RUSTSEC-2025-0040 | 待处理 |
 
 旧 rustls 0.20.4 / ring / webpki 路径随 SQLx 和 JWT 升级移除；旧 rustls-webpki 与 h2 需迁移 HTTP 栈。每个组件处理后重跑定向审计、根包测试与 locked check；最终审计禁止忽略公告。Wayland/users 位于 hbb_common 子模块依赖路径，修复应保持可重建来源。
@@ -65,3 +65,7 @@ python3 tests/dependencies/audit.py --audit /path/to/cargo-audit RUSTSEC-2022-00
 ## #27 验收
 
 ring 定向公告基线失败；jsonwebtoken 9.3.1 移除 ring 0.16.20，检查通过，剩余 3 条。JWK 新 key_algorithm 转换失败或不匹配签名算法均拒绝；不放宽既有 RSA 白名单。OIDC 7 项签名/算法/issuer/audience/nonce/有效期/subject/多受众攻击回归、Cookie/原生 OAuth 与根包 145 项全部通过，locked 全目标 check 通过。无 Web 代码变更；锁文件 SHA-256：f1e3e6aa32cf93cc1d8793c7215ce09159cc9115a369382359c940764f1f847e，用户数据库未变。
+
+## #30 验收
+
+quick-xml 两条定向公告基线失败；wayland-scanner 0.31.11 使用 quick-xml 0.41.0，升级后通过，剩余 users 一条公告。仅锁文件更新，不改 hbb_common 源码或 gitlink；Wayland 构建时 XML 代码生成重新编译通过，路径不是 API 网络输入。根包 145 项与 locked 全目标检查通过。锁文件 SHA-256：51fb8695e32a45bc41fca9968d744486ec412e19211b8e4ceb8852f308ebd72f；用户数据库未变。
