@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libs
 WORKDIR /source
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY libs/hbb_common ./libs/hbb_common
-COPY vendor/users-compat ./vendor/users-compat
+COPY vendor ./vendor
 COPY src ./src
 ARG RUST_PROFILE=release
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/source/target \

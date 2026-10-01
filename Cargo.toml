@@ -75,7 +75,7 @@ users = "0.11"
 
 [workspace]
 members = ["libs/hbb_common"]
-exclude = ["ui", "vendor/users-compat"]
+exclude = ["ui", "vendor/users-compat", "vendor/atty-compat"]
 
 #https://github.com/johnthagen/min-sized-rust
 #https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles
@@ -89,3 +89,4 @@ strip = true
 
 [patch.crates-io]
 users = { path = "vendor/users-compat" }
+atty = { path = "vendor/atty-compat" }

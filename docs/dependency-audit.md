@@ -83,7 +83,7 @@ quick-xml 两条定向公告基线失败；wayland-scanner 0.31.11 使用 quick-
 | 新编号 | 依赖 / 公告 | 状态 |
 | --- | --- | --- |
 | #34 | anyhow 1.0.57 / RUSTSEC-2026-0190 | 已完成 |
-| #35 | atty 0.2.14 / RUSTSEC-2021-0145 | 待处理 |
+| #35 | atty 0.2.14 / RUSTSEC-2021-0145 | 已完成 |
 | #36 | bumpalo 3.9.1 / RUSTSEC-2022-0078 | 已完成 |
 | #37 | lexical-core 0.7.6 / RUSTSEC-2023-0086 | 已完成 |
 | #38 | rand 0.8.5 / RUSTSEC-2026-0097 | 已完成 |
@@ -105,3 +105,11 @@ lexical-core 定向公告基线失败；其唯一路径为 deadpool 默认 confi
 ## #38 验收
 
 rand 日志重入借用公告基线定向检查失败；0.8.6 修补版本后通过，剩余 atty 一条。hbb_common、ping 和构建/测试依赖使用同一更新，不改随机协议或密钥格式；未确认本项目日志满足公告全部重入触发条件，未声称运行时复现 UB。根包 146 项与 locked check 通过。锁文件 SHA-256：d5589b36cd6e0121e3ff661c4cd2475d52ee7dcb646180622640ae752e49dded；用户数据库未变。
+
+## #35 验收
+
+atty 平台指针公告定向基线失败；本地薄层使用 Rust 标准库 IsTerminal，零旧代码/unsafe，原 clap、构建工具与 logger API 保持。Docker 复制两个自有兼容层。local atty 0.2.14 版本用于兼容，不把本地包跳出 registry 审计作为唯一证明；实际实现来自工具链标准库，Windows 特定 allocator 路径未动态复现，未运行 Windows 服务目标。
+
+真实两服务 CLI 管道错误无 ANSI、伪终端错误带 ANSI，升级前后通过（默认 help 不启用颜色，所以回归使用实际错误路径）；根包 147 项与 locked check 通过。刷新完整审计库后 cargo audit --deny unsound 无忽略项通过，漏洞/unsound 均为 0；npm 生产依赖漏洞为 0。
+
+公告库提交：9b3a3b73a7f42606494c943e95f8196e9994df46，更新于 2026-09-30T09:15:39+02:00。仍保留 ansi_term、bincode、dlopen_derive、sodiumoxide 四条停止维护提示，属于后续维护风险，不标记为已修复漏洞。锁文件 SHA-256：42722c2c52ceeffc095a87be61d0c3d90ff29bd3968ca3547c38a0365cdf8c52；用户数据库未变。
