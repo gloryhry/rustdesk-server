@@ -1,11 +1,21 @@
 # syntax=docker/dockerfile:1
-FROM node:24.9.0-bookworm-slim AS web-build
+FROM --platform=$BUILDPLATFORM node:24.9.0-bookworm-slim AS web-build
 WORKDIR /source/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/index.html web/vite.config.js ./
 COPY web/src ./src
 RUN npm run build
+
+# Fetch locked sources on the build host: 32-bit libgit2 cannot read large overlay inode numbers.
+FROM --platform=$BUILDPLATFORM rust:1.98.0-bookworm AS dependency-source
+WORKDIR /source
+COPY Cargo.toml Cargo.lock build.rs ./
+COPY libs/hbb_common ./libs/hbb_common
+COPY vendor ./vendor
+COPY src ./src
+RUN --mount=type=cache,id=rustdesk-source-registry,target=/usr/local/cargo/registry --mount=type=cache,id=rustdesk-source-git,target=/usr/local/cargo/git \
+    cargo vendor --locked /source/vendor-dependencies > /source/vendor-config.toml
 
 FROM rust:1.98.0-bookworm AS rust-build
 RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev libclang-dev cmake && rm -rf /var/lib/apt/lists/*
@@ -14,9 +24,13 @@ COPY Cargo.toml Cargo.lock build.rs ./
 COPY libs/hbb_common ./libs/hbb_common
 COPY vendor ./vendor
 COPY src ./src
+COPY --from=dependency-source /source/vendor-dependencies ./vendor-dependencies
+COPY --from=dependency-source /source/vendor-config.toml ./.cargo/config.toml
 ARG RUST_PROFILE=release
-RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/source/target \
-    set -eu; touch build.rs; cargo build --locked --profile "$RUST_PROFILE" --bin hbbs --bin hbbr --bin rustdesk-api --bin rustdesk-utils; \
+ARG CARGO_BUILD_JOBS=2
+ARG TARGETPLATFORM
+RUN --mount=type=cache,id=rustdesk-target-${TARGETPLATFORM},target=/source/target,sharing=locked \
+    set -eu; touch build.rs; cargo build --locked --offline --profile "$RUST_PROFILE" --bin hbbs --bin hbbr --bin rustdesk-api --bin rustdesk-utils; \
     mkdir /binaries; case "$RUST_PROFILE" in dev) profile_dir=debug ;; *) profile_dir="$RUST_PROFILE" ;; esac; \
     cp "/source/target/$profile_dir/hbbs" "/source/target/$profile_dir/hbbr" "/source/target/$profile_dir/rustdesk-api" "/source/target/$profile_dir/rustdesk-utils" /binaries/
 

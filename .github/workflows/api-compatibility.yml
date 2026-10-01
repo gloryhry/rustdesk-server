@@ -46,6 +46,51 @@ jobs:
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit --deny unsound
 
+  multiarch:
+    name: Release images (${{ matrix.platform }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { platform: 'linux/amd64', artifact: amd64 }
+          - { platform: 'linux/arm64', artifact: arm64 }
+          - { platform: 'linux/arm/v7', artifact: armv7 }
+          - { platform: 'linux/386', artifact: i386 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm,386
+      - uses: docker/setup-buildx-action@v3
+        id: buildx
+      - name: Build and execute release images
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          BUILDER: ${{ steps.buildx.outputs.name }}
+        run: python3 tests/deployment/multiarch.py --platform "$PLATFORM" --builder "$BUILDER" --log-dir "$RUNNER_TEMP/multiarch-logs"
+      - name: Preserve build and check records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiarch-${{ matrix.artifact }}
+          path: ${{ runner.temp }}/multiarch-logs
+          if-no-files-found: warn
+
+  multiarch-required:
+    name: All release platforms passed
+    needs: multiarch
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULT: ${{ needs.multiarch.result }}
+        run: test "$RESULT" = success
+
   deployment:
     name: Source images, Compose, s6 and disposable Kubernetes
     runs-on: ubuntu-24.04

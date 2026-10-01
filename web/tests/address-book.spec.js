@@ -169,3 +169,296 @@ test('tag color editing keeps alpha and renaming or deleting updates only relate
   await expect(page.locator('[data-edit-tag="keep"]')).toBeVisible();
   sqlite.close();
 });
+
+
+test('refreshing the book must refresh tag colors before assigning the new revision', async ({ page, service, context }) => {
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  await page.locator('#tag-form [name="name"]').fill('work');
+  await page.locator('#tag-form [name="color"]').fill('#ff0000');
+  await page.locator('#save-tag').click();
+  await expect(page.locator('[data-edit-tag="work"]')).toBeVisible();
+  await expect(page.locator('#save-tag')).toBeEnabled();
+  const second = await context.newPage();
+  await second.goto(service.uiUrl);
+  await second.locator('#nav-addressBook').click();
+  await second.locator('[data-edit-tag="work"]').click();
+  await second.locator('#tag-form [name="color"]').fill('#0000ff');
+  const secondSaved = second.waitForResponse(r => r.url().endsWith('/api/web/ab/tags') && r.request().method() === 'POST');
+  await second.locator('#save-tag').click();
+  expect((await secondSaved).status()).toBe(200);
+  await expect(second.locator('#save-tag')).toBeEnabled();
+  await page.locator('#refresh-address-book').click();
+  await expect.poll(async () => JSON.parse(await page.locator('#address-book-editor').inputValue()).tag_colors).toEqual('{"work":4278190335}');
+  await page.locator('[data-edit-tag="work"]').click();
+  const displayed = await page.locator('#tag-form [name="color"]').inputValue();
+  await page.locator('#tag-form [name="name"]').fill('renamed');
+  const response = page.waitForResponse(r => r.url().endsWith('/api/web/ab/tags') && r.request().method() === 'POST');
+  await page.locator('#save-tag').click();
+  const status = (await response).status();
+  const stored = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
+  expect(displayed).toBe('#0000ff');
+  expect(status).toBe(200);
+  expect(JSON.parse(stored.tag_colors).renamed).toBe(0xff0000ff);
+});
+
+test('saving a tag must keep the unsaved whole document draft', async ({ page, service }) => {
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  const draft = JSON.stringify({peers:[{id:'123456',alias:'unsaved-draft'}],tags:[]});
+  await page.locator('#address-book-editor').fill(draft);
+  await page.locator('#tag-form [name="name"]').fill('new-tag');
+  await page.locator('#save-tag').click();
+  await expect(page.locator('[data-edit-tag="new-tag"]')).toBeVisible();
+  const after = JSON.parse(await page.locator('#address-book-editor').inputValue());
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  expect(after.peers).toEqual([{id:'123456',alias:'unsaved-draft'}]);
+});
+
+async function openAddressBook(page, service) {
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  await expect(page.locator('#save-tag')).toBeEnabled();
+}
+
+async function saveJsonBook(page, document) {
+  await page.locator('#address-book-editor').fill(JSON.stringify(document));
+  await page.locator('#save-address-book').click();
+  await expect(page.locator('#save-address-book')).toBeEnabled();
+}
+
+test('a tag draft retains its revision after refresh and rejects a concurrent edit', async ({ page, service, context }) => {
+  await openAddressBook(page, service);
+  await saveJsonBook(page, { peers: [], tags: ['work'], tag_colors: { work: 0xffff0000 } });
+  await page.locator('[data-edit-tag="work"]').click();
+  await page.locator('#tag-form [name="name"]').fill('stale-name');
+  const second = await context.newPage();
+  await second.goto(service.uiUrl);
+  await second.locator('#nav-addressBook').click();
+  await expect(second.locator('#save-tag')).toBeEnabled();
+  await second.locator('[data-edit-tag="work"]').click();
+  await second.locator('#tag-form [name="color"]').fill('#0000ff');
+  await second.locator('#save-tag').click();
+  await expect(second.locator('#save-tag')).toBeEnabled();
+  await page.locator('#refresh-address-book').click();
+  await expect(page.locator('#save-tag')).toBeEnabled();
+  const response = page.waitForResponse(r => r.url().endsWith('/api/web/ab/tags') && r.request().method() === 'POST');
+  await page.locator('#save-tag').click();
+  expect((await response).status()).toBe(409);
+  await expect(page.locator('.notice')).toContainText('address_book_revision_conflict');
+  await expect(page.locator('#tag-form [name="name"]')).toHaveValue('stale-name');
+  const stored = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
+  expect(JSON.parse(stored.tag_colors)).toEqual({ work: 0xff0000ff });
+  expect(stored.tags).toEqual(['work']);
+});
+
+for (const action of ['create', 'edit', 'delete']) {
+  test(`a ${action} tag action preserves exact JSON and its original revision`, async ({ page, service }) => {
+    await openAddressBook(page, service);
+    await saveJsonBook(page, { peers: [], tags: ['work'], tag_colors: { work: 0xffff0000 } });
+    const initial = await page.evaluate(async () => (await fetch('/api/ab')).json());
+    const draft = ' {\n "peers": [{"id":"123456", "extension":{"keep":true}}], "tags": ["work"]\n} ';
+    await page.locator('#address-book-editor').fill(draft);
+    if (action === 'delete') {
+      await page.locator('[data-delete-tag="work"]').click();
+    } else {
+      if (action === 'edit') await page.locator('[data-edit-tag="work"]').click();
+      await page.locator('#tag-form [name="name"]').fill('new-name');
+      await page.locator('#save-tag').click();
+    }
+    await expect(page.locator('#save-tag')).toBeEnabled();
+    await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+    const before = await page.evaluate(async () => (await fetch('/api/ab')).json());
+    expect(before.revision).toBeGreaterThan(initial.revision);
+    const response = page.waitForResponse(r => r.url().endsWith('/api/ab') && r.request().method() === 'POST');
+    await page.locator('#save-address-book').click();
+    const rejected = await response;
+    expect(rejected.request().postDataJSON().revision).toBe(initial.revision);
+    expect(rejected.status()).toBe(409);
+    await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+    expect(await page.evaluate(async () => (await fetch('/api/ab')).json())).toEqual(before);
+  });
+}
+
+test('invalid JSON survives language, navigation, failed refresh and invalid save', async ({ page, service }) => {
+  await openAddressBook(page, service);
+  const draft = ' { "peers": [\n   incomplete';
+  await page.locator('#address-book-editor').fill(draft);
+  await page.locator('#locale-toggle').click();
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  await expect(page.locator('#address-book-draft-status')).toContainText('unsaved');
+  await page.locator('#nav-profile').click();
+  await page.locator('#nav-addressBook').click();
+  await expect(page.locator('#save-address-book')).toBeEnabled();
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  await page.route('**/api/web/ab/tags', route => route.fulfill({ status: 503, json: { error: 'review_refresh_failure' } }));
+  await page.locator('#refresh-address-book').click();
+  await expect(page.locator('.notice')).toContainText('review_refresh_failure');
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  await expect(page.locator('#save-tag')).toBeDisabled();
+  await page.unroute('**/api/web/ab/tags');
+  await page.locator('#refresh-address-book').click();
+  await expect(page.locator('#save-address-book')).toBeEnabled();
+  await page.locator('#save-address-book').click();
+  await expect(page.locator('.notice')).toContainText('valid JSON');
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+});
+
+test('discarding JSON requires confirmation and a successful snapshot read', async ({ page, service }) => {
+  await openAddressBook(page, service);
+  const original = await page.locator('#address-book-editor').inputValue();
+  const draft = '{ "unsaved": true';
+  await page.locator('#address-book-editor').fill(draft);
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.locator('#discard-address-book-draft').click();
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  await page.route('**/api/web/ab/tags', route => route.fulfill({ status: 503, json: { error: 'discard_read_failure' } }));
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#discard-address-book-draft').click();
+  await expect(page.locator('.notice')).toContainText('discard_read_failure');
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  await page.unroute('**/api/web/ab/tags');
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#discard-address-book-draft').click();
+  await expect(page.locator('#save-address-book')).toBeEnabled();
+  await expect(page.locator('#address-book-editor')).toHaveValue(original);
+  await expect(page.locator('#discard-address-book-draft')).toHaveCount(0);
+});
+
+for (const persistent of [false, true]) {
+  test(`a ${persistent ? 'persistent' : 'transient'} snapshot mismatch never mixes tag data and revisions`, async ({ page, service, context }) => {
+    await openAddressBook(page, service);
+    await saveJsonBook(page, { peers: [], tags: ['work'], tag_colors: { work: 0xffff0000 } });
+    const original = await page.locator('#address-book-editor').inputValue();
+    const second = await context.newPage();
+    await second.goto(service.uiUrl);
+    await second.locator('#nav-addressBook').click();
+    await expect(second.locator('#save-tag')).toBeEnabled();
+    await second.locator('[data-edit-tag="work"]').click();
+    await second.locator('#tag-form [name="color"]').fill('#0000ff');
+    await second.locator('#save-tag').click();
+    await expect(second.locator('#save-tag')).toBeEnabled();
+    let reads = 0;
+    await page.route('**/api/web/ab/tags', async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      reads += 1;
+      if (persistent || reads === 1) body.revision += 1;
+      await route.fulfill({ response, json: body });
+    });
+    await page.locator('#refresh-address-book').click();
+    await expect.poll(() => reads).toBe(2);
+    if (persistent) {
+      await expect(page.locator('.notice')).toContainText('address_book_revision_conflict');
+      await expect(page.locator('#address-book-editor')).toHaveValue(original);
+      await expect(page.locator('[data-edit-tag="work"]')).toBeDisabled();
+      await expect(page.locator('.tag-swatch')).toHaveAttribute('title', '#ff0000');
+    } else {
+      await expect(page.locator('#save-tag')).toBeEnabled();
+      await page.locator('[data-edit-tag="work"]').click();
+      await expect(page.locator('#tag-form [name="color"]')).toHaveValue('#0000ff');
+    }
+  });
+}
+
+test('a successful write followed by failed refresh blocks writes and keeps the JSON draft', async ({ page, service }) => {
+  await openAddressBook(page, service);
+  const draft = '{ "pending": true';
+  await page.locator('#address-book-editor').fill(draft);
+  await page.locator('#tag-form [name="name"]').fill('saved-tag');
+  await page.route('**/api/web/ab/tags', route => route.request().method() === 'GET'
+    ? route.fulfill({ status: 503, json: { error: 'after_write_failure' } }) : route.continue());
+  const response = page.waitForResponse(r => r.url().endsWith('/api/web/ab/tags') && r.request().method() === 'POST');
+  await page.locator('#save-tag').click();
+  expect((await response).status()).toBe(200);
+  await expect(page.locator('.notice')).toContainText('已保存，但刷新失败');
+  await expect(page.locator('#save-tag')).toBeDisabled();
+  await expect(page.locator('#save-peer')).toBeDisabled();
+  await expect(page.locator('#save-address-book')).toBeDisabled();
+  await expect(page.locator('#refresh-address-book')).toBeEnabled();
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+  await page.unroute('**/api/web/ab/tags');
+  await page.locator('#refresh-address-book').click();
+  await expect(page.locator('[data-edit-tag="saved-tag"]')).toBeEnabled();
+  await expect(page.locator('#address-book-editor')).toHaveValue(draft);
+});
+
+test('a snapshot returning after logout cannot restore private drafts', async ({ page, service }) => {
+  await openAddressBook(page, service);
+  await saveJsonBook(page, { peers: [{ id: '123456', alias: 'private-snapshot' }], tags: ['private-tag'] });
+  await page.locator('#address-book-editor').fill('{ "privateDraft": true');
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let received;
+  const ready = new Promise(resolve => { received = resolve; });
+  await page.route('**/api/web/ab/tags', async route => {
+    const response = await route.fetch();
+    received();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await page.locator('#refresh-address-book').click();
+  await ready;
+  await page.locator('#logout').click();
+  await expect(page.locator('#username')).toBeVisible();
+  release();
+  await page.unrouteAll({ behavior: 'wait' });
+  await expect(page.locator('#address-book-editor')).toHaveCount(0);
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  await expect(page.locator('#save-tag')).toBeEnabled();
+  await expect(page.locator('#address-book-editor')).not.toHaveValue('{ "privateDraft": true');
+});
+
+test('a late unauthorized snapshot cannot clear a newly authenticated session', async ({ page, service }) => {
+  await openAddressBook(page, service);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let received;
+  const ready = new Promise(resolve => { received = resolve; });
+  let held = false;
+  await page.route('**/api/web/ab/tags', async route => {
+    if (held) { await route.continue(); return; }
+    held = true;
+    received();
+    await gate;
+    await route.fulfill({ status: 401, json: { error: 'old_session_expired' } });
+  });
+  await page.locator('#refresh-address-book').click();
+  await ready;
+  await page.locator('#logout').click();
+  await expect(page.locator('#username')).toBeVisible();
+  await page.locator('#username').fill('browser-admin');
+  await page.locator('#password').fill('temporary-browser-password');
+  await page.locator('#auth-submit').click();
+  await expect(page.locator('#nav-addressBook')).toBeVisible();
+  await page.locator('#nav-addressBook').click();
+  await expect(page.locator('#save-tag')).toBeEnabled();
+  const current = await page.locator('#address-book-editor').inputValue();
+  release();
+  await page.unrouteAll({ behavior: 'wait' });
+  await expect(page.locator('#nav-addressBook')).toBeVisible();
+  await expect(page.locator('#address-book-editor')).toHaveValue(current);
+});
+
+test('an unavailable bootstrap snapshot preserves the authenticated session', async ({ page, service }) => {
+  await page.route('**/api/web/ab/tags', route => route.fulfill({ status: 503, json: { error: 'bootstrap_read_failure' } }));
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  await expect(page.locator('.notice')).toContainText('bootstrap_read_failure');
+  await expect(page.locator('#save-tag')).toBeDisabled();
+  await expect(page.locator('#logout')).toBeVisible();
+  await page.unroute('**/api/web/ab/tags');
+  await page.locator('#refresh-address-book').click();
+  await expect(page.locator('#save-tag')).toBeEnabled();
+});
+
+test('an unauthorized current snapshot immediately clears the private view', async ({ page, service }) => {
+  await openAddressBook(page, service);
+  await page.locator('#address-book-editor').fill('{ "privateDraft": true');
+  await page.route('**/api/web/ab/tags', route => route.fulfill({ status: 401, json: { error: 'session_expired' } }));
+  await page.locator('#refresh-address-book').click();
+  await expect(page.locator('#username')).toBeVisible();
+  await expect(page.locator('#address-book-editor')).toHaveCount(0);
+  await expect(page.locator('#logout')).toHaveCount(0);
+});

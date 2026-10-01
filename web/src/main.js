@@ -122,6 +122,11 @@ const messages = {
     tagName: '标签名称',
     tagColor: '颜色（#RRGGBB 或 #RRGGBBAA）',
     editTag: '编辑标签',
+    jsonDraftChanged: 'JSON 有未保存修改；刷新和标签操作会保留草稿。',
+    jsonDraftStale: '地址簿已变更，JSON 草稿仍保留原版本；保存会提示冲突。请复制需要的内容后加载最新。',
+    discardJsonDraft: '放弃 JSON 草稿并加载最新',
+    confirmDiscardJsonDraft: '确认放弃当前 JSON 草稿并加载最新地址簿？',
+    savedRefreshFailed: '已保存，但刷新失败。草稿已保留，请刷新地址簿后继续。',
     noTags: '暂无标签',
     language: 'English',
     loading: '加载中...',
@@ -245,6 +250,11 @@ const messages = {
     tagName: 'Tag name',
     tagColor: 'Color (#RRGGBB or #RRGGBBAA)',
     editTag: 'Edit tag',
+    jsonDraftChanged: 'JSON has unsaved changes; refresh and tag actions will keep the draft.',
+    jsonDraftStale: 'The address book changed. This JSON draft keeps its original revision and will conflict on save. Copy what you need before loading the latest version.',
+    discardJsonDraft: 'Discard JSON draft and load latest',
+    confirmDiscardJsonDraft: 'Discard the current JSON draft and load the latest address book?',
+    savedRefreshFailed: 'Saved, but refresh failed. The draft was kept; refresh the address book before continuing.',
     noTags: 'No tags found',
     language: '简体中文',
     loading: 'Loading...',
@@ -261,9 +271,11 @@ const state = {
   user: null,
   activeView: 'profile',
   authMode: 'login',
-  addressBook: '{\n  "peers": [],\n  "tags": [],\n  "tag_colors": "{}"\n}',
-  addressBookEntries: [],
-  addressBookRevision: null,
+  addressBookSnapshot: null,
+  addressBookJsonDraft: { text: '', baseText: '', baseRevision: null },
+  addressBookWritable: false,
+  addressBookBusy: false,
+  addressBookRequest: 0,
   addressBookDraft: {
     id: '',
     peer_id: '',
@@ -274,7 +286,6 @@ const state = {
     tags: '',
     force_always_relay: false
   },
-  tags: [],
   tagDraft: { name: '', color: '' },
   serverConfig: null,
   users: [],
@@ -325,6 +336,7 @@ function render() {
   if (state.notice) shell.append(notice());
   app.append(shell);
   bindEvents();
+  updateAddressBookDraftStatus();
 }
 
 function header() {
@@ -441,6 +453,8 @@ function addressBookView() {
     button('refresh-address-book', t('refresh'), 'secondary'),
     button('save-address-book', state.busy ? t('saving') : t('save'), 'primary')
   ]);
+  view.querySelector('#refresh-address-book').disabled = state.addressBookBusy;
+  view.querySelector('#save-address-book').disabled = state.addressBookBusy || !state.addressBookWritable;
   view.append(peerEditor());
   const tableWrap = element('div', 'table-wrap');
   const table = document.createElement('table');
@@ -451,14 +465,14 @@ function addressBookView() {
   head.append(headRow);
   table.append(head);
   const body = document.createElement('tbody');
-  if (!state.addressBookEntries.length) {
+  if (!(state.addressBookSnapshot?.entries || []).length) {
     const row = document.createElement('tr');
     const cell = element('td', 'empty-cell', t('noPeers'));
     cell.colSpan = 6;
     row.append(cell);
     body.append(row);
   } else {
-    state.addressBookEntries.forEach(peer => {
+    (state.addressBookSnapshot?.entries || []).forEach(peer => {
       const row = document.createElement('tr');
       row.append(element('td', 'strong-cell', peer.peerId || peer.id || '—'));
       row.append(element('td', '', peer.alias || '—'));
@@ -469,11 +483,11 @@ function addressBookView() {
       const actions = element('div', 'button-group');
       const edit = button('', t('updatePeer'), 'secondary');
       edit.dataset.editPeer = peer.id || peer.peerId || '';
-      edit.disabled = state.busy;
+      edit.disabled = state.addressBookBusy || !state.addressBookWritable;
       actions.append(edit);
       const remove = button('', t('delete'), 'secondary');
       remove.dataset.deletePeer = peer.id || peer.peerId || '';
-      remove.disabled = state.busy;
+      remove.disabled = state.addressBookBusy || !state.addressBookWritable;
       actions.append(remove);
       const cell = document.createElement('td');
       cell.append(actions);
@@ -489,9 +503,12 @@ function addressBookView() {
   editor.id = 'address-book-editor';
   editor.className = 'json-editor';
   editor.spellcheck = false;
-  editor.value = state.addressBook;
-  editor.disabled = state.busy;
+  editor.value = state.addressBookJsonDraft.text;
+  editor.disabled = state.addressBookBusy;
   view.append(editor);
+  const status = element('div', '');
+  status.id = 'address-book-draft-status';
+  view.append(status);
   view.append(tagsPanel());
   return view;
 }
@@ -513,15 +530,16 @@ function peerEditor() {
     ? t('saving')
     : (draft.id ? t('updatePeer') : t('addPeer')), 'primary');
   submit.type = 'submit';
-  submit.disabled = state.busy;
+  submit.disabled = state.addressBookBusy || !state.addressBookWritable;
   actions.append(submit);
   if (draft.id) {
     const clear = button('clear-peer', t('cancel'), 'secondary');
     clear.type = 'button';
-    clear.disabled = state.busy;
+    clear.disabled = state.addressBookBusy || !state.addressBookWritable;
     actions.append(clear);
   }
   form.append(actions);
+  form.querySelectorAll('input').forEach(input => { input.disabled = state.addressBookBusy || !state.addressBookWritable; });
   panel.append(form);
   return panel;
 }
@@ -537,22 +555,22 @@ function tagsPanel() {
   name.maxLength = 64;
   name.required = true;
   name.value = state.tagDraft.name;
-  name.disabled = state.busy;
+  name.disabled = state.addressBookBusy || !state.addressBookWritable;
   const color = document.createElement('input');
   color.name = 'color';
   color.placeholder = t('tagColor');
   color.maxLength = 9;
   color.value = state.tagDraft.color;
-  color.disabled = state.busy;
+  color.disabled = state.addressBookBusy || !state.addressBookWritable;
   form.append(name, color);
   const submit = button('save-tag', t('save'), 'primary');
   submit.type = 'submit';
-  submit.disabled = state.busy;
+  submit.disabled = state.addressBookBusy || !state.addressBookWritable;
   form.append(submit);
   panel.append(form);
   const list = element('div', 'tag-list');
-  if (!state.tags.length) list.append(element('p', 'empty-state', t('noTags')));
-  state.tags.forEach(tag => {
+  if (!(state.addressBookSnapshot?.tags || []).length) list.append(element('p', 'empty-state', t('noTags')));
+  (state.addressBookSnapshot?.tags || []).forEach(tag => {
     const row = element('div', 'tag-row');
     row.append(element('span', '', tag.name || '—'));
     if (tag.color) {
@@ -563,11 +581,11 @@ function tagsPanel() {
     }
     const edit = button('', t('editTag'), 'secondary');
     edit.dataset.editTag = tag.name || '';
-    edit.disabled = state.busy;
+    edit.disabled = state.addressBookBusy || !state.addressBookWritable;
     row.append(edit);
     const remove = button('', t('delete'), 'secondary');
     remove.dataset.deleteTag = tag.name || '';
-    remove.disabled = state.busy;
+    remove.disabled = state.addressBookBusy || !state.addressBookWritable;
     row.append(remove);
     list.append(row);
   });
@@ -1091,7 +1109,6 @@ function bindEvents() {
     render();
     if (state.activeView === 'addressBook') {
       await loadAddressBook();
-      await loadTags();
     }
     if (state.activeView === 'devices') await loadDevices();
     if (state.activeView === 'groups') await loadGroups();
@@ -1103,6 +1120,10 @@ function bindEvents() {
   }));
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
+  document.querySelector('#address-book-editor')?.addEventListener('input', event => {
+    state.addressBookJsonDraft.text = event.currentTarget.value;
+    updateAddressBookDraftStatus();
+  });
   document.querySelector('#peer-form')?.addEventListener('submit', savePeer);
   document.querySelector('#peer-form')?.addEventListener('input', preservePeerDraft);
   document.querySelector('#peer-form')?.addEventListener('change', preservePeerDraft);
@@ -1119,15 +1140,16 @@ function bindEvents() {
     const data = new FormData(event.currentTarget);
     state.tagDraft = {
       ...state.tagDraft,
-      revision: state.tagDraft.revision ?? state.addressBookRevision,
+      revision: state.tagDraft.revision ?? state.addressBookSnapshot?.revision,
       name: String(data.get('name') || ''),
       color: String(data.get('color') || '')
     };
   });
   document.querySelectorAll('[data-edit-tag]').forEach(node => {
     node.addEventListener('click', () => {
-      const tag = state.tags.find(tag => tag.name === node.dataset.editTag);
-      if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '', revision: state.addressBookRevision }; render(); }
+      if (state.addressBookBusy || !state.addressBookWritable) return;
+      const tag = (state.addressBookSnapshot?.tags || []).find(tag => tag.name === node.dataset.editTag);
+      if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '', revision: state.addressBookSnapshot?.revision }; render(); }
     });
   });
   document.querySelectorAll('[data-delete-tag]').forEach(node => {
@@ -1262,82 +1284,132 @@ async function loadCurrentUser(renderAfter = true, requireSession = false) {
 }
 
 async function loadBootstrapData() {
-  const [serverResult, addressResult] = await Promise.allSettled([
+  const [serverResult] = await Promise.allSettled([
     api('/api/server-config', { method: 'POST', body: '{}' }),
-    api('/api/ab')
+    loadAddressBook()
   ]);
   if (serverResult.status === 'fulfilled') {
     state.serverConfig = serverResult.value.data || serverResult.value;
   }
-  if (addressResult.status === 'fulfilled') {
-    const raw = addressResult.value.data ?? addressResult.value;
-    try {
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      state.addressBook = JSON.stringify(parsed, null, 2);
-      state.addressBookRevision = addressResult.value.revision;
-    } catch {
-      setNotice('error', t('requestFailed'));
+}
+
+function jsonDraftChanged() {
+  return state.addressBookJsonDraft.text !== state.addressBookJsonDraft.baseText;
+}
+
+function updateAddressBookDraftStatus() {
+  const status = document.querySelector('#address-book-draft-status');
+  if (!status) return;
+  status.replaceChildren();
+  const stale = state.addressBookSnapshot && state.addressBookJsonDraft.baseRevision !== state.addressBookSnapshot.revision;
+  if (!jsonDraftChanged() && !stale) return;
+  status.append(element('p', 'empty-state', t(stale ? 'jsonDraftStale' : 'jsonDraftChanged')));
+  const discard = button('discard-address-book-draft', t('discardJsonDraft'), 'secondary');
+  discard.disabled = state.addressBookBusy;
+  discard.addEventListener('click', () => {
+    if (!state.addressBookBusy && window.confirm(t('confirmDiscardJsonDraft'))) {
+      loadAddressBook({ discardJsonDraft: true });
+    }
+  });
+  status.append(discard);
+}
+
+async function fetchAddressBookSnapshot() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const [book, entries, tags] = await Promise.all([
+      api('/api/ab'), api('/api/web/ab/entries'), api('/api/web/ab/tags')
+    ]);
+    const results = [book, entries, tags];
+    if (results.some(result => !Number.isSafeInteger(result?.revision) || result.revision < 1 || typeof result.guid !== 'string' || !result.guid)) {
+      throw new Error(t('requestFailed'));
+    }
+    if (results.some(result => result.revision !== book.revision || result.guid !== book.guid)) {
+      if (attempt === 0) continue;
+      throw new Error('address_book_revision_conflict');
+    }
+    const parsed = typeof book.data === 'string' ? JSON.parse(book.data) : book.data;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || !Array.isArray(entries.data) || !Array.isArray(tags.data)
+      || entries.data.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))
+      || tags.data.some(tag => !tag || typeof tag.name !== 'string' || typeof tag.color !== 'string')) {
+      throw new Error(t('requestFailed'));
+    }
+    return { guid: book.guid, revision: book.revision, text: JSON.stringify(parsed, null, 2), entries: entries.data, tags: tags.data };
+  }
+}
+
+function applyAddressBookSnapshot(snapshot, discardJsonDraft) {
+  if (discardJsonDraft || !jsonDraftChanged()) {
+    state.addressBookJsonDraft = { text: snapshot.text, baseText: snapshot.text, baseRevision: snapshot.revision };
+  }
+  state.addressBookSnapshot = snapshot;
+  state.addressBookWritable = true;
+}
+
+async function addressBookOperation(write, onSaved, discardJsonDraft = false) {
+  if (state.addressBookBusy || !state.user || (write && !state.addressBookWritable)) return false;
+  const user = state.user;
+  const request = ++state.addressBookRequest;
+  const current = () => state.user === user && state.addressBookRequest === request;
+  let saved = false;
+  state.addressBookBusy = true;
+  state.busy = true;
+  render();
+  try {
+    if (write) {
+      await write();
+      if (!current()) return false;
+      saved = true;
+      state.addressBookWritable = false;
+      onSaved?.();
+    }
+    const snapshot = await fetchAddressBookSnapshot();
+    if (!current()) return false;
+    applyAddressBookSnapshot(snapshot, discardJsonDraft);
+    setNotice(saved ? 'success' : null, saved ? t('saved') : null);
+    return true;
+  } catch (error) {
+    if (current()) {
+      if (!write || saved) state.addressBookWritable = false;
+      setNotice('error', saved ? t('savedRefreshFailed') : error.message);
+    }
+    return false;
+  } finally {
+    if (current()) {
+      state.addressBookBusy = false;
+      state.busy = false;
+      render();
     }
   }
 }
 
-async function loadAddressBook() {
-  state.busy = true;
-  render();
-  try {
-    const [result, entriesResult] = await Promise.all([
-      api('/api/ab'),
-      api('/api/web/ab/entries')
-    ]);
-    if (!Number.isSafeInteger(result.revision) || result.revision !== entriesResult.revision) throw new Error('address_book_revision_conflict');
-    state.addressBookRevision = result.revision;
-    const raw = result.data ?? result;
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    state.addressBook = JSON.stringify(parsed, null, 2);
-    const entries = entriesResult.data?.list || entriesResult.data || entriesResult.list || entriesResult;
-    state.addressBookEntries = Array.isArray(entries) ? entries : [];
-    setNotice(null, null);
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+async function loadAddressBook({ discardJsonDraft = false } = {}) {
+  return addressBookOperation(null, null, discardJsonDraft);
 }
 
 async function saveAddressBook() {
-  const editor = document.querySelector('#address-book-editor');
-  const raw = editor?.value || '';
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const draft = state.addressBookJsonDraft;
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(draft.text);
     if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
   } catch {
     setNotice('error', t('invalidJson'));
     render();
     return;
   }
-  state.busy = true;
-  render();
-  try {
-    await api('/api/ab', { method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed), revision: state.addressBookRevision }) });
-    await loadAddressBook();
-    await loadTags();
-    setNotice('success', t('saved'));
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await addressBookOperation(() => api('/api/ab', {
+    method: 'POST', body: JSON.stringify({ data: JSON.stringify(parsed), revision: draft.baseRevision })
+  }), null, true);
 }
 
 async function savePeer(event) {
   event.preventDefault();
+  if (state.addressBookBusy || !state.addressBookWritable) return;
   const data = new FormData(event.currentTarget);
   const payload = {
     id: state.addressBookDraft.id || undefined,
-    revision: state.addressBookDraft.revision ?? state.addressBookRevision,
+    revision: state.addressBookDraft.revision ?? state.addressBookSnapshot.revision,
     peer_id: String(data.get('peer-id') || '').trim(),
     username: String(data.get('peer-username') || '').trim(),
     hostname: String(data.get('peer-hostname') || '').trim(),
@@ -1351,26 +1423,16 @@ async function savePeer(event) {
   };
   if (!payload.peer_id) return;
   state.addressBookDraft = { ...state.addressBookDraft, ...payload, tags: payload.tags.join(', ') };
-  state.busy = true;
-  render();
-  try {
-    await api('/api/web/ab/entries', { method: 'POST', body: JSON.stringify(payload) });
-    clearPeerDraft();
-    await loadAddressBook();
-    setNotice('success', t('saved'));
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await addressBookOperation(() => api('/api/web/ab/entries', {
+    method: 'POST', body: JSON.stringify(payload)
+  }), clearPeerDraft);
 }
 
 function preservePeerDraft(event) {
   const data = new FormData(event.currentTarget);
   state.addressBookDraft = {
     ...state.addressBookDraft,
-    revision: state.addressBookDraft.revision ?? state.addressBookRevision,
+    revision: state.addressBookDraft.revision ?? state.addressBookSnapshot?.revision,
     peer_id: String(data.get('peer-id') || ''),
     username: String(data.get('peer-username') || ''),
     hostname: String(data.get('peer-hostname') || ''),
@@ -1382,11 +1444,12 @@ function preservePeerDraft(event) {
 }
 
 function editPeer(id) {
-  const peer = state.addressBookEntries.find(value => value.id === id || value.peerId === id);
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const peer = (state.addressBookSnapshot?.entries || []).find(value => value.id === id || value.peerId === id);
   if (!peer) return;
   state.addressBookDraft = {
     id: peer.id || '',
-    revision: state.addressBookRevision,
+    revision: state.addressBookSnapshot?.revision,
     peer_id: peer.peerId || peer.id || '',
     username: peer.username || '',
     hostname: peer.hostname || '',
@@ -1412,76 +1475,36 @@ function clearPeerDraft() {
 }
 
 async function deletePeer(id) {
-  if (!id) return;
-  state.busy = true;
-  render();
-  try {
-    await api(`/api/web/ab/entries/${encodeURIComponent(id)}?revision=${state.addressBookRevision}`, { method: 'DELETE' });
-    clearPeerDraft();
-    await loadAddressBook();
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
-}
-
-async function loadTags() {
-  try {
-    const result = await api('/api/web/ab/tags');
-    if (result.revision !== state.addressBookRevision) throw new Error('address_book_revision_conflict');
-    const value = result.data || result;
-    state.tags = Array.isArray(value) ? value.filter(tag => tag && typeof tag === 'object') : [];
-  } catch (error) {
-    setNotice('error', error.message);
-  }
-  render();
+  if (!id || state.addressBookBusy || !state.addressBookWritable) return;
+  const revision = state.addressBookSnapshot.revision;
+  await addressBookOperation(() => api(`/api/web/ab/entries/${encodeURIComponent(id)}?revision=${revision}`, {
+    method: 'DELETE'
+  }), clearPeerDraft);
 }
 
 async function saveTag(event) {
   event.preventDefault();
+  if (state.addressBookBusy || !state.addressBookWritable) return;
   const data = new FormData(event.currentTarget);
   const payload = {
     old_name: state.tagDraft.old_name,
-    revision: state.tagDraft.revision ?? state.addressBookRevision,
+    revision: state.tagDraft.revision ?? state.addressBookSnapshot.revision,
     name: String(data.get('name') || '').trim(),
     color: String(data.get('color') || '').trim()
   };
   if (!payload.name) return;
   state.tagDraft = payload;
-  state.busy = true;
-  render();
-  try {
-    await api('/api/web/ab/tags', { method: 'POST', body: JSON.stringify(payload) });
-    state.tagDraft = { name: '', color: '' };
-    await loadAddressBook();
-    await loadTags();
-    setNotice('success', t('saved'));
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  await addressBookOperation(() => api('/api/web/ab/tags', {
+    method: 'POST', body: JSON.stringify(payload)
+  }), () => { state.tagDraft = { name: '', color: '' }; });
 }
 
 async function deleteTag(name) {
-  state.busy = true;
-  render();
-  try {
-    await api('/api/web/ab/tags/delete', {
-      method: 'POST',
-      body: JSON.stringify({ name, revision: state.addressBookRevision })
-    });
-    await loadAddressBook();
-    await loadTags();
-  } catch (error) {
-    setNotice('error', error.message);
-  } finally {
-    state.busy = false;
-    render();
-  }
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const revision = state.addressBookSnapshot.revision;
+  await addressBookOperation(() => api('/api/web/ab/tags/delete', {
+    method: 'POST', body: JSON.stringify({ name, revision })
+  }));
 }
 
 async function loadDevices() {
@@ -1986,6 +2009,7 @@ async function apiAllPages(path) {
 }
 
 async function api(path, options = {}) {
+  const user = state.user;
   const headers = { Accept: 'application/json', ...options.headers };
   if (options.body) headers['Content-Type'] = 'application/json';
   if (options.authenticated !== false && state.csrfToken && !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers['X-CSRF-Token'] = state.csrfToken;
@@ -2002,7 +2026,10 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     if (response.status === 401) {
-      clearSession();
+      if (state.user === user) {
+        clearSession();
+        render();
+      }
       throw new Error(t('sessionExpired'));
     }
     const message = payload?.message || payload?.error || `${t('requestFailed')} (${response.status})`;
@@ -2028,9 +2055,12 @@ function clearSession() {
   state.groupMemberships = [];
   state.groupUsers = [];
   state.groupDraft = '';
-  state.tags = [];
-  state.addressBookEntries = [];
-  state.addressBookRevision = null;
+  state.addressBookSnapshot = null;
+  state.addressBookJsonDraft = { text: '', baseText: '', baseRevision: null };
+  state.addressBookWritable = false;
+  state.addressBookBusy = false;
+  state.addressBookRequest += 1;
+  state.busy = false;
   state.addressBookDraft = {
     id: '',
     peer_id: '',
