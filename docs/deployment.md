@@ -21,13 +21,17 @@ runtime 使用非 root UID/GID 10001，包含 CA、OpenSSL、C++ 运行库；s6 
 
 `rustdesk-api --initialize` 在不监听端口的情况下验证密钥对、Web 资源、全部 API 配置并执行版本化迁移和管理员初始化。容器入口通过 flock 串行执行；Kubernetes 使用 initContainer。现有私钥缺少对应公钥或密钥不匹配会报错，不能通过删钥重试，以免意外轮换服务身份。
 
+`rustdesk-api --initialize-keys` 只生成或校验 RustDesk 密钥对，然后退出；无需 API 秘密或 Web 资源，不打开数据库，也不监听端口。它与 `--initialize` 互斥；完整初始化仍要求 `API_ENABLED=1`。s6 的 `init` 在 API 启用时执行完整初始化，关闭时仅初始化密钥，两条路径均受 flock 保护。关闭 API 后健康检查仍检查 hbbs/hbbr，跳过 API 服务及 readiness。完整密钥对重复初始化保持不变；缺少一半、损坏或公私钥不匹配会失败且保留原文件。
+
 数据库、RustDesk 私钥/公钥统一放在 `/data`；Web 成品位于 `/usr/share/rustdesk-api-web`。用户数据库必须用一致性备份预检迁移，不能将生产卷交给测试脚本。API readiness `/health/ready` 验证数据库可访问、迁移版本和 Web 成品，失败为 503；`/health/live` 独立用于存活检查。
 
 ## 自动化验收
 
 ```bash
 python3 tests/deployment/run.py
-# 已构建镜像时可用 --skip-build；支持 --kind 和 --kubectl 指定工具路径
+# 已构建镜像时可用 --skip-build；支持 --image 指定独立镜像标签
+# 对应 s6 镜像标签为所选 runtime 标签加 -s6
+# 支持 --kind 和 --kubectl 指定工具路径
 ```
 
 脚本生成随机秘密、回环端口、临时 Compose project/卷和 kind 集群；测试三个服务、静态页、登录、固定官方 1.4.9 地址簿序列、真实 UDP 公钥注册、无认证报告、人工指纹绑定、OAuth mock 和重启持久化。还验证缺失秘密无法初始化、资源缺失使 readiness 失败，以及 Kubernetes server-side 清单检查、Pod 重建和 PVC 持久化。s6 使用独立卷运行相同检查。异常结束时执行资源清理，不 prune 其他容器/卷。

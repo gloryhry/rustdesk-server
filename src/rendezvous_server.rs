@@ -16,7 +16,7 @@ use hbb_common::{
         register_pk_response::Result::{TOO_FREQUENT, UUID_MISMATCH},
         *,
     },
-    tcp::FramedStream,
+    tcp::{Encrypt, FramedStream},
     timeout,
     tokio::{
         self,
@@ -31,7 +31,7 @@ use hbb_common::{
     AddrMangle, ResultType,
 };
 use ipnetwork::Ipv4Network;
-use sodiumoxide::crypto::sign;
+use sodiumoxide::crypto::{box_, sign};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -51,7 +51,7 @@ const REG_TIMEOUT: i64 = crate::device_registry::REGISTRATION_TIMEOUT_MS;
 type TcpStreamSink = SplitSink<Framed<TcpStream, BytesCodec>, Bytes>;
 type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, tungstenite::Message>;
 enum Sink {
-    TcpStream(TcpStreamSink),
+    TcpStream(TcpStreamSink, Option<Encrypt>),
     Ws(WsSink),
 }
 type Sender = mpsc::UnboundedSender<Data>;
@@ -860,7 +860,11 @@ impl RendezvousServer {
         if let Some(sink) = sink.as_mut() {
             if let Ok(bytes) = msg.write_to_bytes() {
                 match sink {
-                    Sink::TcpStream(s) => {
+                    Sink::TcpStream(s, encryption) => {
+                        let bytes = match encryption {
+                            Some(encryption) => encryption.enc(&bytes),
+                            None => bytes,
+                        };
                         allow_err!(s.send(Bytes::from(bytes)).await);
                     }
                     Sink::Ws(ws) => {
@@ -1204,9 +1208,45 @@ impl RendezvousServer {
                 }
             }
         } else {
-            let (a, mut b) = Framed::new(stream, BytesCodec::new()).split();
-            sink = Some(Sink::TcpStream(a));
-            while let Ok(Some(Ok(bytes))) = timeout(30_000, b.next()).await {
+            let mut framed = Framed::new(stream, BytesCodec::new());
+            // Authenticated native clients wait for this offer before sending
+            // their API token. Clients without a token ignore it and send an
+            // ordinary rendezvous request, which remains supported below.
+            let exchange_sk = if let Some(signing_sk) = self.inner.sk.as_ref() {
+                let (pk, sk) = box_::gen_keypair();
+                let mut offer = RendezvousMessage::new();
+                offer.set_key_exchange(KeyExchange {
+                    keys: vec![sign::sign(&pk.0, signing_sk).into()],
+                    ..Default::default()
+                });
+                timeout(3_000, framed.send(Bytes::from(offer.write_to_bytes()?))).await??;
+                Some(sk)
+            } else {
+                None
+            };
+            let (a, mut b) = framed.split();
+            sink = Some(Sink::TcpStream(a, None));
+            let mut exchange_sk = exchange_sk;
+            let mut decryption: Option<Encrypt> = None;
+            while let Ok(Some(Ok(mut bytes))) = timeout(30_000, b.next()).await {
+                if let Some(sk) = exchange_sk.take() {
+                    if let Ok(message) = RendezvousMessage::parse_from_bytes(&bytes) {
+                        if let Some(rendezvous_message::Union::KeyExchange(exchange)) = message.union {
+                            if exchange.keys.len() != 2 {
+                                bail!("Invalid rendezvous key exchange");
+                            }
+                            let key = Encrypt::decode(&exchange.keys[1], &exchange.keys[0], &sk)?;
+                            decryption = Some(Encrypt::new(key.clone()));
+                            if let Some(Sink::TcpStream(_, encryption)) = sink.as_mut() {
+                                *encryption = Some(Encrypt::new(key));
+                            }
+                            continue;
+                        }
+                    }
+                }
+                if let Some(decryption) = decryption.as_mut() {
+                    decryption.dec(&mut bytes)?;
+                }
                 if !self.handle_tcp(&bytes, &mut sink, addr, key, ws).await {
                     break;
                 }

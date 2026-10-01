@@ -1,0 +1,48 @@
+[2026-10-01 05:54:03.619834 +00:00] INFO [src/common.rs:210] Private key comes from id_ed25519
+[2026-10-01 05:54:03.619844 +00:00] INFO [src/rendezvous_server.rs:1310] Key: ZCnH+d75Z6iasy+4AK5zyM7zUd7k6A9M1e6Z2Lz+W0E=
+[2026-10-01 05:54:03.619845 +00:00] INFO [src/peer.rs:85] DB_URL=/data/db_v2.sqlite3
+[2026-10-01 05:54:03.621346 +00:00] WARN [libs/hbb_common/src/config.rs:636] ID is invalid, generating new one
+[2026-10-01 05:54:03.621452 +00:00] INFO [libs/hbb_common/src/config.rs:1064] Generated id 189581147
+[2026-10-01 05:54:03.621477 +00:00] ERROR [libs/hbb_common/src/lib.rs:370] Failed to get machine uid: No such file or directory (os error 2)
+[2026-10-01 05:54:03.621493 +00:00] INFO [libs/hbb_common/src/config.rs:1125] Generated new keypair for id: 
+[2026-10-01 05:54:03.621848 +00:00] ERROR [libs/hbb_common/src/lib.rs:370] Failed to get machine uid: No such file or directory (os error 2)
+[2026-10-01 05:54:03.623112 +00:00] INFO [src/relay_server.rs:66] #blacklist(blacklist.txt): 0
+[2026-10-01 05:54:03.624836 +00:00] INFO [src/relay_server.rs:81] #blocklist(blocklist.txt): 0
+[2026-10-01 05:54:03.624838 +00:00] INFO [src/relay_server.rs:87] Listening on tcp :21117
+[2026-10-01 05:54:03.624839 +00:00] INFO [src/relay_server.rs:89] Listening on websocket :21119
+[2026-10-01 05:54:03.624843 +00:00] INFO [src/relay_server.rs:92] Start
+[2026-10-01 05:54:03.624885 +00:00] INFO [src/relay_server.rs:116] DOWNGRADE_THRESHOLD: 0.66
+[2026-10-01 05:54:03.624890 +00:00] INFO [src/relay_server.rs:126] DOWNGRADE_START_CHECK: 1800s
+[2026-10-01 05:54:03.624893 +00:00] INFO [src/relay_server.rs:136] LIMIT_SPEED: 32Mb/s
+[2026-10-01 05:54:03.624896 +00:00] INFO [src/relay_server.rs:147] TOTAL_BANDWIDTH: 1024Mb/s
+[2026-10-01 05:54:03.624905 +00:00] INFO [src/relay_server.rs:157] SINGLE_BANDWIDTH: 128Mb/s
+[2026-10-01 05:54:03.630402 +00:00] INFO [src/rendezvous_server.rs:119] serial=0
+[2026-10-01 05:54:03.630419 +00:00] INFO [src/common.rs:103] rendezvous-servers=[]
+[2026-10-01 05:54:03.630471 +00:00] INFO [src/rendezvous_server.rs:155] mask: None
+[2026-10-01 05:54:03.630474 +00:00] INFO [src/rendezvous_server.rs:156] local-ip: ""
+[2026-10-01 05:54:03.631072 +00:00] INFO [src/common.rs:103] relay-servers=["hbbr:21117"]
+[2026-10-01 05:54:03.631115 +00:00] INFO [src/rendezvous_server.rs:163] Listening on tcp/udp [::]:21116
+[2026-10-01 05:54:03.631118 +00:00] INFO [src/rendezvous_server.rs:164] Listening on tcp [::]:21115, extra port for NAT test
+[2026-10-01 05:54:03.631120 +00:00] INFO [src/rendezvous_server.rs:168] Listening on websocket [::]:21118
+[2026-10-01 05:54:03.631129 +00:00] INFO [src/rendezvous_server.rs:173] ALWAYS_USE_RELAY=N
+[2026-10-01 05:54:03.631143 +00:00] INFO [src/rendezvous_server.rs:205] Start
+[2026-10-01 05:55:35.596830 +00:00] INFO [src/relay_server.rs:471] New relay request 5879b8b1-f684-4025-9b76-b2f638af8b0e from [::ffff:172.21.0.8]:44511
+[2026-10-01 05:55:35.596849 +00:00] INFO [src/relay_server.rs:455] Relayrequest 5879b8b1-f684-4025-9b76-b2f638af8b0e from [::ffff:172.21.0.7]:39349 got paired
+[2026-10-01 05:55:35.596860 +00:00] INFO [src/relay_server.rs:461] Both are raw
+[2026-10-01 06:01:10.719509 +00:00] INFO [src/relay_server.rs:467] Relay of [::ffff:172.21.0.7]:39349 closed
+s6-rc: info: service s6rc-oneshot-runner: starting
+s6-rc: info: service s6rc-oneshot-runner successfully started
+s6-rc: info: service fix-attrs: starting
+s6-rc: info: service key-secret: starting
+s6-rc: info: service fix-attrs successfully started
+s6-rc: info: service legacy-cont-init: starting
+s6-rc: info: service key-secret successfully started
+s6-rc: info: service hbbr: starting
+s6-rc: info: service legacy-cont-init successfully started
+s6-rc: info: service hbbr successfully started
+s6-rc: info: service hbbs: starting
+s6-rc: info: service hbbs successfully started
+s6-rc: info: service rustdesk-api: starting
+s6-rc: info: service rustdesk-api successfully started
+s6-rc: info: service legacy-services: starting
+s6-rc: info: service legacy-services successfully started

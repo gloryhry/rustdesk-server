@@ -21,11 +21,16 @@ fn main() -> ResultType<()> {
         .write_mode(WriteMode::Async)
         .start()?;
     common::init_args(
-        "-c --config=[FILE] +takes_value 'Sets a custom config file'\n--initialize 'Prepare keys, migrations and API configuration without listening'",
+        "-c --config=[FILE] +takes_value 'Sets a custom config file'\n--initialize 'Prepare keys, migrations and API configuration without listening'\n--initialize-keys 'Prepare or validate only the RustDesk keypair without API configuration'",
         "rustdesk-api",
         "RustDesk HTTP API Server",
     );
     let initialize = std::env::args().any(|arg|arg=="--initialize");
+    let initialize_keys = std::env::args().any(|arg|arg=="--initialize-keys");
+    if initialize_keys {
+        if initialize { bail!("--initialize-keys and --initialize are mutually exclusive"); }
+        return hbbs::deployment::prepare_keypair(&std::env::current_dir()?);
+    }
     if common::get_arg_or("API_ENABLED", "0".to_owned()).to_lowercase() != "1" {
         if initialize { bail!("API_ENABLED=1 is required for initialization"); }
         log::info!("API_ENABLED=0, exiting without starting the API server");

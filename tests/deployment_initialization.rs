@@ -19,6 +19,48 @@ fn directory() -> std::path::PathBuf {
     fs::write(root.join("web/assets/main.js"),"console.log('isolated-test')").unwrap(); root
 }
 
+#[test]
+fn keys_only_initialization_needs_no_api_settings_and_preserves_service_identity() {
+    let root = directory();
+    fs::remove_dir_all(root.join("web")).unwrap();
+    let run = || Command::new(env!("CARGO_BIN_EXE_rustdesk-api"))
+        .arg("--initialize-keys").current_dir(&root).env_clear().env("API_ENABLED","0").output().unwrap();
+    let output = run();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+    let private = fs::read(root.join("id_ed25519")).unwrap();
+    let public = fs::read(root.join("id_ed25519.pub")).unwrap();
+    assert_eq!(fs::read_dir(&root).unwrap().count(),2);
+    assert!(run().status.success());
+    assert_eq!(fs::read(root.join("id_ed25519")).unwrap(),private);
+    assert_eq!(fs::read(root.join("id_ed25519.pub")).unwrap(),public);
+    let conflicting = Command::new(env!("CARGO_BIN_EXE_rustdesk-api"))
+        .args(["--initialize-keys","--initialize"]).current_dir(&root).env_clear().output().unwrap();
+    assert!(!conflicting.status.success());
+    assert_eq!(fs::read_dir(&root).unwrap().count(),2);
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(std::str::from_utf8(&private).unwrap()));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn keys_only_initialization_rejects_partial_corrupt_and_mismatched_pairs_without_rotation() {
+    let root = directory();
+    let run = || Command::new(env!("CARGO_BIN_EXE_rustdesk-api"))
+        .arg("--initialize-keys").current_dir(&root).env_clear().output().unwrap();
+    assert!(run().status.success());
+    let private = fs::read(root.join("id_ed25519")).unwrap();
+    let public = fs::read(root.join("id_ed25519.pub")).unwrap();
+    fs::remove_file(root.join("id_ed25519.pub")).unwrap();
+    assert!(!run().status.success());
+    fs::write(root.join("id_ed25519.pub"),"invalid encoding").unwrap();
+    assert!(!run().status.success());
+    fs::write(root.join("id_ed25519.pub"),base64::encode([9;32])).unwrap();
+    assert!(!run().status.success());
+    assert_eq!(fs::read(root.join("id_ed25519")).unwrap(),private);
+    fs::write(root.join("id_ed25519.pub"),&public).unwrap();
+    assert!(run().status.success());
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[tokio::test]
 async fn initializer_migrates_and_bootstraps_once_without_listening_and_keeps_keys_on_restart() {
     let root = directory(); let output = initialize(&root,&[]);

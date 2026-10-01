@@ -1,0 +1,620 @@
+diff --git a/docker/entrypoint.sh b/docker/entrypoint.sh
+index df77e2a..fc11e96 100644
+--- a/docker/entrypoint.sh
++++ b/docker/entrypoint.sh
+@@ -4,7 +4,10 @@ cd /data
+ case "${1:-}" in
+   init)
+     shift
+-    exec flock -x /data/.rustdesk-init.lock /usr/bin/rustdesk-api --initialize "$@"
++    if [ "${API_ENABLED:-0}" = "1" ]; then
++      exec flock -x /data/.rustdesk-init.lock /usr/bin/rustdesk-api --initialize "$@"
++    fi
++    exec flock -x /data/.rustdesk-init.lock /usr/bin/rustdesk-api --initialize-keys "$@"
+     ;;
+   hbbs|hbbr|rustdesk-api|rustdesk-utils)
+     process="$1"
+diff --git a/docker/healthcheck.sh b/docker/healthcheck.sh
+index 120c459..48662b2 100755
+--- a/docker/healthcheck.sh
++++ b/docker/healthcheck.sh
+@@ -4,5 +4,7 @@ set -eu
+ /package/admin/s6/command/s6-svstat /run/s6-rc/servicedirs/hbbr >/dev/null
+ nc -z -w 2 127.0.0.1 21116
+ nc -z -w 2 127.0.0.1 21117
+-/package/admin/s6/command/s6-svstat /run/s6-rc/servicedirs/rustdesk-api >/dev/null
+-curl --fail --silent --max-time 3 "http://127.0.0.1:${API_PORT:-21114}/health/ready" >/dev/null
++if [ "${API_ENABLED:-0}" = "1" ]; then
++  /package/admin/s6/command/s6-svstat /run/s6-rc/servicedirs/rustdesk-api >/dev/null
++  curl --fail --silent --max-time 3 "http://127.0.0.1:${API_PORT:-21114}/health/ready" >/dev/null
++fi
+diff --git a/docker/rootfs/usr/bin/healthcheck.sh b/docker/rootfs/usr/bin/healthcheck.sh
+index 120c459..48662b2 100755
+--- a/docker/rootfs/usr/bin/healthcheck.sh
++++ b/docker/rootfs/usr/bin/healthcheck.sh
+@@ -4,5 +4,7 @@ set -eu
+ /package/admin/s6/command/s6-svstat /run/s6-rc/servicedirs/hbbr >/dev/null
+ nc -z -w 2 127.0.0.1 21116
+ nc -z -w 2 127.0.0.1 21117
+-/package/admin/s6/command/s6-svstat /run/s6-rc/servicedirs/rustdesk-api >/dev/null
+-curl --fail --silent --max-time 3 "http://127.0.0.1:${API_PORT:-21114}/health/ready" >/dev/null
++if [ "${API_ENABLED:-0}" = "1" ]; then
++  /package/admin/s6/command/s6-svstat /run/s6-rc/servicedirs/rustdesk-api >/dev/null
++  curl --fail --silent --max-time 3 "http://127.0.0.1:${API_PORT:-21114}/health/ready" >/dev/null
++fi
+diff --git a/docs/deployment.md b/docs/deployment.md
+index 6bd2476..bb2f378 100644
+--- a/docs/deployment.md
++++ b/docs/deployment.md
+@@ -21,13 +21,17 @@ runtime 使用非 root UID/GID 10001，包含 CA、OpenSSL、C++ 运行库；s6
+ 
+ `rustdesk-api --initialize` 在不监听端口的情况下验证密钥对、Web 资源、全部 API 配置并执行版本化迁移和管理员初始化。容器入口通过 flock 串行执行；Kubernetes 使用 initContainer。现有私钥缺少对应公钥或密钥不匹配会报错，不能通过删钥重试，以免意外轮换服务身份。
+ 
++`rustdesk-api --initialize-keys` 只生成或校验 RustDesk 密钥对，然后退出；无需 API 秘密或 Web 资源，不打开数据库，也不监听端口。它与 `--initialize` 互斥；完整初始化仍要求 `API_ENABLED=1`。s6 的 `init` 在 API 启用时执行完整初始化，关闭时仅初始化密钥，两条路径均受 flock 保护。关闭 API 后健康检查仍检查 hbbs/hbbr，跳过 API 服务及 readiness。完整密钥对重复初始化保持不变；缺少一半、损坏或公私钥不匹配会失败且保留原文件。
++
+ 数据库、RustDesk 私钥/公钥统一放在 `/data`；Web 成品位于 `/usr/share/rustdesk-api-web`。用户数据库必须用一致性备份预检迁移，不能将生产卷交给测试脚本。API readiness `/health/ready` 验证数据库可访问、迁移版本和 Web 成品，失败为 503；`/health/live` 独立用于存活检查。
+ 
+ ## 自动化验收
+ 
+ ```bash
+ python3 tests/deployment/run.py
+-# 已构建镜像时可用 --skip-build；支持 --kind 和 --kubectl 指定工具路径
++# 已构建镜像时可用 --skip-build；支持 --image 指定独立镜像标签
++# 对应 s6 镜像标签为所选 runtime 标签加 -s6
++# 支持 --kind 和 --kubectl 指定工具路径
+ ```
+ 
+ 脚本生成随机秘密、回环端口、临时 Compose project/卷和 kind 集群；测试三个服务、静态页、登录、固定官方 1.4.9 地址簿序列、真实 UDP 公钥注册、无认证报告、人工指纹绑定、OAuth mock 和重启持久化。还验证缺失秘密无法初始化、资源缺失使 readiness 失败，以及 Kubernetes server-side 清单检查、Pod 重建和 PVC 持久化。s6 使用独立卷运行相同检查。异常结束时执行资源清理，不 prune 其他容器/卷。
+diff --git a/docs/rustdesk-1.4.9-protocol.md b/docs/rustdesk-1.4.9-protocol.md
+index 27e86fa..08eb67c 100644
+--- a/docs/rustdesk-1.4.9-protocol.md
++++ b/docs/rustdesk-1.4.9-protocol.md
+@@ -53,7 +53,11 @@ Web 管理路由已迁移：
+ Web DTO 使用内部条目 ID、布尔中继字段和 CSS 十六进制颜色；修改需 revision、
+ Cookie Origin 与 CSRF token。删除的 revision 位于查询参数。旧管理路由
+ 不再作为条目 ID 删除别名，避免与官方书 GUID/Peer ID 数组删除混淆。
++
++Web DELETE `/api/web/ab/entries/{id}` 及兼容 POST `/api/web/ab/entries/delete` 删除条目时，先在整个个人地址簿中匹配稳定条目 ID；没有命中才兼容匹配 Peer ID。因此一个条目的 Peer ID 与另一个条目的稳定 ID 相同时，稳定 ID 指定的条目优先。官方按 Peer ID 数组删除的接口保持其明确语义。账户隔离、revision 冲突检查和事务回滚保持有效。
+ GUID/revision、版本 3 迁移和恢复备份步骤见 address-book-storage.md。
+ 
+-自动化验收范围仅为上述相关协议；未修改的 Windows/Linux 官方客户端实机
+-联调、直连/中继/文件传输/重连仍需通过发布门禁。
++自动化样本覆盖上述相关协议；真实客户端的直连、中继、文件传输和重连
++验收结果及平台边界另见下方报告。
++
++后续两个未经修改的 Linux amd64 1.4.9 客户端已完成真实 Keycloak、地址簿、直连/中继、远程键鼠、文件传输、重连及关闭 API 的隔离验收，见 [本轮 goal 验收报告](rustdesk-goal-acceptance.md)。hbbs 主 TCP 入口支持官方登录客户端的签名密钥交换及加密 rendezvous 帧，普通客户端仍可使用既有帧；错误密钥交换关闭当前连接。Windows、ARM 和真实硬件桌面仍需另行验收。
+diff --git a/docs/rustdesk-compat-results.md b/docs/rustdesk-compat-results.md
+index b23bf71..27317d5 100644
+--- a/docs/rustdesk-compat-results.md
++++ b/docs/rustdesk-compat-results.md
+@@ -1,5 +1,7 @@
+ # RustDesk 兼容性与安全修复交付台账
+ 
++后续四项修复及两个未经修改的 Linux amd64 1.4.9 客户端真实全流程验收已另记于 [本轮 goal 验收报告](rustdesk-goal-acceptance.md)。以下 155/15 结果及未执行实机联调的描述属于此前历史轮次；Windows/ARM/真实硬件范围仍未验证。
++
+ 基线 `0f30105`，分支 `codex/rustdesk-client-compat-fixes`。最终修复源码提交 `4de82bd`。
+ 原计划 19 项与执行中发现的 19 项均已独立中文提交，共 38 个修复提交；此文档汇总不属于新增修复问题。
+ 没有 push、生产迁移或上线。
+diff --git a/src/api.rs b/src/api.rs
+index 5e475de..903fcb9 100644
+--- a/src/api.rs
++++ b/src/api.rs
+@@ -1791,7 +1791,9 @@ async fn remove_address_book_entry(state: &ApiState, user: &str, key: &str, head
+     let book = address_books(state).load(user).await?;
+     let revision = book_revision(headers,requested,book.revision)?;
+     let mut document = book.document;
+-    let entry = book_entries(user,&document).into_iter().find(|entry|entry.id==key || entry.peer_id==key);
++    let entries = book_entries(user,&document);
++    let entry = entries.iter().find(|entry|entry.id==key)
++        .or_else(||entries.iter().find(|entry|entry.peer_id==key));
+     let entry = match entry { Some(entry) => entry, None => return Ok(None) };
+     remove_address_book_entry_from_document(&mut document,&entry.peer_id);
+     address_books(state).replace(user,Some(revision),document).await.map(Some)
+diff --git a/src/api_main.rs b/src/api_main.rs
+index c085c2e..a42f748 100644
+--- a/src/api_main.rs
++++ b/src/api_main.rs
+@@ -21,11 +21,16 @@ fn main() -> ResultType<()> {
+         .write_mode(WriteMode::Async)
+         .start()?;
+     common::init_args(
+-        "-c --config=[FILE] +takes_value 'Sets a custom config file'\n--initialize 'Prepare keys, migrations and API configuration without listening'",
++        "-c --config=[FILE] +takes_value 'Sets a custom config file'\n--initialize 'Prepare keys, migrations and API configuration without listening'\n--initialize-keys 'Prepare or validate only the RustDesk keypair without API configuration'",
+         "rustdesk-api",
+         "RustDesk HTTP API Server",
+     );
+     let initialize = std::env::args().any(|arg|arg=="--initialize");
++    let initialize_keys = std::env::args().any(|arg|arg=="--initialize-keys");
++    if initialize_keys {
++        if initialize { bail!("--initialize-keys and --initialize are mutually exclusive"); }
++        return hbbs::deployment::prepare_keypair(&std::env::current_dir()?);
++    }
+     if common::get_arg_or("API_ENABLED", "0".to_owned()).to_lowercase() != "1" {
+         if initialize { bail!("API_ENABLED=1 is required for initialization"); }
+         log::info!("API_ENABLED=0, exiting without starting the API server");
+diff --git a/src/database.rs b/src/database.rs
+index 712ed53..fc04f55 100644
+--- a/src/database.rs
++++ b/src/database.rs
+@@ -679,21 +679,38 @@ impl Database {
+ 
+     pub(crate) async fn official_peers(&self, viewer: &str, allow_all: bool, page: &crate::pagination::PageRequest) -> ResultType<crate::pagination::Page<crate::official_peer::PeerRecord>> {
+         let now = crate::device_registry::now_ms();
+-        let base = "from api_device d inner join peer p on p.guid=d.peer_guid inner join api_user u on u.id=d.user_id
++        // JSON null overrides an older field just like Map::extend; it must not
++        // resurrect the old name. Only object-valued JSON and text names apply.
++        let names = "with information as (
++            select d.id,d.user_id,d.name,d.os,d.info as legacy_info,d.status,p.id as peer_id,u.username as user_name,
++                t.sysinfo as reported_info,coalesce(r.registered_at_ms,0) as registered_at_ms,
++                case when json_valid(d.info) then case when json_type(d.info)='object' then d.info else '{}' end else '{}' end as legacy_object,
++                case when json_valid(t.sysinfo) then case when json_type(t.sysinfo)='object' then t.sysinfo else '{}' end else '{}' end as report_object
++            from api_device d inner join peer p on p.guid=d.peer_guid inner join api_user u on u.id=d.user_id
+             left join api_device_report t on t.peer_guid=p.guid and t.pk=p.pk and t.uuid=p.uuid
+             left join peer_registration r on r.peer_guid=p.guid and r.pk=p.pk and r.uuid=p.uuid
+-            where d.verified=1 and d.verified_pk=p.pk and d.verified_uuid=p.uuid and (?=1 or d.user_id=?)
+-                and (? is null or d.status=?) and (? is null or p.id like ? escape '\\' or d.name like ? escape '\\')";
++            where d.verified=1 and d.verified_pk=p.pk and d.verified_uuid=p.uuid),
++            names as (select *,
++                case when json_type(report_object,'$.device_name') is not null then
++                    case when json_type(report_object,'$.device_name')='text' then json_extract(report_object,'$.device_name') end
++                else case when json_type(legacy_object,'$.device_name')='text' then json_extract(legacy_object,'$.device_name') end end as device_name,
++                case when json_type(report_object,'$.hostname') is not null then
++                    case when json_type(report_object,'$.hostname')='text' then json_extract(report_object,'$.hostname') end
++                else case when json_type(legacy_object,'$.hostname')='text' then json_extract(legacy_object,'$.hostname') end end as hostname
++            from information),
++            named as (select *,coalesce(device_name,hostname,name) as effective_name from names)";
++        let base = "from named d where (?=1 or d.user_id=?)
++            and (? is null or d.status=?) and (? is null or d.peer_id like ? escape '\\' or d.effective_name like ? escape '\\')";
+         let mut conn = self.pool.get().await?;
+         let mut tx = conn.begin().await?;
+-        let count_sql = format!("select count(*) {base}");
++        let count_sql = format!("{names} select count(*) {base}");
+         let total: i64 = sqlx::query_scalar(&count_sql).bind(allow_all).bind(viewer).bind(page.status).bind(page.status)
+             .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut *tx).await?;
+-        let data_sql = format!("select p.id as peer_id,d.user_id,u.username as user_name,d.name,d.os,d.info as legacy_info,t.sysinfo as reported_info,
+-            d.status,coalesce(r.registered_at_ms,0) as registered_at_ms,
+-            (coalesce(r.registered_at_ms,0)>? and coalesce(r.registered_at_ms,0)<=?) as online,
++        let data_sql = format!("{names} select d.peer_id,d.user_id,d.user_name,d.effective_name,d.os,d.legacy_info,d.reported_info,
++            d.status,d.registered_at_ms,
++            (d.registered_at_ms>? and d.registered_at_ms<=?) as online,
+             (select min(g.name) from api_device_group g inner join api_device_group_device m on m.group_id=g.id where m.device_id=d.id and g.created_by=?) as device_group_name
+-            {base} order by p.id,d.id limit ? offset ?");
++            {base} order by d.peer_id,d.id limit ? offset ?");
+         let data = sqlx::query_as(&data_sql).bind(now-crate::device_registry::REGISTRATION_TIMEOUT_MS).bind(now).bind(viewer)
+             .bind(allow_all).bind(viewer).bind(page.status).bind(page.status)
+             .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut *tx).await?;
+diff --git a/src/official_peer.rs b/src/official_peer.rs
+index ba99762..6c7f866 100644
+--- a/src/official_peer.rs
++++ b/src/official_peer.rs
+@@ -7,7 +7,7 @@ pub(crate) struct PeerRecord {
+     pub peer_id: String,
+     pub user_id: String,
+     pub user_name: String,
+-    pub name: String,
++    pub effective_name: String,
+     pub os: String,
+     pub legacy_info: String,
+     pub reported_info: Option<String>,
+@@ -49,11 +49,9 @@ impl From<PeerRecord> for OfficialPeer {
+         }
+         let username = info.get("username").and_then(Value::as_str).unwrap_or_default().to_owned();
+         let os = info.get("os").and_then(Value::as_str).unwrap_or(&record.os).to_owned();
+-        let name = info.get("device_name").and_then(Value::as_str)
+-            .or_else(||info.get("hostname").and_then(Value::as_str)).unwrap_or(&record.name).to_owned();
+         info.insert("username".to_owned(),Value::String(username));
+         info.insert("os".to_owned(),Value::String(os));
+-        info.insert("device_name".to_owned(),Value::String(name));
++        info.insert("device_name".to_owned(),Value::String(record.effective_name));
+         let note = info.get("note").and_then(Value::as_str).unwrap_or_default().to_owned();
+         Self { id:record.peer_id,info,status:record.status,online:record.online,registered_at_ms:record.registered_at_ms,
+             user:record.user_id,user_name:record.user_name,device_group_name:record.device_group_name,note,info_error }
+diff --git a/src/rendezvous_server.rs b/src/rendezvous_server.rs
+index 09f965a..5fe08eb 100644
+--- a/src/rendezvous_server.rs
++++ b/src/rendezvous_server.rs
+@@ -16,7 +16,7 @@ use hbb_common::{
+         register_pk_response::Result::{TOO_FREQUENT, UUID_MISMATCH},
+         *,
+     },
+-    tcp::FramedStream,
++    tcp::{Encrypt, FramedStream},
+     timeout,
+     tokio::{
+         self,
+@@ -31,7 +31,7 @@ use hbb_common::{
+     AddrMangle, ResultType,
+ };
+ use ipnetwork::Ipv4Network;
+-use sodiumoxide::crypto::sign;
++use sodiumoxide::crypto::{box_, sign};
+ use std::{
+     collections::HashMap,
+     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+@@ -51,7 +51,7 @@ const REG_TIMEOUT: i64 = crate::device_registry::REGISTRATION_TIMEOUT_MS;
+ type TcpStreamSink = SplitSink<Framed<TcpStream, BytesCodec>, Bytes>;
+ type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, tungstenite::Message>;
+ enum Sink {
+-    TcpStream(TcpStreamSink),
++    TcpStream(TcpStreamSink, Option<Encrypt>),
+     Ws(WsSink),
+ }
+ type Sender = mpsc::UnboundedSender<Data>;
+@@ -860,7 +860,11 @@ impl RendezvousServer {
+         if let Some(sink) = sink.as_mut() {
+             if let Ok(bytes) = msg.write_to_bytes() {
+                 match sink {
+-                    Sink::TcpStream(s) => {
++                    Sink::TcpStream(s, encryption) => {
++                        let bytes = match encryption {
++                            Some(encryption) => encryption.enc(&bytes),
++                            None => bytes,
++                        };
+                         allow_err!(s.send(Bytes::from(bytes)).await);
+                     }
+                     Sink::Ws(ws) => {
+@@ -1204,9 +1208,45 @@ impl RendezvousServer {
+                 }
+             }
+         } else {
+-            let (a, mut b) = Framed::new(stream, BytesCodec::new()).split();
+-            sink = Some(Sink::TcpStream(a));
+-            while let Ok(Some(Ok(bytes))) = timeout(30_000, b.next()).await {
++            let mut framed = Framed::new(stream, BytesCodec::new());
++            // Authenticated native clients wait for this offer before sending
++            // their API token. Clients without a token ignore it and send an
++            // ordinary rendezvous request, which remains supported below.
++            let exchange_sk = if let Some(signing_sk) = self.inner.sk.as_ref() {
++                let (pk, sk) = box_::gen_keypair();
++                let mut offer = RendezvousMessage::new();
++                offer.set_key_exchange(KeyExchange {
++                    keys: vec![sign::sign(&pk.0, signing_sk).into()],
++                    ..Default::default()
++                });
++                timeout(3_000, framed.send(Bytes::from(offer.write_to_bytes()?))).await??;
++                Some(sk)
++            } else {
++                None
++            };
++            let (a, mut b) = framed.split();
++            sink = Some(Sink::TcpStream(a, None));
++            let mut exchange_sk = exchange_sk;
++            let mut decryption: Option<Encrypt> = None;
++            while let Ok(Some(Ok(mut bytes))) = timeout(30_000, b.next()).await {
++                if let Some(sk) = exchange_sk.take() {
++                    if let Ok(message) = RendezvousMessage::parse_from_bytes(&bytes) {
++                        if let Some(rendezvous_message::Union::KeyExchange(exchange)) = message.union {
++                            if exchange.keys.len() != 2 {
++                                bail!("Invalid rendezvous key exchange");
++                            }
++                            let key = Encrypt::decode(&exchange.keys[1], &exchange.keys[0], &sk)?;
++                            decryption = Some(Encrypt::new(key.clone()));
++                            if let Some(Sink::TcpStream(_, encryption)) = sink.as_mut() {
++                                *encryption = Some(Encrypt::new(key));
++                            }
++                            continue;
++                        }
++                    }
++                }
++                if let Some(decryption) = decryption.as_mut() {
++                    decryption.dec(&mut bytes)?;
++                }
+                 if !self.handle_tcp(&bytes, &mut sink, addr, key, ws).await {
+                     break;
+                 }
+diff --git a/tests/address_book_edits.rs b/tests/address_book_edits.rs
+index dde60b1..67ac7b8 100644
+--- a/tests/address_book_edits.rs
++++ b/tests/address_book_edits.rs
+@@ -19,6 +19,32 @@ async fn book(app: &TestApp,token: &str) -> Value {
+     serde_json::from_str(value(auth(app,"GET","/api/ab",json!({}),token).await).await["data"].as_str().unwrap()).unwrap()
+ }
+ 
++#[tokio::test]
++async fn stable_entry_delete_wins_over_another_peers_id_for_both_web_routes_and_orders() {
++    for reverse in [false,true] {
++        for post in [false,true] {
++            let (app,token) = fixture().await;
++            let first = value(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"123456","alias":"FIRST"}),&token).await).await;
++            let second = value(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"654321","alias":"SECOND"}),&token).await).await;
++            let key = second["data"]["id"].as_str().unwrap();
++            assert_eq!(auth(&app,"POST","/api/web/ab/entries",json!({"id":first["data"]["id"],"peer_id":key}),&token).await.status(),StatusCode::OK);
++            if reverse {
++                let mut document = book(&app,&token).await;
++                document["peers"].as_array_mut().unwrap().reverse();
++                assert_eq!(auth(&app,"POST","/api/ab",json!({"data":document.to_string()}),&token).await.status(),StatusCode::OK);
++            }
++            let deleted = if post { auth(&app,"POST","/api/web/ab/entries/delete",json!({"id":key}),&token).await }
++                else { auth(&app,"DELETE",&format!("/api/web/ab/entries/{key}"),json!({}),&token).await };
++            assert_eq!(deleted.status(),StatusCode::OK);
++            let remaining = book(&app,&token).await;
++            assert_eq!(remaining["peers"].as_array().unwrap().len(),1);
++            assert_eq!(remaining["peers"][0]["alias"],"FIRST");
++            assert_eq!(remaining["peers"][0]["entryId"],first["data"]["id"]);
++            assert_eq!(remaining["peers"][0]["password"],"saved-password");
++        }
++    }
++}
++
+ #[tokio::test]
+ async fn partial_edits_preserve_saved_connection_and_unknown_fields() {
+     let (app,token) = fixture().await;
+diff --git a/tests/deployment/run.py b/tests/deployment/run.py
+index 386f12a..7a8fa18 100644
+--- a/tests/deployment/run.py
++++ b/tests/deployment/run.py
+@@ -42,8 +42,9 @@ def main():
+     parser.add_argument('--skip-build', action='store_true')
+     parser.add_argument('--kind', default='kind')
+     parser.add_argument('--kubectl', default='kubectl')
++    parser.add_argument('--image', default='rustdesk-local/server:1.1.17-api-1.4.9')
+     args = parser.parse_args()
+-    image = 'rustdesk-local/server:1.1.17-api-1.4.9'
++    image = args.image
+     helper = 'python:3.12.8-slim-bookworm'
+     project = 'rustdesk-check-' + secrets.token_hex(6)
+     cluster_created = False
+@@ -116,6 +117,19 @@ def main():
+             # All six TCP endpoints must be listening, not just the API.
+             run('docker', 'exec', s6, 'sh', '-c', 'for p in 21114 21115 21116 21117 21118 21119; do nc -z -w 2 127.0.0.1 "$p" || exit 1; done')
+ 
++            # Core-only s6 must work without any API secrets or pre-existing keys.
++            core = project + '-core-only'
++            containers.append(core)
++            volumes.append(core)
++            run('docker', 'run', '-d', '--name', core, '-e', 'API_ENABLED=0', '-v', core + ':/data', image + '-s6')
++            eventually(lambda: healthy(core))
++            core_check = ['docker', 'exec', core, 'sh', '-c',
++                          'nc -z -w 2 127.0.0.1 21116 && nc -z -w 2 127.0.0.1 21117 && ! nc -z -w 2 127.0.0.1 21114 && sha256sum /data/id_ed25519 /data/id_ed25519.pub']
++            keys = run(*core_check, capture=True).stdout
++            run('docker', 'restart', core)
++            eventually(lambda: healthy(core))
++            assert run(*core_check, capture=True).stdout == keys
++
+             cluster_created = True
+             run(args.kind, 'create', 'cluster', '--name', project, '--image', 'kindest/node:v1.34.0', '--kubeconfig', str(tmp / 'kubeconfig'), '--wait', '120s')
+             run(args.kind, 'load', 'docker-image', image, '--name', project)
+@@ -124,8 +138,23 @@ def main():
+             secret.write_text(json.dumps({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'rustdesk-api-secret'}, 'stringData': {key: value for key, value in env.items() if key.startswith('API_')}}))
+             secret.chmod(0o600)
+             run(*kubectl, 'apply', '-f', str(secret))
+-            run(*kubectl, 'apply', '--dry-run=server', '-f', 'kubernetes/example.yaml')
+-            run(*kubectl, 'apply', '-f', 'kubernetes/example.yaml')
++            raw = run(*kubectl, 'create', '--dry-run=client', '-f', 'kubernetes/example.yaml', '-o', 'json', capture=True).stdout
++            items = []
++            decoder = json.JSONDecoder()
++            while raw.strip():
++                item, end = decoder.raw_decode(raw.lstrip())
++                items.extend(item.get('items', [item]))
++                raw = raw.lstrip()[end:]
++            manifests = {'apiVersion': 'v1', 'kind': 'List', 'items': items}
++            for item in manifests.get('items', [manifests]):
++                if item.get('kind') == 'Deployment':
++                    spec = item['spec']['template']['spec']
++                    for container in spec.get('containers', []) + spec.get('initContainers', []):
++                        container['image'] = image
++            deployment = tmp / 'deployment.json'
++            deployment.write_text(json.dumps(manifests))
++            run(*kubectl, 'apply', '--dry-run=server', '-f', str(deployment))
++            run(*kubectl, 'apply', '-f', str(deployment))
+             scripts = run(*kubectl, 'create', 'configmap', 'smoke-scripts', '--from-file=smoke.py=tests/deployment/smoke.py', '--from-file=requests.json=tests/fixtures/rustdesk-1.4.9-address-book.json', '--dry-run=client', '-o', 'json', capture=True).stdout
+             script_file = tmp / 'scripts.json'; script_file.write_text(scripts)
+             run(*kubectl, 'apply', '-f', str(script_file))
+@@ -144,13 +173,15 @@ def main():
+             print(json.dumps({'compose': first['checks'], 's6': 'passed', 'kubernetes': 'passed', 'persistence': 'passed', 'negative_readiness': 'passed'}))
+         finally:
+             # Exact generated names only. Never prune unrelated containers or volumes.
+-            if cluster_created:
+-                run(args.kind, 'delete', 'cluster', '--name', project, check=False)
+-            for container in containers:
+-                run('docker', 'rm', '-f', container, check=False)
+-            run(*compose, 'down', '-v', '--remove-orphans', check=False)
+-            for volume in volumes:
+-                run('docker', 'volume', 'rm', volume, check=False)
++            try:
++                if cluster_created:
++                    run(args.kind, 'delete', 'cluster', '--name', project, check=False)
++            finally:
++                for container in containers:
++                    run('docker', 'rm', '-f', container, check=False)
++                run(*compose, 'down', '-v', '--remove-orphans', check=False)
++                for volume in volumes:
++                    run('docker', 'volume', 'rm', volume, check=False)
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/tests/deployment_initialization.rs b/tests/deployment_initialization.rs
+index 0d5f926..c784c21 100644
+--- a/tests/deployment_initialization.rs
++++ b/tests/deployment_initialization.rs
+@@ -19,6 +19,48 @@ fn directory() -> std::path::PathBuf {
+     fs::write(root.join("web/assets/main.js"),"console.log('isolated-test')").unwrap(); root
+ }
+ 
++#[test]
++fn keys_only_initialization_needs_no_api_settings_and_preserves_service_identity() {
++    let root = directory();
++    fs::remove_dir_all(root.join("web")).unwrap();
++    let run = || Command::new(env!("CARGO_BIN_EXE_rustdesk-api"))
++        .arg("--initialize-keys").current_dir(&root).env_clear().env("API_ENABLED","0").output().unwrap();
++    let output = run();
++    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
++    let private = fs::read(root.join("id_ed25519")).unwrap();
++    let public = fs::read(root.join("id_ed25519.pub")).unwrap();
++    assert_eq!(fs::read_dir(&root).unwrap().count(),2);
++    assert!(run().status.success());
++    assert_eq!(fs::read(root.join("id_ed25519")).unwrap(),private);
++    assert_eq!(fs::read(root.join("id_ed25519.pub")).unwrap(),public);
++    let conflicting = Command::new(env!("CARGO_BIN_EXE_rustdesk-api"))
++        .args(["--initialize-keys","--initialize"]).current_dir(&root).env_clear().output().unwrap();
++    assert!(!conflicting.status.success());
++    assert_eq!(fs::read_dir(&root).unwrap().count(),2);
++    assert!(!String::from_utf8_lossy(&output.stdout).contains(std::str::from_utf8(&private).unwrap()));
++    fs::remove_dir_all(root).unwrap();
++}
++
++#[test]
++fn keys_only_initialization_rejects_partial_corrupt_and_mismatched_pairs_without_rotation() {
++    let root = directory();
++    let run = || Command::new(env!("CARGO_BIN_EXE_rustdesk-api"))
++        .arg("--initialize-keys").current_dir(&root).env_clear().output().unwrap();
++    assert!(run().status.success());
++    let private = fs::read(root.join("id_ed25519")).unwrap();
++    let public = fs::read(root.join("id_ed25519.pub")).unwrap();
++    fs::remove_file(root.join("id_ed25519.pub")).unwrap();
++    assert!(!run().status.success());
++    fs::write(root.join("id_ed25519.pub"),"invalid encoding").unwrap();
++    assert!(!run().status.success());
++    fs::write(root.join("id_ed25519.pub"),base64::encode([9;32])).unwrap();
++    assert!(!run().status.success());
++    assert_eq!(fs::read(root.join("id_ed25519")).unwrap(),private);
++    fs::write(root.join("id_ed25519.pub"),&public).unwrap();
++    assert!(run().status.success());
++    fs::remove_dir_all(root).unwrap();
++}
++
+ #[tokio::test]
+ async fn initializer_migrates_and_bootstraps_once_without_listening_and_keeps_keys_on_restart() {
+     let root = directory(); let output = initialize(&root,&[]);
+diff --git a/tests/device_dto.rs b/tests/device_dto.rs
+index f231146..32b21ec 100644
+--- a/tests/device_dto.rs
++++ b/tests/device_dto.rs
+@@ -33,6 +33,58 @@ async fn official_peers_return_rustdesk_id_instead_of_internal_primary_key() {
+     assert_eq!(response["data"][0]["id"],"123456");
+ }
+ 
++#[tokio::test]
++async fn reported_device_name_is_searchable_after_administrator_binding() {
++    use hbb_common::rendezvous_proto::{RendezvousMessage,RegisterPk,rendezvous_message,register_pk_response};
++    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
++    let path = app.database_path();
++    let server = common::rendezvous::MockHbbs::start(path.parent().unwrap(),&path).await;
++    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
++    let mut message = RendezvousMessage::new();
++    message.set_register_pk(RegisterPk { id:"123456".to_owned(),uuid:b"registered-device".to_vec().into(),pk:vec![3;32].into(),..Default::default() });
++    assert!(matches!(server.exchange(&socket,message).union,Some(rendezvous_message::Union::RegisterPkResponse(ref result)) if result.result.enum_value().unwrap()==register_pk_response::Result::OK));
++    let token = value(app.send(request("POST","/api/admin/login",json!({"username":"admin","password":"admin-password"}))).await).await["access_token"].as_str().unwrap().to_owned();
++    let user = value(auth(&app,"GET","/api/users",json!({}),&token).await).await["data"][0]["id"].as_str().unwrap().to_owned();
++    assert_eq!(auth(&app,"POST","/api/admin/device/bind",json!({"peer_id":"123456","user_id":user,"pk_fingerprint":key_fingerprint(&[3;32])}),&token).await.status(),StatusCode::OK);
++    let report = auth(&app,"POST","/api/sysinfo",json!({"id":"123456","uuid":base64::encode(b"registered-device"),"hostname":"Goal Alpha Laptop","os":"Linux"}),&token).await;
++    assert_eq!(report.status(),StatusCode::OK);
++    let shown = value(auth(&app,"GET","/api/peers",json!({}),&token).await).await;
++    assert_eq!(shown["data"][0]["info"]["device_name"],"Goal Alpha Laptop");
++    let found = value(auth(&app,"GET","/api/peers?name=Alpha&pageSize=1",json!({}),&token).await).await;
++    assert_eq!(found["total"],1);
++    assert_eq!(found["data"][0]["id"],"123456");
++    assert_eq!(found["data"][0]["info"]["device_name"],"Goal Alpha Laptop");
++}
++
++#[tokio::test]
++async fn name_search_uses_the_merged_display_value_even_with_nulls_or_damaged_historical_json() {
++    let (app,token,_,internal,_) = fixture().await;
++    assert_eq!(auth(&app,"POST","/api/sysinfo",json!({"id":"123456","uuid":base64::encode(b"registered-device"),"hostname":"Initial"}),&token).await.status(),StatusCode::OK);
++    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
++    for (legacy,report,expected,hidden) in [
++        (r#"{"device_name":"Old","hostname":"Legacy"}"#,r#"{"device_name":null,"hostname":"Reported"}"#,"Reported","Old"),
++        (r#"{"device_name":"Old"}"#,r#"{"hostname":"Reported"}"#,"Old","Reported"),
++        (r#"{"device_name":"Old"}"#,r#"{"device_name":123,"hostname":"Reported"}"#,"Reported","Old"),
++        (r#"{"device_name":"Old"}"#,r#"{"device_name":""}"#,"","Old"),
++        ("broken-json","[]","Database fallback","Old"),
++        (r#"{"hostname":"literal%_\\name"}"#,"broken-json",r"literal%_\name","Database fallback"),
++        ("null",r#"{"hostname":false}"#,"Database fallback","Old"),
++    ] {
++        sqlx::query("update api_device set info=?,name='Database fallback' where id=?").bind(legacy).bind(&internal).execute(&pool).await.unwrap();
++        sqlx::query("update api_device_report set sysinfo=?").bind(report).execute(&pool).await.unwrap();
++        let shown = value(auth(&app,"GET","/api/peers",json!({}),&token).await).await;
++        assert_eq!(shown["data"][0]["info"]["device_name"],expected);
++        let mut url = reqwest::Url::parse("https://api.example/api/peers").unwrap();
++        url.query_pairs_mut().append_pair("name",expected).append_pair("pageSize","1");
++        let found = value(auth(&app,"GET",&format!("{}?{}",url.path(),url.query().unwrap()),json!({}),&token).await).await;
++        assert_eq!(found["total"],1,"{legacy}, {report}");
++        assert_eq!(found["data"][0]["info"]["device_name"],expected);
++        url.query_pairs_mut().clear().append_pair("name",hidden);
++        assert_eq!(value(auth(&app,"GET",&format!("{}?{}",url.path(),url.query().unwrap()),json!({}),&token).await).await["total"],0);
++    }
++    pool.close().await;
++}
++
+ /// RustDesk 1.4.9 flutter/lib/common/hbbs/hbbs.dart::PeerPayload fields.
+ #[derive(Deserialize)]
+ struct OfficialPeerPayload {
+diff --git a/web/src/main.js b/web/src/main.js
+index cfe01e9..0911355 100644
+--- a/web/src/main.js
++++ b/web/src/main.js
+@@ -1241,7 +1241,7 @@ async function loadLoginOptions() {
+       .map(option => option.slice('oidc/'.length))
+       .filter(Boolean);
+   } catch {
+-    state.oauthLoginProviders = [];
++    // A transient public lookup failure must not erase previously loaded choices.
+   }
+ }
+ 
+@@ -1963,6 +1963,7 @@ async function logout() {
+   try {
+     await api('/api/logout', { method: 'POST' });
+     clearSession();
++    await loadLoginOptions();
+     setNotice(null, null);
+   } catch (error) {
+     setNotice('error', error.message);
+@@ -2018,7 +2019,6 @@ function clearSession() {
+   state.userDraft = { username: '', email: '', password: '' };
+   state.sessions = [];
+   state.oauthProviders = [];
+-  state.oauthLoginProviders = [];
+   state.oauthRedirectConfigured = false;
+   state.devices = [];
+   state.registeredDevices = [];
+diff --git a/web/tests/address-book.spec.js b/web/tests/address-book.spec.js
+index 8606257..6d4a84c 100644
+--- a/web/tests/address-book.spec.js
++++ b/web/tests/address-book.spec.js
+@@ -2,6 +2,28 @@ import { test, expect, signIn } from './fixtures.js';
+ import { DatabaseSync } from 'node:sqlite';
+ import { join } from 'node:path';
+ 
++test('deleting a stable entry does not delete a peer whose ID collides with that entry', async ({ page, service }) => {
++  await signIn(page, service);
++  await page.locator('#nav-addressBook').click();
++  await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '111111', alias: 'FIRST', password: 'keep' }, { id: '222222', alias: 'SECOND' }] }));
++  await page.locator('#save-address-book').click();
++  await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
++  const canonical = JSON.parse(await page.locator('#address-book-editor').inputValue());
++  await page.locator('[data-edit-peer]').first().click();
++  await page.locator('[name="peer-id"]').fill(canonical.peers[1].entryId);
++  await page.locator('#save-peer').click();
++  await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
++  await page.locator('tr').filter({ hasText: 'SECOND' }).locator('[data-delete-peer]').click();
++  await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
++  await expect(page.locator('.table-wrap')).toContainText('FIRST');
++  await page.reload();
++  await page.locator('#nav-addressBook').click();
++  await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
++  await expect(page.locator('.table-wrap')).toContainText('FIRST');
++  const saved = JSON.parse(await page.locator('#address-book-editor').inputValue());
++  expect(saved.peers[0].password).toBe('keep');
++});
++
+ test('whole document editor reloads canonical identities and revisions before further edits', async ({ page, service }) => {
+   await signIn(page, service); await page.locator('#nav-addressBook').click();
+   await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '123456', alias: 'JSON import', extension: { keep: true } }], tags: ['imported'], tag_colors: { imported: 0xff112233 } }));
+@@ -103,12 +125,16 @@ test('official false string restores an unchecked relay and Web edits round-trip
+   await page.locator('[data-edit-peer]').click();
+   const relay = page.locator('[name="peer-relay"]');
+   await expect(relay).not.toBeChecked();
++  const enabled = page.waitForResponse(response => response.url().endsWith('/api/web/ab/entries') && response.request().method() === 'POST');
+   await relay.check(); await page.locator('#save-peer').click();
++  expect((await enabled).status()).toBe(200);
+   await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+   await page.locator('[data-edit-peer]').click(); await expect(relay).toBeChecked();
+   let official = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
+   expect(official.peers[0].forceAlwaysRelay).toBe('true');
++  const disabled = page.waitForResponse(response => response.url().endsWith('/api/web/ab/entries') && response.request().method() === 'POST');
+   await relay.uncheck(); await page.locator('#save-peer').click();
++  expect((await disabled).status()).toBe(200);
+   await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+   await page.reload(); await page.locator('#nav-addressBook').click(); await page.locator('[data-edit-peer]').click();
+   await expect(relay).not.toBeChecked();

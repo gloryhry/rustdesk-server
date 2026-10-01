@@ -1,0 +1,5 @@
+{
+  "data": "{\"peers\":[{\"alias\":\"Collision A\",\"entryId\":\"9cbfee32-8b22-48aa-b3ab-ca147ce3af47\",\"hash\":\"fixture-hash\",\"id\":\"92aae47d-bf9c-45b8-b2bb-86028b3b6f89\",\"peerId\":\"92aae47d-bf9c-45b8-b2bb-86028b3b6f89\",\"rdpPort\":\"3390\",\"rdpUsername\":\"goal-rdp\",\"tags\":[\"goal-tag\"]},{\"alias\":\"Collision B\",\"entryId\":\"92aae47d-bf9c-45b8-b2bb-86028b3b6f89\",\"id\":\"222222\",\"peerId\":\"222222\"}],\"tag_colors\":\"{\\\"goal-tag\\\":4281558681}\",\"tags\":[\"goal-tag\"]}",
+  "guid": "e685b17b-c772-4edc-a173-c9cd43a5a5a6",
+  "revision": 4
+}

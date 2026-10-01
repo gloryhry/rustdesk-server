@@ -1,0 +1,90 @@
+warning: variable does not need to be mutable
+    --> src/rendezvous_server.rs:1085:25
+     |
+1085 |                     let mut start = arg.and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+     |                         ----^^^^^
+     |                         |
+     |                         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `key`
+   --> src/rendezvous_server.rs:352:9
+    |
+352 |         key: &str,
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_key`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ph`
+   --> src/rendezvous_server.rs:463:66
+    |
+463 |                 Some(rendezvous_message::Union::PunchHoleRequest(ph)) => {
+    |                                                                  ^^ help: if this is intentional, prefix it with an underscore: `_ph`
+
+warning: unused variable: `phs`
+   --> src/rendezvous_server.rs:467:63
+    |
+467 |                 Some(rendezvous_message::Union::PunchHoleSent(phs)) => {
+    |                                                               ^^^ help: if this is intentional, prefix it with an underscore: `_phs`
+
+warning: unused variable: `la`
+   --> src/rendezvous_server.rs:470:59
+    |
+470 |                 Some(rendezvous_message::Union::LocalAddr(la)) => {
+    |                                                           ^^ help: if this is intentional, prefix it with an underscore: `_la`
+
+warning: method `handle_udp_punch_hole_request` is never used
+   --> src/rendezvous_server.rs:903:14
+    |
+101 | impl RendezvousServer {
+    | --------------------- method in this implementation
+...
+903 |     async fn handle_udp_punch_hole_request(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: type alias `UserStatusMap` is never used
+  --> src/peer.rs:14:6
+   |
+14 | type UserStatusMap = HashMap<Vec<u8>, Arc<(Option<Vec<u8>>, bool)>>;
+   |      ^^^^^^^^^^^^^
+
+warning: method `is_in_memory` is never used
+   --> src/peer.rs:191:25
+    |
+ 69 | impl PeerMap {
+    | ------------ method in this implementation
+...
+191 |     pub(crate) async fn is_in_memory(&self, id: &str) -> bool {
+    |                         ^^^^^^^^^^^^
+
+warning: `hbbs` (lib) generated 8 warnings (run `cargo fix --lib -p hbbs` to apply 5 suggestions)
+   Compiling hbbs v1.1.17 (/home/glory/Software/rustdesk-server)
+warning: function `check_software_update` is never used
+   --> src/common.rs:282:8
+    |
+282 | pub fn check_software_update() {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `check_software_update_` is never used
+   --> src/common.rs:291:10
+    |
+291 | async fn check_software_update_() -> hbb_common::ResultType<()> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `hbbs` (bin "hbbr") generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.29s
+     Running tests/deployment_initialization.rs (/tmp/rustdesk-review-target/debug/deps/deployment_initialization-87395aeb1feee2d6)
+
+running 4 tests
+test deployment_examples_do_not_supply_publicly_known_secrets_or_official_images ... ok
+test keys_only_initialization_needs_no_api_settings_and_preserves_service_identity ... ok
+test initializer_fails_closed_for_missing_secrets_assets_admin_or_partial_keys ... ok
+test initializer_migrates_and_bootstraps_once_without_listening_and_keeps_keys_on_restart ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.76s
+

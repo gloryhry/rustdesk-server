@@ -33,6 +33,58 @@ async fn official_peers_return_rustdesk_id_instead_of_internal_primary_key() {
     assert_eq!(response["data"][0]["id"],"123456");
 }
 
+#[tokio::test]
+async fn reported_device_name_is_searchable_after_administrator_binding() {
+    use hbb_common::rendezvous_proto::{RendezvousMessage,RegisterPk,rendezvous_message,register_pk_response};
+    let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
+    let path = app.database_path();
+    let server = common::rendezvous::MockHbbs::start(path.parent().unwrap(),&path).await;
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let mut message = RendezvousMessage::new();
+    message.set_register_pk(RegisterPk { id:"123456".to_owned(),uuid:b"registered-device".to_vec().into(),pk:vec![3;32].into(),..Default::default() });
+    assert!(matches!(server.exchange(&socket,message).union,Some(rendezvous_message::Union::RegisterPkResponse(ref result)) if result.result.enum_value().unwrap()==register_pk_response::Result::OK));
+    let token = value(app.send(request("POST","/api/admin/login",json!({"username":"admin","password":"admin-password"}))).await).await["access_token"].as_str().unwrap().to_owned();
+    let user = value(auth(&app,"GET","/api/users",json!({}),&token).await).await["data"][0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(auth(&app,"POST","/api/admin/device/bind",json!({"peer_id":"123456","user_id":user,"pk_fingerprint":key_fingerprint(&[3;32])}),&token).await.status(),StatusCode::OK);
+    let report = auth(&app,"POST","/api/sysinfo",json!({"id":"123456","uuid":base64::encode(b"registered-device"),"hostname":"Goal Alpha Laptop","os":"Linux"}),&token).await;
+    assert_eq!(report.status(),StatusCode::OK);
+    let shown = value(auth(&app,"GET","/api/peers",json!({}),&token).await).await;
+    assert_eq!(shown["data"][0]["info"]["device_name"],"Goal Alpha Laptop");
+    let found = value(auth(&app,"GET","/api/peers?name=Alpha&pageSize=1",json!({}),&token).await).await;
+    assert_eq!(found["total"],1);
+    assert_eq!(found["data"][0]["id"],"123456");
+    assert_eq!(found["data"][0]["info"]["device_name"],"Goal Alpha Laptop");
+}
+
+#[tokio::test]
+async fn name_search_uses_the_merged_display_value_even_with_nulls_or_damaged_historical_json() {
+    let (app,token,_,internal,_) = fixture().await;
+    assert_eq!(auth(&app,"POST","/api/sysinfo",json!({"id":"123456","uuid":base64::encode(b"registered-device"),"hostname":"Initial"}),&token).await.status(),StatusCode::OK);
+    let pool = sqlx::SqlitePool::connect(app.database_path().to_str().unwrap()).await.unwrap();
+    for (legacy,report,expected,hidden) in [
+        (r#"{"device_name":"Old","hostname":"Legacy"}"#,r#"{"device_name":null,"hostname":"Reported"}"#,"Reported","Old"),
+        (r#"{"device_name":"Old"}"#,r#"{"hostname":"Reported"}"#,"Old","Reported"),
+        (r#"{"device_name":"Old"}"#,r#"{"device_name":123,"hostname":"Reported"}"#,"Reported","Old"),
+        (r#"{"device_name":"Old"}"#,r#"{"device_name":""}"#,"","Old"),
+        ("broken-json","[]","Database fallback","Old"),
+        (r#"{"hostname":"literal%_\\name"}"#,"broken-json",r"literal%_\name","Database fallback"),
+        ("null",r#"{"hostname":false}"#,"Database fallback","Old"),
+    ] {
+        sqlx::query("update api_device set info=?,name='Database fallback' where id=?").bind(legacy).bind(&internal).execute(&pool).await.unwrap();
+        sqlx::query("update api_device_report set sysinfo=?").bind(report).execute(&pool).await.unwrap();
+        let shown = value(auth(&app,"GET","/api/peers",json!({}),&token).await).await;
+        assert_eq!(shown["data"][0]["info"]["device_name"],expected);
+        let mut url = reqwest::Url::parse("https://api.example/api/peers").unwrap();
+        url.query_pairs_mut().append_pair("name",expected).append_pair("pageSize","1");
+        let found = value(auth(&app,"GET",&format!("{}?{}",url.path(),url.query().unwrap()),json!({}),&token).await).await;
+        assert_eq!(found["total"],1,"{legacy}, {report}");
+        assert_eq!(found["data"][0]["info"]["device_name"],expected);
+        url.query_pairs_mut().clear().append_pair("name",hidden);
+        assert_eq!(value(auth(&app,"GET",&format!("{}?{}",url.path(),url.query().unwrap()),json!({}),&token).await).await["total"],0);
+    }
+    pool.close().await;
+}
+
 /// RustDesk 1.4.9 flutter/lib/common/hbbs/hbbs.dart::PeerPayload fields.
 #[derive(Deserialize)]
 struct OfficialPeerPayload {

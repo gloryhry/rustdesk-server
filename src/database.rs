@@ -679,21 +679,38 @@ impl Database {
 
     pub(crate) async fn official_peers(&self, viewer: &str, allow_all: bool, page: &crate::pagination::PageRequest) -> ResultType<crate::pagination::Page<crate::official_peer::PeerRecord>> {
         let now = crate::device_registry::now_ms();
-        let base = "from api_device d inner join peer p on p.guid=d.peer_guid inner join api_user u on u.id=d.user_id
+        // JSON null overrides an older field just like Map::extend; it must not
+        // resurrect the old name. Only object-valued JSON and text names apply.
+        let names = "with information as (
+            select d.id,d.user_id,d.name,d.os,d.info as legacy_info,d.status,p.id as peer_id,u.username as user_name,
+                t.sysinfo as reported_info,coalesce(r.registered_at_ms,0) as registered_at_ms,
+                case when json_valid(d.info) then case when json_type(d.info)='object' then d.info else '{}' end else '{}' end as legacy_object,
+                case when json_valid(t.sysinfo) then case when json_type(t.sysinfo)='object' then t.sysinfo else '{}' end else '{}' end as report_object
+            from api_device d inner join peer p on p.guid=d.peer_guid inner join api_user u on u.id=d.user_id
             left join api_device_report t on t.peer_guid=p.guid and t.pk=p.pk and t.uuid=p.uuid
             left join peer_registration r on r.peer_guid=p.guid and r.pk=p.pk and r.uuid=p.uuid
-            where d.verified=1 and d.verified_pk=p.pk and d.verified_uuid=p.uuid and (?=1 or d.user_id=?)
-                and (? is null or d.status=?) and (? is null or p.id like ? escape '\\' or d.name like ? escape '\\')";
+            where d.verified=1 and d.verified_pk=p.pk and d.verified_uuid=p.uuid),
+            names as (select *,
+                case when json_type(report_object,'$.device_name') is not null then
+                    case when json_type(report_object,'$.device_name')='text' then json_extract(report_object,'$.device_name') end
+                else case when json_type(legacy_object,'$.device_name')='text' then json_extract(legacy_object,'$.device_name') end end as device_name,
+                case when json_type(report_object,'$.hostname') is not null then
+                    case when json_type(report_object,'$.hostname')='text' then json_extract(report_object,'$.hostname') end
+                else case when json_type(legacy_object,'$.hostname')='text' then json_extract(legacy_object,'$.hostname') end end as hostname
+            from information),
+            named as (select *,coalesce(device_name,hostname,name) as effective_name from names)";
+        let base = "from named d where (?=1 or d.user_id=?)
+            and (? is null or d.status=?) and (? is null or d.peer_id like ? escape '\\' or d.effective_name like ? escape '\\')";
         let mut conn = self.pool.get().await?;
         let mut tx = conn.begin().await?;
-        let count_sql = format!("select count(*) {base}");
+        let count_sql = format!("{names} select count(*) {base}");
         let total: i64 = sqlx::query_scalar(&count_sql).bind(allow_all).bind(viewer).bind(page.status).bind(page.status)
             .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).fetch_one(&mut *tx).await?;
-        let data_sql = format!("select p.id as peer_id,d.user_id,u.username as user_name,d.name,d.os,d.info as legacy_info,t.sysinfo as reported_info,
-            d.status,coalesce(r.registered_at_ms,0) as registered_at_ms,
-            (coalesce(r.registered_at_ms,0)>? and coalesce(r.registered_at_ms,0)<=?) as online,
+        let data_sql = format!("{names} select d.peer_id,d.user_id,d.user_name,d.effective_name,d.os,d.legacy_info,d.reported_info,
+            d.status,d.registered_at_ms,
+            (d.registered_at_ms>? and d.registered_at_ms<=?) as online,
             (select min(g.name) from api_device_group g inner join api_device_group_device m on m.group_id=g.id where m.device_id=d.id and g.created_by=?) as device_group_name
-            {base} order by p.id,d.id limit ? offset ?");
+            {base} order by d.peer_id,d.id limit ? offset ?");
         let data = sqlx::query_as(&data_sql).bind(now-crate::device_registry::REGISTRATION_TIMEOUT_MS).bind(now).bind(viewer)
             .bind(allow_all).bind(viewer).bind(page.status).bind(page.status)
             .bind(&page.name_pattern).bind(&page.name_pattern).bind(&page.name_pattern).bind(page.limit).bind(page.offset).fetch_all(&mut *tx).await?;

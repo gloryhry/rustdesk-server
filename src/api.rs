@@ -1791,7 +1791,9 @@ async fn remove_address_book_entry(state: &ApiState, user: &str, key: &str, head
     let book = address_books(state).load(user).await?;
     let revision = book_revision(headers,requested,book.revision)?;
     let mut document = book.document;
-    let entry = book_entries(user,&document).into_iter().find(|entry|entry.id==key || entry.peer_id==key);
+    let entries = book_entries(user,&document);
+    let entry = entries.iter().find(|entry|entry.id==key)
+        .or_else(||entries.iter().find(|entry|entry.peer_id==key));
     let entry = match entry { Some(entry) => entry, None => return Ok(None) };
     remove_address_book_entry_from_document(&mut document,&entry.peer_id);
     address_books(state).replace(user,Some(revision),document).await.map(Some)

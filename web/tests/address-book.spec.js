@@ -2,6 +2,28 @@ import { test, expect, signIn } from './fixtures.js';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 
+test('deleting a stable entry does not delete a peer whose ID collides with that entry', async ({ page, service }) => {
+  await signIn(page, service);
+  await page.locator('#nav-addressBook').click();
+  await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '111111', alias: 'FIRST', password: 'keep' }, { id: '222222', alias: 'SECOND' }] }));
+  await page.locator('#save-address-book').click();
+  await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
+  const canonical = JSON.parse(await page.locator('#address-book-editor').inputValue());
+  await page.locator('[data-edit-peer]').first().click();
+  await page.locator('[name="peer-id"]').fill(canonical.peers[1].entryId);
+  await page.locator('#save-peer').click();
+  await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
+  await page.locator('tr').filter({ hasText: 'SECOND' }).locator('[data-delete-peer]').click();
+  await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+  await expect(page.locator('.table-wrap')).toContainText('FIRST');
+  await page.reload();
+  await page.locator('#nav-addressBook').click();
+  await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
+  await expect(page.locator('.table-wrap')).toContainText('FIRST');
+  const saved = JSON.parse(await page.locator('#address-book-editor').inputValue());
+  expect(saved.peers[0].password).toBe('keep');
+});
+
 test('whole document editor reloads canonical identities and revisions before further edits', async ({ page, service }) => {
   await signIn(page, service); await page.locator('#nav-addressBook').click();
   await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '123456', alias: 'JSON import', extension: { keep: true } }], tags: ['imported'], tag_colors: { imported: 0xff112233 } }));
@@ -103,12 +125,16 @@ test('official false string restores an unchecked relay and Web edits round-trip
   await page.locator('[data-edit-peer]').click();
   const relay = page.locator('[name="peer-relay"]');
   await expect(relay).not.toBeChecked();
+  const enabled = page.waitForResponse(response => response.url().endsWith('/api/web/ab/entries') && response.request().method() === 'POST');
   await relay.check(); await page.locator('#save-peer').click();
+  expect((await enabled).status()).toBe(200);
   await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
   await page.locator('[data-edit-peer]').click(); await expect(relay).toBeChecked();
   let official = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
   expect(official.peers[0].forceAlwaysRelay).toBe('true');
+  const disabled = page.waitForResponse(response => response.url().endsWith('/api/web/ab/entries') && response.request().method() === 'POST');
   await relay.uncheck(); await page.locator('#save-peer').click();
+  expect((await disabled).status()).toBe(200);
   await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
   await page.reload(); await page.locator('#nav-addressBook').click(); await page.locator('[data-edit-peer]').click();
   await expect(relay).not.toBeChecked();

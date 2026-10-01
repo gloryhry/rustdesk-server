@@ -1,5 +1,7 @@
 # RustDesk 兼容性与安全修复交付台账
 
+后续四项修复及两个未经修改的 Linux amd64 1.4.9 客户端真实全流程验收已另记于 [本轮 goal 验收报告](rustdesk-goal-acceptance.md)。以下 155/15 结果及未执行实机联调的描述属于此前历史轮次；Windows/ARM/真实硬件范围仍未验证。
+
 基线 `0f30105`，分支 `codex/rustdesk-client-compat-fixes`。最终修复源码提交 `4de82bd`。
 原计划 19 项与执行中发现的 19 项均已独立中文提交，共 38 个修复提交；此文档汇总不属于新增修复问题。
 没有 push、生产迁移或上线。

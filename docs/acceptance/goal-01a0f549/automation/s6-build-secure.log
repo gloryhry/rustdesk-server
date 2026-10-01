@@ -1,0 +1,166 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.68kB done
+#1 DONE 0.0s
+
+#2 resolve image config for docker-image://docker.io/docker/dockerfile:1
+#2 DONE 2.0s
+
+#3 docker-image://docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+#3 resolve docker.io/docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e 0.0s done
+#3 CACHED
+
+#4 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#4 DONE 1.5s
+
+#5 [internal] load metadata for docker.io/library/node:24.9.0-bookworm-slim
+#5 DONE 1.6s
+
+#6 [internal] load metadata for docker.io/library/rust:1.98.0-bookworm
+#6 DONE 1.6s
+
+#7 [internal] load .dockerignore
+#7 transferring context: 330B done
+#7 DONE 0.0s
+
+#8 [internal] load build context
+#8 transferring context: 7.67kB done
+#8 DONE 0.0s
+
+#9 [runtime 1/6] FROM docker.io/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+#9 resolve docker.io/library/debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 0.0s done
+#9 DONE 0.1s
+
+#10 [web-build 1/7] FROM docker.io/library/node:24.9.0-bookworm-slim@sha256:3e69116c924bfcba6c6979aff60d966c37aef56d488ce091c69d442ebec9f103
+#10 resolve docker.io/library/node:24.9.0-bookworm-slim@sha256:3e69116c924bfcba6c6979aff60d966c37aef56d488ce091c69d442ebec9f103 0.1s done
+#10 DONE 0.1s
+
+#11 [rust-build 1/8] FROM docker.io/library/rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922
+#11 resolve docker.io/library/rust:1.98.0-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 0.1s done
+#11 DONE 0.1s
+
+#12 [runtime 4/6] COPY --from=web-build /source/web/dist/ /usr/share/rustdesk-api-web/
+#12 CACHED
+
+#13 [rust-build 2/8] RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev libclang-dev cmake && rm -rf /var/lib/apt/lists/*
+#13 CACHED
+
+#14 [web-build 6/7] COPY web/src ./src
+#14 CACHED
+
+#15 [web-build 7/7] RUN npm run build
+#15 CACHED
+
+#16 [web-build 3/7] COPY web/package.json web/package-lock.json ./
+#16 CACHED
+
+#17 [rust-build 3/8] WORKDIR /source
+#17 CACHED
+
+#18 [rust-build 8/8] RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/source/target     set -eu; touch build.rs; cargo build --locked --profile "release" --bin hbbs --bin hbbr --bin rustdesk-api --bin rustdesk-utils;     mkdir /binaries; case "release" in dev) profile_dir=debug ;; *) profile_dir="release" ;; esac;     cp "/source/target/$profile_dir/hbbs" "/source/target/$profile_dir/hbbr" "/source/target/$profile_dir/rustdesk-api" "/source/target/$profile_dir/rustdesk-utils" /binaries/
+#18 CACHED
+
+#19 [runtime 5/6] COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/rustdesk-entrypoint
+#19 CACHED
+
+#20 [web-build 5/7] COPY web/index.html web/vite.config.js ./
+#20 CACHED
+
+#21 [web-build 2/7] WORKDIR /source/web
+#21 CACHED
+
+#22 [web-build 4/7] RUN npm ci
+#22 CACHED
+
+#23 [rust-build 4/8] COPY Cargo.toml Cargo.lock build.rs ./
+#23 CACHED
+
+#24 [rust-build 5/8] COPY libs/hbb_common ./libs/hbb_common
+#24 CACHED
+
+#25 [rust-build 7/8] COPY src ./src
+#25 CACHED
+
+#26 [runtime 3/6] COPY --from=rust-build /binaries/ /usr/bin/
+#26 CACHED
+
+#27 [runtime 2/6] RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libgcc-s1 libssl3 libstdc++6 curl util-linux netcat-openbsd && rm -rf /var/lib/apt/lists/* &&     mkdir /data && chown 10001:10001 /data
+#27 CACHED
+
+#28 [rust-build 6/8] COPY vendor ./vendor
+#28 CACHED
+
+#29 [runtime 6/6] WORKDIR /data
+#29 CACHED
+
+#30 [supervisor 1/5] RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
+#30 1.064 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#30 2.182 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#30 ...
+
+#31 [supervisor 2/5] ADD https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.0/s6-overlay-noarch.tar.xz /tmp/s6-overlay-noarch.tar.xz
+#31 DONE 2.4s
+
+#31 [supervisor 2/5] ADD https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.0/s6-overlay-noarch.tar.xz /tmp/s6-overlay-noarch.tar.xz
+#31 CACHED
+
+#32 [supervisor 3/5] ADD https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.0/s6-overlay-x86_64.tar.xz /tmp/s6-overlay-arch.tar.xz
+#32 CACHED
+
+#30 [supervisor 1/5] RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
+#30 2.516 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+#30 2.824 Get:4 http://deb.debian.org/debian bookworm/main amd64 Packages [8790 kB]
+#30 5.046 Get:5 http://deb.debian.org/debian bookworm-updates/main amd64 Packages [6924 B]
+#30 5.318 Get:6 http://deb.debian.org/debian-security bookworm-security/main amd64 Packages [343 kB]
+#30 5.609 Fetched 9381 kB in 5s (1747 kB/s)
+#30 5.609 Reading package lists...
+#30 5.908 Reading package lists...
+#30 6.203 Building dependency tree...
+#30 6.266 Reading state information...
+#30 6.350 The following NEW packages will be installed:
+#30 6.350   xz-utils
+#30 6.952 0 upgraded, 1 newly installed, 0 to remove and 1 not upgraded.
+#30 6.952 Need to get 471 kB of archives.
+#30 6.952 After this operation, 1255 kB of additional disk space will be used.
+#30 6.952 Get:1 http://deb.debian.org/debian-security bookworm-security/main amd64 xz-utils amd64 5.4.1-1+deb12u2 [471 kB]
+#30 7.973 debconf: delaying package configuration, since apt-utils is not installed
+#30 7.995 Fetched 471 kB in 2s (309 kB/s)
+#30 8.019 Selecting previously unselected package xz-utils.
+#30 8.019 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6739 files and directories currently installed.)
+#30 8.035 Preparing to unpack .../xz-utils_5.4.1-1+deb12u2_amd64.deb ...
+#30 8.039 Unpacking xz-utils (5.4.1-1+deb12u2) ...
+#30 8.101 Setting up xz-utils (5.4.1-1+deb12u2) ...
+#30 8.117 update-alternatives: using /usr/bin/xz to provide /usr/bin/lzma (lzma) in auto mode
+#30 8.117 update-alternatives: warning: skip creation of /usr/share/man/man1/lzma.1.gz because associated file /usr/share/man/man1/xz.1.gz (of link group lzma) doesn't exist
+#30 8.117 update-alternatives: warning: skip creation of /usr/share/man/man1/unlzma.1.gz because associated file /usr/share/man/man1/unxz.1.gz (of link group lzma) doesn't exist
+#30 8.117 update-alternatives: warning: skip creation of /usr/share/man/man1/lzcat.1.gz because associated file /usr/share/man/man1/xzcat.1.gz (of link group lzma) doesn't exist
+#30 8.117 update-alternatives: warning: skip creation of /usr/share/man/man1/lzmore.1.gz because associated file /usr/share/man/man1/xzmore.1.gz (of link group lzma) doesn't exist
+#30 8.117 update-alternatives: warning: skip creation of /usr/share/man/man1/lzless.1.gz because associated file /usr/share/man/man1/xzless.1.gz (of link group lzma) doesn't exist
+#30 8.117 update-alternatives: warning: skip creation of /usr/share/man/man1/lzdiff.1.gz because associated file /usr/share/man/man1/xzdiff.1.gz (of link group lzma) doesn't exist
+#30 8.118 update-alternatives: warning: skip creation of /usr/share/man/man1/lzcmp.1.gz because associated file /usr/share/man/man1/xzcmp.1.gz (of link group lzma) doesn't exist
+#30 8.118 update-alternatives: warning: skip creation of /usr/share/man/man1/lzgrep.1.gz because associated file /usr/share/man/man1/xzgrep.1.gz (of link group lzma) doesn't exist
+#30 8.118 update-alternatives: warning: skip creation of /usr/share/man/man1/lzegrep.1.gz because associated file /usr/share/man/man1/xzegrep.1.gz (of link group lzma) doesn't exist
+#30 8.118 update-alternatives: warning: skip creation of /usr/share/man/man1/lzfgrep.1.gz because associated file /usr/share/man/man1/xzfgrep.1.gz (of link group lzma) doesn't exist
+#30 DONE 8.2s
+
+#33 [supervisor 2/5] ADD https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.0/s6-overlay-noarch.tar.xz /tmp/s6-overlay-noarch.tar.xz
+#33 DONE 0.0s
+
+#34 [supervisor 3/5] ADD https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.0/s6-overlay-x86_64.tar.xz /tmp/s6-overlay-arch.tar.xz
+#34 DONE 0.0s
+
+#35 [supervisor 4/5] RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && tar -C / -Jxpf /tmp/s6-overlay-arch.tar.xz && rm /tmp/s6-overlay*.tar.xz
+#35 DONE 0.2s
+
+#36 [supervisor 5/5] COPY docker/rootfs/ /
+#36 DONE 0.0s
+
+#37 exporting to image
+#37 exporting layers
+#37 exporting layers 0.3s done
+#37 exporting manifest sha256:e0beef4df1e58847de2f914915fb17b0a2fe3413e0826d8476908be4540cbba5 0.0s done
+#37 exporting config sha256:09b62251b4fb85c5b2bb9d9cc2c4a44c86ed0ae4ea19dc1a9b0cb8035c59b0b7 0.0s done
+#37 naming to docker.io/rustdesk-goal/server:01a0f549-s6 done
+#37 unpacking to docker.io/rustdesk-goal/server:01a0f549-s6 0.1s done
+#37 DONE 0.4s

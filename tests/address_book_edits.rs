@@ -20,6 +20,32 @@ async fn book(app: &TestApp,token: &str) -> Value {
 }
 
 #[tokio::test]
+async fn stable_entry_delete_wins_over_another_peers_id_for_both_web_routes_and_orders() {
+    for reverse in [false,true] {
+        for post in [false,true] {
+            let (app,token) = fixture().await;
+            let first = value(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"123456","alias":"FIRST"}),&token).await).await;
+            let second = value(auth(&app,"POST","/api/web/ab/entries",json!({"peer_id":"654321","alias":"SECOND"}),&token).await).await;
+            let key = second["data"]["id"].as_str().unwrap();
+            assert_eq!(auth(&app,"POST","/api/web/ab/entries",json!({"id":first["data"]["id"],"peer_id":key}),&token).await.status(),StatusCode::OK);
+            if reverse {
+                let mut document = book(&app,&token).await;
+                document["peers"].as_array_mut().unwrap().reverse();
+                assert_eq!(auth(&app,"POST","/api/ab",json!({"data":document.to_string()}),&token).await.status(),StatusCode::OK);
+            }
+            let deleted = if post { auth(&app,"POST","/api/web/ab/entries/delete",json!({"id":key}),&token).await }
+                else { auth(&app,"DELETE",&format!("/api/web/ab/entries/{key}"),json!({}),&token).await };
+            assert_eq!(deleted.status(),StatusCode::OK);
+            let remaining = book(&app,&token).await;
+            assert_eq!(remaining["peers"].as_array().unwrap().len(),1);
+            assert_eq!(remaining["peers"][0]["alias"],"FIRST");
+            assert_eq!(remaining["peers"][0]["entryId"],first["data"]["id"]);
+            assert_eq!(remaining["peers"][0]["password"],"saved-password");
+        }
+    }
+}
+
+#[tokio::test]
 async fn partial_edits_preserve_saved_connection_and_unknown_fields() {
     let (app,token) = fixture().await;
     for patch in [json!({"peer_id":"123456","alias":"New alias"}),json!({"peer_id":"123456","tags":["new"]}),json!({"peer_id":"123456","note":"changed note"})] {

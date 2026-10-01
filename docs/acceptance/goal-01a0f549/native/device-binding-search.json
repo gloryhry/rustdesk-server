@@ -1,0 +1,45 @@
+{
+  "a": {
+    "peer_id": "288596091",
+    "local_pk_fingerprint": "sha256:13048c7a7f4e614167e16076c897216a0015ddef08965c5924ff5e8b4524d2c8",
+    "binding": {
+      "id": "5b5b9af4-862a-4603-a3ae-33caaf7ea887"
+    },
+    "machine_id": "05ff4076c06db25dca9365326abddb03"
+  },
+  "b": {
+    "peer_id": "512499333",
+    "local_pk_fingerprint": "sha256:04da041443d5f1200fdde14dc31b8a501f1645da3ad1f321f5bd772959ccc042",
+    "binding": {
+      "id": "21f76f5f-185f-43e1-81a1-14215e036885"
+    },
+    "machine_id": "2be73c88b1b9626d5165f3966abddb05"
+  },
+  "search": {
+    "total": 1,
+    "data": [
+      {
+        "id": "288596091",
+        "info": {
+          "cpu": "Intel(R) Core(TM) i9-14900HX, 2.48GHz, 32/24 cores",
+          "device_name": "goal-a-laptop",
+          "hostname": "goal-a-laptop",
+          "id": "288596091",
+          "memory": "31.04GB",
+          "os": "ubuntu / Linux 24.04 Ubuntu",
+          "username": "",
+          "uuid": "MDVmZjQwNzZjMDZkYjI1ZGNhOTM2NTMyNmFiZGRiMDM=",
+          "version": "1.4.9"
+        },
+        "status": 1,
+        "online": true,
+        "registered_at_ms": 1790827427530,
+        "user": "5b6762fe-6ddf-46bd-99b3-57a3c5d9161b",
+        "user_name": "goal-user",
+        "device_group_name": null,
+        "note": ""
+      }
+    ],
+    "code": 0
+  }
+}

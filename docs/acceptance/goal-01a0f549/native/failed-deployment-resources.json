@@ -1,0 +1,19 @@
+{
+  "source": "deployment-secure.log",
+  "containers": [
+    "rustdesk-check-7bf44876225c-core-only",
+    "rustdesk-check-7bf44876225c-s6",
+    "rustdesk-check-7bf44876225c-broken",
+    "rustdesk-check-7bf44876225c-rustdesk-api-1",
+    "rustdesk-check-7bf44876225c-hbbr-1",
+    "rustdesk-check-7bf44876225c-hbbs-1",
+    "rustdesk-check-7bf44876225c-init-1"
+  ],
+  "volumes": [
+    "rustdesk-check-7bf44876225c-core-only",
+    "rustdesk-check-7bf44876225c-invalid",
+    "rustdesk-check-7bf44876225c-s6",
+    "rustdesk-check-7bf44876225c_rustdesk-data"
+  ],
+  "network": "rustdesk-check-7bf44876225c_default"
+}

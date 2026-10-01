@@ -1,0 +1,15 @@
+
+> rustdesk-api-web@0.1.0 test:browser
+> playwright test tests/oauth-login-options.spec.js --output=/tmp/rustdesk-goal-01a0f549/browser-green
+
+
+Running 2 tests using 1 worker
+
+(node:3450458) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3450458) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/session/csrf is delayed (3.0s)
+  ✓  2 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/login-options is delayed (2.9s)
+
+  2 passed (6.9s)

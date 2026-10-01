@@ -1241,7 +1241,7 @@ async function loadLoginOptions() {
       .map(option => option.slice('oidc/'.length))
       .filter(Boolean);
   } catch {
-    state.oauthLoginProviders = [];
+    // A transient public lookup failure must not erase previously loaded choices.
   }
 }
 
@@ -1963,6 +1963,7 @@ async function logout() {
   try {
     await api('/api/logout', { method: 'POST' });
     clearSession();
+    await loadLoginOptions();
     setNotice(null, null);
   } catch (error) {
     setNotice('error', error.message);
@@ -2018,7 +2019,6 @@ function clearSession() {
   state.userDraft = { username: '', email: '', password: '' };
   state.sessions = [];
   state.oauthProviders = [];
-  state.oauthLoginProviders = [];
   state.oauthRedirectConfigured = false;
   state.devices = [];
   state.registeredDevices = [];

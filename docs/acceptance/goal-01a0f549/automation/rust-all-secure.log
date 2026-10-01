@@ -1,0 +1,425 @@
+warning: variable does not need to be mutable
+    --> src/rendezvous_server.rs:1089:25
+     |
+1089 |                     let mut start = arg.and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+     |                         ----^^^^^
+     |                         |
+     |                         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `key`
+   --> src/rendezvous_server.rs:352:9
+    |
+352 |         key: &str,
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_key`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ph`
+   --> src/rendezvous_server.rs:463:66
+    |
+463 |                 Some(rendezvous_message::Union::PunchHoleRequest(ph)) => {
+    |                                                                  ^^ help: if this is intentional, prefix it with an underscore: `_ph`
+
+warning: unused variable: `phs`
+   --> src/rendezvous_server.rs:467:63
+    |
+467 |                 Some(rendezvous_message::Union::PunchHoleSent(phs)) => {
+    |                                                               ^^^ help: if this is intentional, prefix it with an underscore: `_phs`
+
+warning: unused variable: `la`
+   --> src/rendezvous_server.rs:470:59
+    |
+470 |                 Some(rendezvous_message::Union::LocalAddr(la)) => {
+    |                                                           ^^ help: if this is intentional, prefix it with an underscore: `_la`
+
+warning: method `handle_udp_punch_hole_request` is never used
+   --> src/rendezvous_server.rs:907:14
+    |
+101 | impl RendezvousServer {
+    | --------------------- method in this implementation
+...
+907 |     async fn handle_udp_punch_hole_request(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: type alias `UserStatusMap` is never used
+  --> src/peer.rs:14:6
+   |
+14 | type UserStatusMap = HashMap<Vec<u8>, Arc<(Option<Vec<u8>>, bool)>>;
+   |      ^^^^^^^^^^^^^
+
+warning: method `is_in_memory` is never used
+   --> src/peer.rs:191:25
+    |
+ 69 | impl PeerMap {
+    | ------------ method in this implementation
+...
+191 |     pub(crate) async fn is_in_memory(&self, id: &str) -> bool {
+    |                         ^^^^^^^^^^^^
+
+   Compiling hbbs v1.1.17 (/home/glory/Software/rustdesk-server)
+warning: `hbbs` (lib) generated 8 warnings (run `cargo fix --lib -p hbbs` to apply 5 suggestions)
+warning: function `check_software_update` is never used
+   --> src/common.rs:282:8
+    |
+282 | pub fn check_software_update() {
+    |        ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `check_software_update_` is never used
+   --> src/common.rs:291:10
+    |
+291 | async fn check_software_update_() -> hbb_common::ResultType<()> {
+    |          ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `hbbs` (bin "hbbr") generated 2 warnings
+warning: `hbbs` (bin "hbbr" test) generated 2 warnings (2 duplicates)
+warning: `hbbs` (lib test) generated 8 warnings (8 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.57s
+     Running unittests src/lib.rs (/tmp/rustdesk-review-target/debug/deps/hbbs-7cdaedcc8ef2d219)
+
+running 29 tests
+test address_book_codec::tests::css_round_trips_argb_including_transparency_and_unsigned_maximum ... ok
+test api::tests::auth_cookie_response_sets_browser_session_attributes ... ok
+test api::tests::merge_replaces_existing_peer_without_duplicate ... ok
+test auth::tests::normalizes_usernames ... ok
+test auth::tests::enforces_bcrypt_input_limit ... ok
+test api::tests::snapshot_conversion_round_trips_peer_fields ... ok
+test common::tests::argument_names_ignore_case_and_separator ... ok
+test common::tests::console_addr_only_when_bind_does_not_cover_ipv4_localhost ... ok
+test api::tests::cookie_value_extracts_named_cookie_without_prefix_confusion ... ok
+test address_book_codec::official_tests::new_tag_dto_uses_unsigned_argb_integers ... ok
+test common::tests::parses_bind_address ... ok
+test ldap::tests::disabled_configuration_is_valid ... ok
+test common::tests::console_listener_binds_ipv4_localhost ... ok
+test ldap::tests::view_never_contains_bind_password ... ok
+test common::tests::tcp_listener_uses_bind_address ... ok
+test oauth::tests::empty_identity_subject_is_not_a_scalar_identity ... ok
+test ldap::tests::enabled_configuration_requires_username_placeholder ... ok
+test oauth::tests::oidc_without_any_validation_endpoints_is_rejected ... ok
+test oauth::tests::provider_endpoints_require_secure_or_local_urls ... ok
+test websocket_proxy::tests::invalid_duplicate_and_conflicting_headers_keep_the_real_peer ... ok
+test websocket_proxy::tests::invalid_proxy_configuration_fails_and_the_list_is_bounded ... ok
+test websocket_proxy::tests::only_the_actual_trusted_tcp_peer_can_supply_an_ip ... ok
+test oauth::tests::oidc_validation_endpoints_must_be_paired ... ok
+test rendezvous_server::tests::udp_listener_uses_bind_address ... ok
+test oauth::tests::complete_exchanges_code_and_resolves_userinfo_identity ... ok
+test deployment::tests::initialization_preserves_keys_and_rejects_partial_or_mismatched_pairs ... ok
+test oauth::tests::begin_stores_one_time_state_in_authorization_url ... ok
+test auth::tests::registers_logs_in_and_revokes_session ... ok
+test database::tests::test_insert has been running for over 60 seconds
+test database::tests::test_insert ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 97.40s
+
+     Running unittests src/hbbr.rs (/tmp/rustdesk-review-target/debug/deps/hbbr-d0f6a59a70043e90)
+
+running 5 tests
+test common::tests::console_addr_only_when_bind_does_not_cover_ipv4_localhost ... ok
+test common::tests::parses_bind_address ... ok
+test common::tests::argument_names_ignore_case_and_separator ... ok
+test common::tests::tcp_listener_uses_bind_address ... ok
+test common::tests::console_listener_binds_ipv4_localhost ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/tmp/rustdesk-review-target/debug/deps/hbbs-870104c448c89ff6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/api_main.rs (/tmp/rustdesk-review-target/debug/deps/rustdesk_api-528500f1eba8eca9)
+
+running 3 tests
+test api_config::tests::partial_credentials_fail_and_empty_configuration_is_valid ... ok
+test api_config::tests::google_has_complete_oidc_validation_endpoints ... ok
+test api_config::tests::incomplete_generic_oidc_configuration_is_an_explicit_error ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/utils.rs (/tmp/rustdesk-review-target/debug/deps/rustdesk_utils-bd505b7412083c35)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/address_book_edits.rs (/tmp/rustdesk-review-target/debug/deps/address_book_edits-8618dd0fe31a899d)
+
+running 16 tests
+test invalid_relay_values_never_silently_become_false_or_modify_the_book ... ok
+test relay_string_and_boolean_inputs_round_trip_to_official_strings_and_web_booleans ... ok
+test partial_edits_preserve_saved_connection_and_unknown_fields ... ok
+test failed_delete_snapshot_write_rolls_back_index_deletion ... ok
+test legacy_tag_color_map_is_a_json_string_and_preserves_all_argb_values_across_edits ... ok
+test changing_peer_id_keeps_entry_identity_and_saved_fields_and_allows_partial_edit_by_entry_id ... ok
+test snapshot_only_entry_can_be_deleted_from_both_read_paths_and_repeated_delete_is_explicit ... ok
+test damaged_tag_colors_are_reported_and_never_replaced_with_empty_data ... ok
+test failed_snapshot_write_rolls_back_structured_entry_update ... ok
+test explicit_empty_fields_clear_only_requested_values_and_reads_preserve_extensions ... ok
+test tag_rename_conflicts_and_failed_persistence_leave_colors_and_indexes_unchanged ... ok
+test tag_rename_and_delete_update_only_the_related_colors_and_peer_references ... ok
+test deleting_own_snapshot_peer_does_not_delete_another_accounts_identical_peer ... ok
+test identical_imported_peer_ids_in_different_accounts_have_independent_edits ... ok
+test duplicate_target_and_foreign_entry_identity_cannot_change_address_book_data ... ok
+test stable_entry_delete_wins_over_another_peers_id_for_both_web_routes_and_orders ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.52s
+
+     Running tests/address_book_store.rs (/tmp/rustdesk-review-target/debug/deps/address_book_store-52c43fa270f0ecc3)
+
+running 12 tests
+test concurrent_empty_book_initialization_keeps_one_persistent_guid ... ok
+test independent_store_writers_have_one_winner_and_index_failure_rolls_back_revision ... ok
+test equal_and_older_index_times_keep_snapshot_values_and_parallel_migration_is_idempotent ... ok
+test historical_migration_unions_snapshot_and_index_preserves_extensions_and_can_repeat ... ok
+test editing_one_imported_peer_keeps_all_other_document_entries_visible ... ok
+test contradictory_identifier_aliases_are_rejected_without_changing_the_document ... ok
+test stale_revision_cannot_overwrite_a_newer_peer_edit ... ok
+test historical_duplicate_identifiers_roll_back_the_entire_migration_and_report_conflict ... ok
+test store_document_is_authoritative_and_cas_and_index_rebuild_are_transactional ... ok
+test address_book_guid_revision_and_entry_ids_are_stable_across_api_restart ... ok
+test browser_mutations_require_revision_and_foreign_imports_get_local_entry_identity ... ok
+test corrupt_historical_documents_and_identity_conflicts_rollback_with_reports ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.38s
+
+     Running tests/api_routes.rs (/tmp/rustdesk-review-target/debug/deps/api_routes-16d447c1dc3148ca)
+
+running 1 test
+test api_routes_support_auth_groups_and_cookie_sessions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.88s
+
+     Running tests/browser_security.rs (/tmp/rustdesk-review-target/debug/deps/browser_security-ee864343224d045b)
+
+running 4 tests
+test insecure_cookie_exception_rejects_nonlocal_deployments ... ok
+test oauth_callback_uses_the_same_secure_cookie_policy ... ok
+test explicit_loopback_http_mode_uses_matching_login_and_logout_cookies ... ok
+test admin_login_and_logout_use_secure_host_cookies_despite_forwarded_headers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.15s
+
+     Running tests/browser_sessions.rs (/tmp/rustdesk-review-target/debug/deps/browser_sessions-ddd1f0e9d0f384d7)
+
+running 5 tests
+test cross_site_cookies_are_explicit_and_insecure_or_wildcard_configuration_is_rejected ... ok
+test exact_origins_and_credentials_are_enforced_for_preflight_and_actual_requests ... ok
+test cookie_mutation_without_origin_and_csrf_is_rejected ... ok
+test native_bearer_needs_no_browser_token_and_invalid_bearer_cannot_fall_back_to_cookie ... ok
+test csrf_is_session_bound_and_rejections_do_not_revoke_a_valid_session ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.14s
+
+     Running tests/deployment_initialization.rs (/tmp/rustdesk-review-target/debug/deps/deployment_initialization-aacde99c1e8e8699)
+
+running 5 tests
+test deployment_examples_do_not_supply_publicly_known_secrets_or_official_images ... ok
+test keys_only_initialization_needs_no_api_settings_and_preserves_service_identity ... ok
+test keys_only_initialization_rejects_partial_corrupt_and_mismatched_pairs_without_rotation ... ok
+test initializer_fails_closed_for_missing_secrets_assets_admin_or_partial_keys ... ok
+test initializer_migrates_and_bootstraps_once_without_listening_and_keeps_keys_on_restart ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.17s
+
+     Running tests/deployment_readiness.rs (/tmp/rustdesk-review-target/debug/deps/deployment_readiness-b8199a9a9d60e1a6)
+
+running 1 test
+test readiness_checks_static_assets_and_database_while_liveness_stays_independent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.16s
+
+     Running tests/device_dto.rs (/tmp/rustdesk-review-target/debug/deps/device_dto-796a6ea8b6ad5cc9)
+
+running 7 tests
+test reported_device_name_is_searchable_after_administrator_binding ... ok
+test official_peers_return_rustdesk_id_instead_of_internal_primary_key ... ok
+test official_peer_payload_parses_information_object_and_preserves_management_status ... ok
+test name_search_uses_the_merged_display_value_even_with_nulls_or_damaged_historical_json ... ok
+test damaged_historical_info_has_explicit_error_and_safe_object_fallback_without_rewriting_data ... ok
+test management_primary_keys_and_existing_group_memberships_remain_stable ... ok
+test other_users_and_pending_links_do_not_leak_into_official_peer_lists ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.45s
+
+     Running tests/device_reports.rs (/tmp/rustdesk-review-target/debug/deps/device_reports-7d3792cb207e1192)
+
+running 13 tests
+test unknown_official_device_report_cannot_claim_to_have_been_saved ... ok
+test mismatched_uuid_malformed_payload_rate_limit_and_failed_storage_never_fake_success ... ok
+test concurrent_sysinfo_reports_allow_only_one_write_and_authority_changes_request_new_sysinfo ... ok
+test official_unsigned_sysinfo_and_heartbeat_persist_without_ownership_or_online_claims ... ok
+test oversized_reports_and_capacity_are_rejected_without_success_or_growth ... ok
+test real_hbbs_udp_registrations_persist_their_time_and_survive_api_restart ... ok
+test real_hbbs_failed_key_persistence_returns_error_and_retry_does_not_use_failed_cache ... ok
+test registration_queue_is_bounded_flushes_and_online_expires_without_api_reports_reviving_it ... ok
+test ownership_operations_roll_back_if_their_audit_cannot_be_saved ... ok
+test historical_links_remain_pending_and_key_changes_hide_verified_links ... ok
+test rebinding_an_owner_cannot_silently_replace_another_verified_peer ... ok
+test historical_database_migration_preserves_links_and_group_rows_without_auto_verifying ... ok
+test admin_binding_is_fingerprint_checked_audited_persistent_and_report_cannot_change_it ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.63s
+
+     Running tests/http_transport.rs (/tmp/rustdesk-review-target/debug/deps/http_transport-c9c1c310c83a7c69)
+
+running 1 test
+test http1_and_http2_serve_api_and_static_assets_with_body_limits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+     Running tests/list_pagination.rs (/tmp/rustdesk-review-target/debug/deps/list_pagination-99bdd08f75b62dce)
+
+running 4 tests
+test official_lists_include_total_for_native_pagination ... ok
+test invalid_parameters_are_explicit_errors ... ok
+test totals_apply_authorization_status_and_literal_name_filters_first ... ok
+test boundary_counts_default_pages_and_stable_order_match_the_official_loop ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.06s
+
+     Running tests/native_oauth.rs (/tmp/rustdesk-review-target/debug/deps/native_oauth-fd3baf50dbc19211)
+
+running 10 tests
+test concurrent_client_polls_issue_only_one_session ... ok
+test browser_denial_is_reported_to_the_polling_client_without_a_session ... ok
+test oidc_validation_failure_is_reported_to_the_native_client ... ok
+test launch_capability_cannot_poll_and_browser_entry_cannot_restart_a_flow ... ok
+test native_browser_completes_without_logging_in_and_client_claims_auth_once ... ok
+test provider_alias_is_supported_but_conflicting_provider_names_are_rejected ... ok
+test official_native_auth_request_returns_a_polling_code_and_browser_entry ... ok
+test expired_native_authorization_cannot_be_claimed_or_fall_back_to_browser_login ... ok
+test password_login_also_returns_the_required_official_user_info ... ok
+test pending_native_authorizations_have_a_bounded_capacity_and_expire ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.02s
+
+     Running tests/oauth_admin.rs (/tmp/rustdesk-review-target/debug/deps/oauth_admin-203a0cc9a5dbff56)
+
+running 12 tests
+test editing_during_token_exchange_cannot_complete_an_old_authorization ... ok
+test identity_authority_is_immutable_and_duplicate_names_are_rejected ... ok
+test encrypted_secrets_reject_tampering_and_cross_provider_copying_before_mutation ... ok
+test disabling_a_provider_invalidates_waiting_authorizing_and_unclaimed_native_flows ... ok
+test administrator_can_create_an_oauth_provider ... ok
+test environment_providers_are_read_only_and_names_cannot_be_shadowed ... ok
+test disabling_a_provider_invalidates_existing_browser_authorizations ... ok
+test ordinary_users_cannot_access_any_provider_management_operation ... ok
+test crud_is_persistent_and_secrets_are_encrypted_and_never_returned ... ok
+test secret_rotation_and_restart_keep_the_same_account_identity ... ok
+test concurrent_migrations_reserve_historical_identity_names_and_are_repeatable ... ok
+test missing_or_wrong_encryption_key_never_falls_back_to_plaintext ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.40s
+
+     Running tests/oauth_browser.rs (/tmp/rustdesk-review-target/debug/deps/oauth_browser-7a1204f0cd4d9235)
+
+running 5 tests
+test incorrect_redirect_uri_does_not_consume_the_bound_authorization ... ok
+test forwarded_callback_without_initiating_browser_cannot_log_in ... ok
+test expired_bound_callback_cannot_create_a_session ... ok
+test concurrent_callbacks_create_only_one_browser_session ... ok
+test wrong_browser_cannot_consume_state_and_multiple_tabs_can_complete ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.73s
+
+     Running tests/official_address_book.rs (/tmp/rustdesk-review-target/debug/deps/official_address_book-40d275fa1ffcdd40)
+
+running 8 tests
+test official_empty_body_initialization_sequence_parses_root_objects_and_arrays ... ok
+test batch_peer_and_tag_deletion_are_atomic_on_bad_input_and_storage_failure ... ok
+test native_invalid_connection_types_and_reserved_identity_edits_do_not_modify_the_book ... ok
+test official_tag_crud_uses_integer_argb_put_rename_and_array_deletion ... ok
+test pinned_official_request_samples_replay_and_legacy_colors_survive_both_protocols ... ok
+test official_pagination_reads_all_101_peers_and_legacy_replace_is_visible_to_new_protocol ... ok
+test official_peer_crud_is_partial_and_uses_peer_ids_and_empty_success_bodies ... ok
+test every_guid_route_rejects_foreign_books_and_web_entry_ids_have_separate_routes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.61s
+
+     Running tests/oidc_validation.rs (/tmp/rustdesk-review-target/debug/deps/oidc_validation-d4886dee5e9c1307)
+
+running 7 tests
+test configured_oidc_cannot_complete_without_an_id_token ... ok
+test google_issuer_with_signed_id_token_reaches_validated_login ... ok
+test multiple_audiences_with_matching_authorized_party_are_accepted ... ok
+test userinfo_subject_must_be_a_matching_oidc_string ... ok
+test invalid_signature_algorithm_and_key_identifier_are_rejected ... ok
+test signed_oidc_tokens_must_match_all_required_claims ... ok
+test rejected_oidc_callback_creates_neither_account_nor_session ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.82s
+
+     Running tests/protobuf_recursion.rs (/tmp/rustdesk-review-target/debug/deps/protobuf_recursion-6d93ebfb1d2ae48f)
+
+running 1 test
+test deeply_nested_unknown_groups_are_rejected_without_aborting ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/secure_rendezvous.rs (/tmp/rustdesk-review-target/debug/deps/secure_rendezvous-b383e0cc400c36db)
+
+running 2 tests
+test malformed_key_exchanges_close_only_the_offending_connection ... ok
+test authenticated_native_client_can_secure_rendezvous_and_plain_clients_still_work ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.43s
+
+     Running tests/security_dependencies.rs (/tmp/rustdesk-review-target/debug/deps/security_dependencies-312b3202b7aef32c)
+
+running 1 test
+test oversized_json_is_rejected_before_login_and_small_requests_still_work ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+
+     Running tests/terminal_cli.rs (/tmp/rustdesk-review-target/debug/deps/terminal_cli-4187b0ba064b1519)
+
+running 1 test
+test service_cli_errors_preserve_pipe_and_real_terminal_behavior ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/test_environment.rs (/tmp/rustdesk-review-target/debug/deps/test_environment-b47881013bcd94dc)
+
+running 1 test
+test hbbs_version_checker_stores_its_client_configuration_only_in_the_test_directory ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+     Running tests/unix_groups.rs (/tmp/rustdesk-review-target/debug/deps/unix_groups-920da735c5822f19)
+
+running 1 test
+test user_group_membership_matches_the_operating_system_without_invented_root_group ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/user_list.rs (/tmp/rustdesk-review-target/debug/deps/user_list-96f2d54092496e33)
+
+running 1 test
+test ordinary_user_list_has_stable_id_for_authorized_group_membership ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.47s
+
+     Running tests/websocket_protocol.rs (/tmp/rustdesk-review-target/debug/deps/websocket_protocol-be222f2630fe5595)
+
+running 1 test
+test real_hbbs_websocket_preserves_binary_protobuf_responses_after_dependency_upgrade ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+     Running tests/websocket_proxy.rs (/tmp/rustdesk-review-target/debug/deps/websocket_proxy-5c9c24201bfe8914)
+
+running 5 tests
+test invalid_proxy_configuration_prevents_both_servers_from_starting ... ok
+test direct_hbbs_websocket_cannot_replace_real_source_using_forwarded_headers ... ok
+test trusted_hbbs_proxy_accepts_one_valid_ip_and_rejects_ambiguous_headers ... ok
+test direct_hbbr_websocket_logs_real_peer_instead_of_spoofed_forwarded_ip ... ok
+test trusted_hbbr_proxy_logs_valid_ip_and_keeps_tcp_identity_for_bad_headers ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.35s
+

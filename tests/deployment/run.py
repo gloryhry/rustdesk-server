@@ -42,8 +42,9 @@ def main():
     parser.add_argument('--skip-build', action='store_true')
     parser.add_argument('--kind', default='kind')
     parser.add_argument('--kubectl', default='kubectl')
+    parser.add_argument('--image', default='rustdesk-local/server:1.1.17-api-1.4.9')
     args = parser.parse_args()
-    image = 'rustdesk-local/server:1.1.17-api-1.4.9'
+    image = args.image
     helper = 'python:3.12.8-slim-bookworm'
     project = 'rustdesk-check-' + secrets.token_hex(6)
     cluster_created = False
@@ -116,6 +117,19 @@ def main():
             # All six TCP endpoints must be listening, not just the API.
             run('docker', 'exec', s6, 'sh', '-c', 'for p in 21114 21115 21116 21117 21118 21119; do nc -z -w 2 127.0.0.1 "$p" || exit 1; done')
 
+            # Core-only s6 must work without any API secrets or pre-existing keys.
+            core = project + '-core-only'
+            containers.append(core)
+            volumes.append(core)
+            run('docker', 'run', '-d', '--name', core, '-e', 'API_ENABLED=0', '-v', core + ':/data', image + '-s6')
+            eventually(lambda: healthy(core))
+            core_check = ['docker', 'exec', core, 'sh', '-c',
+                          'nc -z -w 2 127.0.0.1 21116 && nc -z -w 2 127.0.0.1 21117 && ! nc -z -w 2 127.0.0.1 21114 && sha256sum /data/id_ed25519 /data/id_ed25519.pub']
+            keys = run(*core_check, capture=True).stdout
+            run('docker', 'restart', core)
+            eventually(lambda: healthy(core))
+            assert run(*core_check, capture=True).stdout == keys
+
             cluster_created = True
             run(args.kind, 'create', 'cluster', '--name', project, '--image', 'kindest/node:v1.34.0', '--kubeconfig', str(tmp / 'kubeconfig'), '--wait', '120s')
             run(args.kind, 'load', 'docker-image', image, '--name', project)
@@ -124,8 +138,23 @@ def main():
             secret.write_text(json.dumps({'apiVersion': 'v1', 'kind': 'Secret', 'metadata': {'name': 'rustdesk-api-secret'}, 'stringData': {key: value for key, value in env.items() if key.startswith('API_')}}))
             secret.chmod(0o600)
             run(*kubectl, 'apply', '-f', str(secret))
-            run(*kubectl, 'apply', '--dry-run=server', '-f', 'kubernetes/example.yaml')
-            run(*kubectl, 'apply', '-f', 'kubernetes/example.yaml')
+            raw = run(*kubectl, 'create', '--dry-run=client', '-f', 'kubernetes/example.yaml', '-o', 'json', capture=True).stdout
+            items = []
+            decoder = json.JSONDecoder()
+            while raw.strip():
+                item, end = decoder.raw_decode(raw.lstrip())
+                items.extend(item.get('items', [item]))
+                raw = raw.lstrip()[end:]
+            manifests = {'apiVersion': 'v1', 'kind': 'List', 'items': items}
+            for item in manifests.get('items', [manifests]):
+                if item.get('kind') == 'Deployment':
+                    spec = item['spec']['template']['spec']
+                    for container in spec.get('containers', []) + spec.get('initContainers', []):
+                        container['image'] = image
+            deployment = tmp / 'deployment.json'
+            deployment.write_text(json.dumps(manifests))
+            run(*kubectl, 'apply', '--dry-run=server', '-f', str(deployment))
+            run(*kubectl, 'apply', '-f', str(deployment))
             scripts = run(*kubectl, 'create', 'configmap', 'smoke-scripts', '--from-file=smoke.py=tests/deployment/smoke.py', '--from-file=requests.json=tests/fixtures/rustdesk-1.4.9-address-book.json', '--dry-run=client', '-o', 'json', capture=True).stdout
             script_file = tmp / 'scripts.json'; script_file.write_text(scripts)
             run(*kubectl, 'apply', '-f', str(script_file))
@@ -144,13 +173,15 @@ def main():
             print(json.dumps({'compose': first['checks'], 's6': 'passed', 'kubernetes': 'passed', 'persistence': 'passed', 'negative_readiness': 'passed'}))
         finally:
             # Exact generated names only. Never prune unrelated containers or volumes.
-            if cluster_created:
-                run(args.kind, 'delete', 'cluster', '--name', project, check=False)
-            for container in containers:
-                run('docker', 'rm', '-f', container, check=False)
-            run(*compose, 'down', '-v', '--remove-orphans', check=False)
-            for volume in volumes:
-                run('docker', 'volume', 'rm', volume, check=False)
+            try:
+                if cluster_created:
+                    run(args.kind, 'delete', 'cluster', '--name', project, check=False)
+            finally:
+                for container in containers:
+                    run('docker', 'rm', '-f', container, check=False)
+                run(*compose, 'down', '-v', '--remove-orphans', check=False)
+                for volume in volumes:
+                    run('docker', 'volume', 'rm', volume, check=False)
 
 
 if __name__ == '__main__':

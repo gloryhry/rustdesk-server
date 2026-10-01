@@ -1,0 +1,5 @@
+{
+  "data": "{\"peers\":[{\"alias\":\"Web Sync A\",\"createdAt\":\"2026-10-01 05:47:37.731195592\",\"entryId\":\"64843fbf-ec79-4ea4-8d8c-c8e1130e8ff4\",\"forceAlwaysRelay\":\"true\",\"hash\":\"fixture-hash\",\"hostname\":\"Goal-A-Laptop\",\"id\":\"288596091\",\"loginName\":\"goal-login\",\"note\":\"goal-fields\",\"peerId\":\"288596091\",\"platform\":\"Linux\",\"rdpPort\":\"3390\",\"rdpUsername\":\"goal-rdp\",\"tags\":[\"goal-tag\",\"web-tag\"],\"updatedAt\":\"2026-10-01 05:47:37.731195592\",\"username\":\"tester\"},{\"alias\":\"Goal B Book\",\"entryId\":\"e68a8a81-dd1d-4490-b6c6-a35ab2728620\",\"hostname\":\"Goal-B-Laptop\",\"id\":\"512499333\",\"peerId\":\"512499333\",\"platform\":\"Linux\",\"tags\":[],\"updatedAt\":\"2026-10-01T05:43:39.108736002+00:00\"}],\"tag_colors\":\"{\\\"goal-tag\\\":4281558681}\",\"tags\":[\"goal-tag\"]}",
+  "guid": "e685b17b-c772-4edc-a173-c9cd43a5a5a6",
+  "revision": 9
+}

@@ -53,7 +53,11 @@ Web 管理路由已迁移：
 Web DTO 使用内部条目 ID、布尔中继字段和 CSS 十六进制颜色；修改需 revision、
 Cookie Origin 与 CSRF token。删除的 revision 位于查询参数。旧管理路由
 不再作为条目 ID 删除别名，避免与官方书 GUID/Peer ID 数组删除混淆。
+
+Web DELETE `/api/web/ab/entries/{id}` 及兼容 POST `/api/web/ab/entries/delete` 删除条目时，先在整个个人地址簿中匹配稳定条目 ID；没有命中才兼容匹配 Peer ID。因此一个条目的 Peer ID 与另一个条目的稳定 ID 相同时，稳定 ID 指定的条目优先。官方按 Peer ID 数组删除的接口保持其明确语义。账户隔离、revision 冲突检查和事务回滚保持有效。
 GUID/revision、版本 3 迁移和恢复备份步骤见 address-book-storage.md。
 
-自动化验收范围仅为上述相关协议；未修改的 Windows/Linux 官方客户端实机
-联调、直连/中继/文件传输/重连仍需通过发布门禁。
+自动化样本覆盖上述相关协议；真实客户端的直连、中继、文件传输和重连
+验收结果及平台边界另见下方报告。
+
+后续两个未经修改的 Linux amd64 1.4.9 客户端已完成真实 Keycloak、地址簿、直连/中继、远程键鼠、文件传输、重连及关闭 API 的隔离验收，见 [本轮 goal 验收报告](rustdesk-goal-acceptance.md)。hbbs 主 TCP 入口支持官方登录客户端的签名密钥交换及加密 rendezvous 帧，普通客户端仍可使用既有帧；错误密钥交换关闭当前连接。Windows、ARM 和真实硬件桌面仍需另行验收。

@@ -1,0 +1,416 @@
+Cannot load libcuda.so.1
+Cannot load libcuda.so.1
+
+(rustdesk:917): dbind-WARNING **: 04:56:05.027: AT-SPI: Error retrieving accessibility bus address: org.freedesktop.DBus.Error.ServiceUnknown: The name org.a11y.Bus was not provided by any .service files
+
+(rustdesk:917): Atk-CRITICAL **: 04:56:05.178: atk_socket_embed: assertion 'plug_id != NULL' failed
+Try setting transparent
+flutter: launch args: []
+flutter: initializing FFI main
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:main,info1-id:05ff4076c06db25dca9365326abddb03,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler native_ui native_ui
+flutter: registerEventHandler check_software_update_finish check_software_update_finish
+flutter: reset ab model
+flutter: registerEventHandler callback_query_onlines AllPeersLoader
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: reset ab model
+flutter: No window position saved, trying to center the window.
+flutter: handled by uni links: false
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: get personal ab err: unauthorized
+flutter: get accessible device groups: unauthorized
+flutter: reset ab model
+flutter: get accessible users: unauthorized
+flutter: reset ab model
+
+(rustdesk:917): Atk-CRITICAL **: 04:57:36.113: atk_socket_embed: assertion 'plug_id != NULL' failed
+flutter: [MultiWindowHandler] active window changed: {0, 1}
+flutter: launch args: [multi_window, 1, {"type":2,"id":"512499333","password":null,"forceRelay":false}]
+flutter: initializing FFI file transfer
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:file transfer,info1-id:05ff4076c06db25dca9365326abddb03,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler theme theme
+flutter: registerEventHandler language language
+flutter: registerEventHandler native_ui native_ui
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: File manager page init success with id 512499333
+flutter: restore lpos: 1320.0/760.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ScreenSaver was not provided by any .service files
+#0      DBusClient._callMethod (package:dbus/src/dbus_client.dart:1124)
+<asynchronous suspension>
+#1      DBusClient.callMethod (package:dbus/src/dbus_client.dart:625)
+<asynchronous suspension>
+#2      WakelockPlusLinuxPlugin.toggle.<anonymous closure> (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:47)
+<asynchronous suspension>
+#3      WakelockPlusLinuxPlugin.toggle (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:40)
+<asynchronous suspension>
+
+flutter: restore lpos: 1320.0/760.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+flutter: isMaximized false
+flutter: Saving frame: 1: 1320.0/760.0, offset:0.0/90.0, isMaximized:false, isFullscreen:false
+flutter: init remote home: /home/tester
+flutter: Failed to openDirectory /home/tester/transfers: Failed to registerReadTask, already have same read job
+flutter: path: /home/tester/transfers/source, toPath: /home/tester/transfers/direct-from-a, to: /home/tester/transfers/direct-from-a/source
+flutter: update folder files: {id: 1, num_entries: 2, total_size: 1048576.0}
+flutter: path: /home/tester/transfers/source, toPath: /home/tester/transfers/direct-from-b, to: /home/tester/transfers/direct-from-b/source
+flutter: update receive details: /home/tester/transfers/source
+flutter: close not empty multiwindow from taskbar
+flutter: [Main] call hide with args {id: 1} from window 1
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: model 512499333 closed
+
+(rustdesk:917): Atk-CRITICAL **: 05:04:27.077: atk_socket_embed: assertion 'plug_id != NULL' failed
+flutter: [MultiWindowHandler] active window changed: {0, 2}
+flutter: launch args: [multi_window, 2, {"type":1,"id":"512499333","password":null,"forceRelay":true}]
+flutter: initializing FFI remote
+flutter: Failed to get documents directory: MissingPlatformDirectoryException(Unable to get application documents directory)
+flutter: _appType:remote,info1-id:05ff4076c06db25dca9365326abddb03,info2-name:Ubuntu,dir:
+flutter: _globalFFI init
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: _globalFFI init end
+flutter: registerEventHandler theme theme
+flutter: registerEventHandler language language
+flutter: registerEventHandler native_ui native_ui
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: restore lpos: 1280.0/740.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+flutter: restore lpos: 1280.0/740.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+flutter: create pixelbuffer texture: peerId: 512499333 display:0, textureId:1444752848, texturePtr:1444752848
+[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ScreenSaver was not provided by any .service files
+#0      DBusClient._callMethod (package:dbus/src/dbus_client.dart:1124)
+<asynchronous suspension>
+#1      DBusClient.callMethod (package:dbus/src/dbus_client.dart:625)
+<asynchronous suspension>
+#2      WakelockPlusLinuxPlugin.toggle.<anonymous closure> (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:47)
+<asynchronous suspension>
+#3      WakelockPlusLinuxPlugin.toggle (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:40)
+<asynchronous suspension>
+
+flutter: onFocusChange(window active:true) false
+flutter: isMaximized false
+flutter: Saving frame: 2: 1280.0/740.0, offset:0.0/90.0, isMaximized:false, isFullscreen:false
+flutter: [Remote Page] call get_remote_list with args null from window 2
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: [Main] call get_window_info with args  from window 2
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: EventToUI_Texture display:0, gpuTexture:false
+flutter: setTextureType: display=0, isGpuTexture=false
+flutter: CustomTouchGestureRecognizer init
+flutter: [Main] call get_window_info with args  from window 2
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: Register custom cursor with key 512499333_3_240000000_240000000 (3.0,1.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: Register custom cursor with key 512499333_76_240000000_240000000 (11.0,12.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: [Main] call get_window_info with args  from window 2
+flutter: [Main] call connect with args {id: 512499333, isFileTransfer: true, isViewCamera: false, isTerminal: false, isTcpTunneling: false, isRDP: false, password: null, isSharedPassword: null, forceRelay: false, connToken: {"password":[152,189,39,72,172,38,14,48,228,86,229,165,84,183,42,188,181,122,9,188,149,152,27,37,59,83,51,230,96,44,210,104],"password_source":"Undefined","session_id":17323904389503603411}} from window 2
+flutter: [FileTransfer] call new_file_transfer with args {"type":2,"id":"512499333","password":null,"forceRelay":false,"connToken":"{\"password\":[152,189,39,72,172,38,14,48,228,86,229,165,84,183,42,188,181,122,9,188,149,152,27,37,59,83,51,230,96,44,210,104],\"password_source\":\"Undefined\",\"session_id\":17323904389503603411}"} from window 0 to 1
+flutter: Bring window '1' on top
+flutter: [Main] call show with args {id: 1} from window 1
+flutter: [MultiWindowHandler] active window changed: {0, 2, 1}
+flutter: onFocusChange(window active:true) false
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: File manager page init success with id 512499333
+[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ScreenSaver was not provided by any .service files
+#0      DBusClient._callMethod (package:dbus/src/dbus_client.dart:1124)
+<asynchronous suspension>
+#1      DBusClient.callMethod (package:dbus/src/dbus_client.dart:625)
+<asynchronous suspension>
+#2      WakelockPlusLinuxPlugin.toggle.<anonymous closure> (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:47)
+<asynchronous suspension>
+#3      WakelockPlusLinuxPlugin.toggle (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:40)
+<asynchronous suspension>
+
+flutter: init remote home: /home/tester/transfers
+flutter: Saving frame: 1: 1280.0/760.0, offset:0.0/90.0, isMaximized:false, isFullscreen:false
+flutter: path: /home/tester/transfers/source, toPath: /home/tester/transfers/relay-from-a, to: /home/tester/transfers/relay-from-a/source
+flutter: update folder files: {id: 3, num_entries: 2, total_size: 1048576.0}
+flutter: path: /home/tester/transfers/source, toPath: /home/tester/transfers/relay-from-b, to: /home/tester/transfers/relay-from-b/source
+flutter: update receive details: /home/tester/transfers/source
+flutter: close not empty multiwindow from taskbar
+flutter: [Main] call hide with args {id: 1} from window 1
+flutter: [MultiWindowHandler] active window changed: {0, 2}
+flutter: model 512499333 closed
+flutter: onFocusChange(window active:true) true
+flutter: REMOTE PAGE dispose session 8021d803-26c2-42a8-b650-fbab2f4567e1 512499333
+flutter: deleting cursor with key 512499333_3_240000000_240000000
+flutter: deleting cursor with key 512499333_76_240000000_240000000
+flutter: model 512499333 closed
+flutter: [Main] call hide with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: destroy pixelbuffer texture: peerId:  display:0, textureId:1444752848
+[7025:7025:1001/051545.802859:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.Properties.GetAll: object_path= /org/freedesktop/UPower/devices/DisplayDevice: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.UPower was not provided by any .service files
+[7188:7208:1001/051545.808779:ERROR:gpu/ipc/client/command_buffer_proxy_impl.cc:285] ContextResult::kTransientFailure: Failed to send GpuControl.CreateCommandBuffer.
+Created TensorFlow Lite XNNPACK delegate for CPU.
+[7025:7051:1001/051548.774798:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
+[7025:7051:1001/051612.501712:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
+[7025:7051:1001/051701.442934:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+[7025:7051:1001/051830.541889:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
+[7025:7051:1001/052130.706235:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
+flutter: reset ab model
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+[7025:7025:1001/052505.867013:ERROR:ui/compositor/compositor_animation_observer.cc:65] CompositorAnimationObserver is active for too long (310.938s) location=Button@ui/views/controls/button/button.cc:669
+[7025:7051:1001/052737.827495:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
+[7025:7025:1001/054411.302909:ERROR:ui/gfx/x/atom_cache.cc:235] Add application/vnd.portal.filetransfer to kAtomsToCache
+[7025:7025:1001/054411.302946:ERROR:ui/gfx/x/atom_cache.cc:235] Add application/vnd.portal.files to kAtomsToCache
+flutter: pullAb, force: ForcePullAb.listAndCurrent, quiet: false
+flutter: pull ab list
+flutter: pull ab "My address book"
+flutter: [Remote Page] call new_remote_desktop with args {"type":1,"id":"512499333","password":null,"forceRelay":true} from window 0
+flutter: restore lpos: 1280.0/740.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+flutter: Bring window '2' on top
+flutter: [Main] call show with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0, 2}
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ScreenSaver was not provided by any .service files
+#0      DBusClient._callMethod (package:dbus/src/dbus_client.dart:1124)
+<asynchronous suspension>
+#1      DBusClient.callMethod (package:dbus/src/dbus_client.dart:625)
+<asynchronous suspension>
+#2      WakelockPlusLinuxPlugin.toggle.<anonymous closure> (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:47)
+<asynchronous suspension>
+#3      WakelockPlusLinuxPlugin.toggle (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:40)
+<asynchronous suspension>
+
+flutter: onFocusChange(window active:true) false
+flutter: create pixelbuffer texture: peerId: 512499333 display:0, textureId:1287120800, texturePtr:1287120800
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: EventToUI_Texture display:0, gpuTexture:false
+flutter: setTextureType: display=0, isGpuTexture=false
+flutter: CustomTouchGestureRecognizer init
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: Register custom cursor with key 512499333_74_240000000_240000000 (3.0,1.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: Register custom cursor with key 512499333_3_240000000_240000000 (3.0,1.0)
+flutter: REMOTE PAGE dispose session c685b279-bf27-4756-ae71-3ecc7a5d30f3 512499333
+flutter: deleting cursor with key 512499333_74_240000000_240000000
+flutter: deleting cursor with key 512499333_3_240000000_240000000
+flutter: model 512499333 closed
+flutter: [Main] call hide with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: destroy pixelbuffer texture: peerId:  display:0, textureId:1287120800
+flutter: [Remote Page] call new_remote_desktop with args {"type":1,"id":"512499333","password":null,"forceRelay":false} from window 0
+flutter: restore lpos: 1280.0/740.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+flutter: Bring window '2' on top
+flutter: [Main] call show with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0, 2}
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ScreenSaver was not provided by any .service files
+#0      DBusClient._callMethod (package:dbus/src/dbus_client.dart:1124)
+<asynchronous suspension>
+#1      DBusClient.callMethod (package:dbus/src/dbus_client.dart:625)
+<asynchronous suspension>
+#2      WakelockPlusLinuxPlugin.toggle.<anonymous closure> (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:47)
+<asynchronous suspension>
+#3      WakelockPlusLinuxPlugin.toggle (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:40)
+<asynchronous suspension>
+
+flutter: onFocusChange(window active:true) false
+flutter: create pixelbuffer texture: peerId: 512499333 display:0, textureId:1451745120, texturePtr:1451745120
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: EventToUI_Texture display:0, gpuTexture:false
+flutter: setTextureType: display=0, isGpuTexture=false
+flutter: CustomTouchGestureRecognizer init
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: Register custom cursor with key 512499333_77_240000000_240000000 (3.0,1.0)
+flutter: Register custom cursor with key 512499333_3_240000000_240000000 (3.0,1.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: Register custom cursor with key 512499333_76_240000000_240000000 (11.0,12.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: REMOTE PAGE dispose session 5e0dea0d-d407-4e81-bfd4-5d7d139945a8 512499333
+flutter: deleting cursor with key 512499333_77_240000000_240000000
+flutter: deleting cursor with key 512499333_3_240000000_240000000
+flutter: deleting cursor with key 512499333_76_240000000_240000000
+flutter: model 512499333 closed
+flutter: [Main] call hide with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: destroy pixelbuffer texture: peerId:  display:0, textureId:1451745120
+flutter: [Remote Page] call new_remote_desktop with args {"type":1,"id":"512499333","password":null,"forceRelay":false} from window 0
+flutter: restore lpos: 1280.0/740.0, offset:0.0/90.0, isMaximized: false, isFullscreen: false
+flutter: Bring window '2' on top
+flutter: [Main] call show with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0, 2}
+flutter: registerEventHandler callback_query_onlines address book peer
+flutter: registerEventHandler load_address_book_peers address book peer
+flutter: registerEventHandler callback_query_onlines group peer
+flutter: registerEventHandler load_group_peers group peer
+flutter: registerEventHandler callback_query_onlines recent peer
+flutter: registerEventHandler load_recent_peers recent peer
+flutter: registerEventHandler callback_query_onlines fav peer
+flutter: registerEventHandler load_fav_peers fav peer
+flutter: registerEventHandler callback_query_onlines discovered peer
+flutter: registerEventHandler load_lan_peers discovered peer
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: org.freedesktop.DBus.Error.ServiceUnknown: The name org.freedesktop.ScreenSaver was not provided by any .service files
+#0      DBusClient._callMethod (package:dbus/src/dbus_client.dart:1124)
+<asynchronous suspension>
+#1      DBusClient.callMethod (package:dbus/src/dbus_client.dart:625)
+<asynchronous suspension>
+#2      WakelockPlusLinuxPlugin.toggle.<anonymous closure> (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:47)
+<asynchronous suspension>
+#3      WakelockPlusLinuxPlugin.toggle (package:wakelock_plus/src/wakelock_plus_linux_plugin.dart:40)
+<asynchronous suspension>
+
+flutter: onFocusChange(window active:true) false
+flutter: create pixelbuffer texture: peerId: 512499333 display:0, textureId:1010578368, texturePtr:1010578368
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: onFocusChange(window active:true) false
+flutter: EventToUI_Texture display:0, gpuTexture:false
+flutter: setTextureType: display=0, isGpuTexture=false
+flutter: CustomTouchGestureRecognizer init
+flutter: CustomTouchGestureRecognizer init
+flutter: onFocusChange(window active:true) true
+flutter: Register custom cursor with key 512499333_78_240000000_240000000 (3.0,1.0)
+flutter: Register custom cursor with key 512499333_3_240000000_240000000 (3.0,1.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: Register custom cursor with key 512499333_75_240000000_240000000 (7.0,5.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: Register custom cursor with key 512499333_76_240000000_240000000 (11.0,12.0)
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: onPointDownImage PointerDeviceKind.mouse
+flutter: addAllowedPointer
+flutter: PointerUpEvent
+flutter: REMOTE PAGE dispose session 688d68e4-57b9-49fc-8d27-5194819427af 512499333
+flutter: deleting cursor with key 512499333_78_240000000_240000000
+flutter: deleting cursor with key 512499333_3_240000000_240000000
+flutter: deleting cursor with key 512499333_75_240000000_240000000
+flutter: deleting cursor with key 512499333_76_240000000_240000000
+flutter: model 512499333 closed
+flutter: [Main] call hide with args {id: 2} from window 2
+flutter: [MultiWindowHandler] active window changed: {0}
+flutter: destroy pixelbuffer texture: peerId:  display:0, textureId:1010578368

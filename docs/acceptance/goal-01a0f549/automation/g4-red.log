@@ -1,0 +1,47 @@
+
+> rustdesk-api-web@0.1.0 test:browser
+> playwright test tests/oauth-login-options.spec.js --output=/tmp/rustdesk-goal-01a0f549/browser-red
+
+
+Running 2 tests using 1 worker
+
+(node:3446213) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3446213) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/session/csrf is delayed (8.1s)
+(node:3447768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3447768) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/login-options is delayed (3.0s)
+
+
+  1) tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/session/csrf is delayed 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('[data-oauth-provider="github"]')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('[data-oauth-provider="github"]')[22m
+
+
+       9 |     await page.goto(service.uiUrl);
+      10 |     await page.waitForLoadState('networkidle');
+    > 11 |     await expect(page.locator('[data-oauth-provider="github"]')).toBeVisible();
+         |                                                                  ^
+      12 |     await expect(page.locator('#auth-form')).toBeVisible();
+      13 |   });
+      14 | }
+        at /home/glory/Software/rustdesk-server/web/tests/oauth-login-options.spec.js:11:66
+
+    Error Context: ../../../../../tmp/rustdesk-goal-01a0f549/browser-red/oauth-login-options-public-0fbd6-api-session-csrf-is-delayed/error-context.md
+
+  1 failed
+    tests/oauth-login-options.spec.js:3:3 › public OAuth login survives unauthenticated startup when /api/session/csrf is delayed 
+  1 passed (12.6s)
