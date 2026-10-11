@@ -1,4 +1,4 @@
-"""Build and check one release-image matrix entry without publishing anything."""
+"""Build a release-image matrix entry or check an existing runtime image."""
 import argparse
 import hashlib
 import json
@@ -28,7 +28,9 @@ def source_hashes():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--platform', choices=PLATFORMS, required=True)
-    parser.add_argument('--builder', required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--builder', help='Build and check images using this Buildx builder')
+    mode.add_argument('--image', help='Check this already-pulled runtime image without building')
     parser.add_argument('--log-dir', type=Path, required=True)
     args = parser.parse_args()
     architecture, s6_arch, runtime, classic, elf_class, elf_machine = PLATFORMS[args.platform]
@@ -103,15 +105,20 @@ def main():
         checks.append(name)
 
     try:
-        if runtime:
-            check('runtime', build('runtime', 'docker/Dockerfile', 'runtime'))
-        check('supervisor', build('supervisor', 'docker/Dockerfile', 'supervisor'))
-        if classic:
-            check('classic', build('classic', 'docker-classic/Dockerfile', classic), classic == 'web-build')
+        if args.image:
+            check('runtime', args.image)
+        else:
+            if runtime:
+                check('runtime', build('runtime', 'docker/Dockerfile', 'runtime'))
+            check('supervisor', build('supervisor', 'docker/Dockerfile', 'supervisor'))
+            if classic:
+                check('classic', build('classic', 'docker-classic/Dockerfile', classic), classic == 'web-build')
         if source_hashes() != source:
             raise AssertionError('source changed during matrix verification; rerun against the final source')
         report = {'platform': args.platform, 'checks': checks, 'elf': checked_binaries,
             'head': source_revision, 'source_sha256': source, 'result': 'passed'}
+        if args.image:
+            report['image'] = args.image
         (args.log_dir / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report), flush=True)
     finally:
