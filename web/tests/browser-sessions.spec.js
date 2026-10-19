@@ -37,10 +37,14 @@ test.describe('same-site cross-origin Web', () => {
     await expect(page.locator('#nav-oauth')).toBeVisible();
     await page.locator('#nav-oauth').click();
     await page.locator('#oauth-kind').selectOption('oauth2');
-    for (const [field, value] of Object.entries({ name: 'cross-origin', client_id: 'client', client_secret: 'secret',
-      authorization_url: `${service.url}/authorize`, token_url: `${service.url}/token`, userinfo_url: `${service.url}/userinfo` })) {
-      await page.locator(`#oauth-${field}`).fill(value);
-    }
+    await page.locator('#oauth-name').fill('cross-origin');
+    await page.locator('#oauth-tabs [data-tab="client"]').click();
+    await page.locator('#oauth-client_id').fill('client');
+    await page.locator('#oauth-client_secret').fill('secret');
+    await page.locator('#oauth-tabs [data-tab="endpoints"]').click();
+    await page.locator('#oauth-authorization_url').fill(`${service.url}/authorize`);
+    await page.locator('#oauth-token_url').fill(`${service.url}/token`);
+    await page.locator('#oauth-userinfo_url').fill(`${service.url}/userinfo`);
     const create = page.waitForResponse(response => response.url().endsWith('/api/admin/oauth/providers') && response.request().method() === 'POST');
     await page.locator('#save-oauth-provider').click();
     const response = await create;

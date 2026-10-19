@@ -428,10 +428,13 @@ Administrators inspect `GET /api/admin/device/registry`, which returns up to 100
 registered Peers in stable ID order; use `?peer_id=...` to inspect a specific ID.
 It separates `untrusted_sysinfo`/`untrusted_heartbeat` from `pk_fingerprint`, owner
 and hbbs observations. In the Web device page, select the account and independently
-verify the public key from the controlled device over an existing trusted channel
-before typing its `sha256:<hex>` fingerprint. Copying a report's username/UUID is
-not such verification. `POST /api/admin/device/bind` takes `peer_id`, `user_id`
-and `pk_fingerprint`; it rechecks the currently registered key transactionally.
+verify the device fingerprint from the controlled device over an existing trusted
+channel before typing it. The page accepts the 64-character hexadecimal fingerprint
+shown by the device (spaces and line breaks are ignored) and computes SHA-256 in the
+browser; `sha256:<hex>` remains accepted for compatibility. The page does not render
+the registered SHA-256 fingerprint. Copying a report's username/UUID is not such
+verification. `POST /api/admin/device/bind` takes `peer_id`, `user_id` and
+`pk_fingerprint`; it rechecks the currently registered key transactionally.
 `POST /api/admin/device/unbind` takes the stable device `id`. Bind, unbind and
 administrator deletion store an audit record in the same transaction; if audit
 storage fails, ownership changes roll back. Account transfers retain the stable

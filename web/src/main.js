@@ -1,4 +1,6 @@
 import './style.css';
+import { element, button, badge, pageHeader, card, formGrid, formSection, configField, checkboxField, selectField, field, detail, emptyState, tableShell, cell, emptyRow, tabs, tagChip } from './ui.js';
+import { fingerprintCandidates, matchingFingerprint, chooseFingerprint } from './fingerprint.js';
 
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 const TOKEN_KEY = 'rustdesk_api_token';
@@ -19,6 +21,9 @@ const messages = {
     registering: '正在注册...',
     profile: '当前用户',
     addressBook: '地址簿',
+    addressBookSubtitle: '管理个人地址簿中的设备、标签与原始数据',
+    addressBookDevices: '设备列表',
+    addressBookDevicesHint: '管理地址簿中的设备、别名和标签',
     peerId: '设备 ID',
     hostname: '主机名',
     alias: '别名',
@@ -29,36 +34,64 @@ const messages = {
     users: '用户管理',
     sessions: '会话管理',
     oauth: 'OAuth 配置',
+    oauthSubtitle: '配置 OAuth2/OIDC 登录提供商',
     oauthSignIn: '使用 OAuth 登录',
     provider: '提供商',
+    providerList: '已配置提供商',
     authorizationEndpoint: '授权端点',
     userInfoEndpoint: '用户信息端点',
     redirectConfigured: '回调地址已配置',
+    redirectNotConfigured: '回调地址未配置',
     addProvider: '添加提供商',
-     editProvider: '编辑提供商',
-     providerName: '名称',
-     clientId: 'Client ID',
-     clientSecret: 'Client Secret（留空则保持不变）',
-     tokenEndpoint: '令牌端点',
-     issuerEndpoint: 'Issuer（OIDC 必填）',
-     jwksEndpoint: 'JWKS（OIDC 必填）',
-     scopes: 'Scopes',
-     providerEnabled: '已启用',
-     providerDisabled: '已禁用',
-     saveProvider: '保存提供商',
-     providerSaved: 'OAuth 提供商已保存',
-     providerDeleted: 'OAuth 提供商已删除',
-     providerToggled: 'OAuth 提供商状态已更新',
+    editProvider: '编辑提供商',
+    providerName: '名称',
+    clientId: 'Client ID',
+    clientSecret: 'Client Secret（留空则保持不变）',
+    tokenEndpoint: '令牌端点',
+    issuerEndpoint: 'Issuer（OIDC 必填）',
+    jwksEndpoint: 'JWKS（OIDC 必填）',
+    scopes: 'Scopes',
+    providerEnabled: '已启用',
+    providerDisabled: '已禁用',
+    saveProvider: '保存提供商',
+    providerSaved: 'OAuth 提供商已保存',
+    providerDeleted: 'OAuth 提供商已删除',
+    providerToggled: 'OAuth 提供商状态已更新',
+    noProviders: '暂无提供商',
+    oauthTabIdentity: '基本信息',
+    oauthTabClient: '客户端',
+    oauthTabEndpoints: '端点',
+    oauthTabScope: '范围与状态',
+    oauthFormHint: '编辑时名称、类型和端点不可修改',
+    requiredField: '请填写必填项',
     sessionId: '会话 ID',
     noSessions: '暂无会话',
     devices: '设备',
-    deviceRegistry: '已登记设备与未认证报告',
+    devicesSubtitle: '查看已绑定设备与管理员登记记录',
+    boundDevices: '已绑定设备',
+    boundDevicesHint: '设备归属由管理员通过指纹绑定确认',
+    deviceRegistry: '设备登记与绑定',
+    deviceRegistrySubtitle: '登记记录来自 hbbs；未认证报告仅供参考',
+    deviceRegistryEmpty: '暂无登记设备',
+    deviceRegistryHint: '按 RustDesk ID 查询登记记录',
     untrustedReport: '未认证报告，仅供参考',
     verifiedBinding: '已核验归属',
     pendingBinding: '待核验归属',
-    fingerprint: '公钥指纹（从设备独立核对后填写）',
+    fingerprint: '设备指纹',
+    fingerprintPlaceholder: '指纹: 8721 1612 8169 8f4f ...',
+    fingerprintHelp: '支持带空格/换行的 64 位十六进制指纹；前端计算 SHA-256。也支持 sha256:<hex>。',
+    fingerprintExample: '示例：8721 1612 8169 8f4f cd13 be20 1af1 d9b5 616c 8408 bc0f cbdc 3752 7e78 5b55 9dce',
+    fingerprintStatusEmpty: '输入设备指纹后自动校验',
+    fingerprintStatusReady: '格式有效，提交后由服务端校验',
+    fingerprintStatusMatch: '指纹匹配',
+    fingerprintStatusMismatch: '指纹不匹配，请核对设备显示值',
+    fingerprintStatusInvalid: '请输入 64 位十六进制指纹或 sha256:<hex>',
     bindDevice: '确认绑定',
     unbindDevice: '解除绑定',
+    bindAccount: '绑定账户',
+    selectAccount: '选择账户',
+    noAvailableAccounts: '暂无可用账户',
+    boundTo: '已绑定账户',
     online: '在线',
     offline: '离线',
     groups: '用户组',
@@ -69,8 +102,15 @@ const messages = {
     cancel: '取消',
     noDeviceGroups: '暂无设备组',
     addDevice: '添加设备',
+    addDeviceTitle: '添加设备',
+    editDeviceTitle: '编辑设备',
+    peerEditorHint: '填写设备信息并选择标签',
+    basicInfo: '基本信息',
+    deviceInfo: '设备信息',
+    advancedOptions: '高级选项',
     noAssignedDevices: '尚未分配设备',
     ldap: 'LDAP 配置',
+    ldapSubtitle: '配置 LDAP 连接与用户搜索',
     ldapUrl: 'LDAP URL',
     bindDn: '绑定 DN',
     bindPassword: '绑定密码（留空则保持不变）',
@@ -80,6 +120,13 @@ const messages = {
     emailAttribute: '邮箱属性',
     useTls: '使用 StartTLS',
     timeoutSeconds: '超时（秒）',
+    ldapTabConnection: '连接',
+    ldapTabBind: '绑定',
+    ldapTabSearch: '用户搜索',
+    ldapStatus: '当前状态',
+    ldapSettings: '连接与搜索配置',
+    ldapConfigured: '已配置',
+    ldapNotConfigured: '未配置',
     runtimeOnly: '配置仅应用于当前 API 进程，重启后从环境变量重新加载。',
     ldapSaved: 'LDAP 配置已应用',
     logout: '退出登录',
@@ -95,19 +142,41 @@ const messages = {
     disabled: '禁用',
     createdAt: '创建时间',
     noUsers: '暂无用户',
-     createUser: '创建用户',
-     creatingUser: '正在创建...',
-     actions: '操作',
-     disable: '禁用',
-     enable: '启用',
-     remove: '删除',
+    createUser: '创建用户',
+    creatingUser: '正在创建...',
+    actions: '操作',
+    disable: '禁用',
+    enable: '启用',
+    remove: '删除',
     noDevices: '暂无设备',
+    noMatchingDevices: '没有匹配的设备',
     deleteDevice: '删除设备',
     noGroups: '暂无用户组',
     noGroupMembers: '暂无成员',
     addMember: '添加成员',
     uuid: '设备 UUID',
+    deviceUuid: '设备 UUID',
+    rustdeskId: 'RustDesk ID',
     platform: '平台',
+    deviceName: '设备名',
+    registeredAt: '最近注册',
+    search: '搜索',
+    clear: '清空',
+    searchDevices: '搜索设备 ID、别名、主机名或标签',
+    deviceSearchPlaceholder: '搜索 UUID、RustDesk ID 或账户',
+    allTags: '全部',
+    clearFilters: '清除筛选',
+    deviceCount: '共 {count} 台设备',
+    deviceCountFiltered: '显示 {shown} / {total} 台设备',
+    addTag: '添加',
+    newTagPlaceholder: '输入新标签',
+    noSelectedTags: '尚未选择标签',
+    removeTag: '移除标签',
+    tagTooLong: '标签名称不能超过 64 个字符',
+    invalidPeerId: '请输入设备 ID',
+    advancedJson: '高级：原始 JSON',
+    advancedJsonHint: '直接编辑完整地址簿文档。修改后使用页面右上角的保存按钮。',
+    jsonDraftBadge: '有未保存修改',
     invalidJson: '地址簿必须是有效的 JSON 对象',
     saved: '地址簿已保存',
     registered: '注册成功，请登录',
@@ -119,6 +188,7 @@ const messages = {
     relayServer: 'Relay Server',
     publicKey: '公开 KEY',
     tags: '标签',
+    tagsHint: '选择已有标签，或输入新标签后回车',
     tagName: '标签名称',
     tagColor: '颜色（#RRGGBB 或 #RRGGBBAA）',
     editTag: '编辑标签',
@@ -132,7 +202,11 @@ const messages = {
     loading: '加载中...',
     signedInAs: '已登录账户',
     cookieUnavailable: 'Cookie 会话不可用，请允许站点 Cookie 或使用同源反向代理',
-    apiUnavailable: '无法连接 API 服务'
+    apiUnavailable: '无法连接 API 服务',
+    navPersonal: '个人',
+    navDevices: '设备',
+    navSharing: '共享',
+    navAdmin: '管理'
   },
   'en-US': {
     brand: 'RustDesk API',
@@ -146,6 +220,9 @@ const messages = {
     registering: 'Registering...',
     profile: 'Current user',
     addressBook: 'Address book',
+    addressBookSubtitle: 'Manage devices, tags, and raw data in your personal address book',
+    addressBookDevices: 'Devices',
+    addressBookDevicesHint: 'Manage devices, aliases, and tags in your address book',
     peerId: 'Device ID',
     hostname: 'Hostname',
     alias: 'Alias',
@@ -156,37 +233,64 @@ const messages = {
     users: 'User management',
     sessions: 'Session management',
     oauth: 'OAuth configuration',
+    oauthSubtitle: 'Configure OAuth2/OIDC sign-in providers',
     oauthSignIn: 'Sign in with OAuth',
     provider: 'Provider',
+    providerList: 'Configured providers',
     authorizationEndpoint: 'Authorization endpoint',
     userInfoEndpoint: 'Userinfo endpoint',
     redirectConfigured: 'Callback configured',
-    noProviders: 'No enabled providers',
-     addProvider: 'Add provider',
-     editProvider: 'Edit provider',
-     providerName: 'Name',
-     clientId: 'Client ID',
-     clientSecret: 'Client secret (leave blank to keep)',
-     tokenEndpoint: 'Token endpoint',
-     issuerEndpoint: 'Issuer (required for OIDC)',
-     jwksEndpoint: 'JWKS (required for OIDC)',
-     scopes: 'Scopes',
-     providerEnabled: 'Enabled',
-     providerDisabled: 'Disabled',
-     saveProvider: 'Save provider',
-     providerSaved: 'OAuth provider saved',
-     providerDeleted: 'OAuth provider deleted',
-     providerToggled: 'OAuth provider status updated',
+    redirectNotConfigured: 'Callback not configured',
+    addProvider: 'Add provider',
+    editProvider: 'Edit provider',
+    providerName: 'Name',
+    clientId: 'Client ID',
+    clientSecret: 'Client secret (leave blank to keep)',
+    tokenEndpoint: 'Token endpoint',
+    issuerEndpoint: 'Issuer (required for OIDC)',
+    jwksEndpoint: 'JWKS (required for OIDC)',
+    scopes: 'Scopes',
+    providerEnabled: 'Enabled',
+    providerDisabled: 'Disabled',
+    saveProvider: 'Save provider',
+    providerSaved: 'OAuth provider saved',
+    providerDeleted: 'OAuth provider deleted',
+    providerToggled: 'OAuth provider status updated',
+    noProviders: 'No providers',
+    oauthTabIdentity: 'Basic',
+    oauthTabClient: 'Client',
+    oauthTabEndpoints: 'Endpoints',
+    oauthTabScope: 'Scopes & status',
+    oauthFormHint: 'Name, type, and endpoints are read-only while editing',
+    requiredField: 'Complete the required fields',
     sessionId: 'Session ID',
     noSessions: 'No sessions found',
     devices: 'Devices',
-    deviceRegistry: 'Registered devices and unsigned reports',
+    devicesSubtitle: 'View bound devices and administrator registration records',
+    boundDevices: 'Bound devices',
+    boundDevicesHint: 'Device ownership is confirmed by an administrator via fingerprint binding',
+    deviceRegistry: 'Registration and binding',
+    deviceRegistrySubtitle: 'Registration data comes from hbbs; unsigned reports are for reference only',
+    deviceRegistryEmpty: 'No registered devices',
+    deviceRegistryHint: 'Search registration records by RustDesk ID',
     untrustedReport: 'Unsigned report, for reference only',
     verifiedBinding: 'Verified ownership',
     pendingBinding: 'Ownership pending verification',
-    fingerprint: 'Public key fingerprint (verify independently on device)',
+    fingerprint: 'Device fingerprint',
+    fingerprintPlaceholder: 'Fingerprint: 8721 1612 8169 8f4f ...',
+    fingerprintHelp: 'Supports 64-character hex fingerprints with spaces or line breaks; SHA-256 is computed in the browser. sha256:<hex> is also accepted.',
+    fingerprintExample: 'Example: 8721 1612 8169 8f4f cd13 be20 1af1 d9b5 616c 8408 bc0f cbdc 3752 7e78 5b55 9dce',
+    fingerprintStatusEmpty: 'Enter a device fingerprint to verify',
+    fingerprintStatusReady: 'Valid format; the server will verify on submit',
+    fingerprintStatusMatch: 'Fingerprint matches',
+    fingerprintStatusMismatch: 'Fingerprint does not match; check the value shown on the device',
+    fingerprintStatusInvalid: 'Enter a 64-character hex fingerprint or sha256:<hex>',
     bindDevice: 'Confirm binding',
     unbindDevice: 'Unbind',
+    bindAccount: 'Account',
+    selectAccount: 'Select account',
+    noAvailableAccounts: 'No accounts available',
+    boundTo: 'Bound to',
     online: 'Online',
     offline: 'Offline',
     groups: 'User groups',
@@ -197,8 +301,15 @@ const messages = {
     cancel: 'Cancel',
     noDeviceGroups: 'No device groups found',
     addDevice: 'Add device',
+    addDeviceTitle: 'Add device',
+    editDeviceTitle: 'Edit device',
+    peerEditorHint: 'Fill in device details and select tags',
+    basicInfo: 'Basic information',
+    deviceInfo: 'Device information',
+    advancedOptions: 'Advanced options',
     noAssignedDevices: 'No assigned devices',
     ldap: 'LDAP configuration',
+    ldapSubtitle: 'Configure LDAP connection and user search',
     ldapUrl: 'LDAP URL',
     bindDn: 'Bind DN',
     bindPassword: 'Bind password (leave blank to keep)',
@@ -208,6 +319,13 @@ const messages = {
     emailAttribute: 'Email attribute',
     useTls: 'Use StartTLS',
     timeoutSeconds: 'Timeout (seconds)',
+    ldapTabConnection: 'Connection',
+    ldapTabBind: 'Bind',
+    ldapTabSearch: 'User search',
+    ldapStatus: 'Current status',
+    ldapSettings: 'Connection and search settings',
+    ldapConfigured: 'Configured',
+    ldapNotConfigured: 'Not configured',
     runtimeOnly: 'Changes apply to the current API process only; restart reloads environment settings.',
     ldapSaved: 'LDAP configuration applied',
     logout: 'Sign out',
@@ -223,19 +341,41 @@ const messages = {
     disabled: 'Disabled',
     createdAt: 'Created',
     noUsers: 'No users found',
-     createUser: 'Create user',
-     creatingUser: 'Creating...',
-     actions: 'Actions',
-     disable: 'Disable',
-     enable: 'Enable',
-     remove: 'Delete',
+    createUser: 'Create user',
+    creatingUser: 'Creating...',
+    actions: 'Actions',
+    disable: 'Disable',
+    enable: 'Enable',
+    remove: 'Delete',
     noDevices: 'No devices found',
+    noMatchingDevices: 'No matching devices',
     deleteDevice: 'Delete device',
     noGroups: 'No groups found',
     noGroupMembers: 'No members found',
     addMember: 'Add member',
     uuid: 'Device UUID',
+    deviceUuid: 'Device UUID',
+    rustdeskId: 'RustDesk ID',
     platform: 'Platform',
+    deviceName: 'Device name',
+    registeredAt: 'Last registered',
+    search: 'Search',
+    clear: 'Clear',
+    searchDevices: 'Search device ID, alias, hostname, or tag',
+    deviceSearchPlaceholder: 'Search UUID, RustDesk ID, or account',
+    allTags: 'All',
+    clearFilters: 'Clear filters',
+    deviceCount: '{count} devices',
+    deviceCountFiltered: 'Showing {shown} of {total} devices',
+    addTag: 'Add',
+    newTagPlaceholder: 'New tag',
+    noSelectedTags: 'No tags selected',
+    removeTag: 'Remove tag',
+    tagTooLong: 'Tag names must be 64 characters or fewer',
+    invalidPeerId: 'Enter a device ID',
+    advancedJson: 'Advanced: raw JSON',
+    advancedJsonHint: 'Edit the full address book document. Use the Save button in the page header.',
+    jsonDraftBadge: 'Unsaved changes',
     invalidJson: 'Address book must be a valid JSON object',
     saved: 'Address book saved',
     registered: 'Registration complete. Sign in to continue.',
@@ -247,6 +387,7 @@ const messages = {
     relayServer: 'Relay Server',
     publicKey: 'Public key',
     tags: 'Tags',
+    tagsHint: 'Select existing tags or type a new tag and press Enter',
     tagName: 'Tag name',
     tagColor: 'Color (#RRGGBB or #RRGGBBAA)',
     editTag: 'Edit tag',
@@ -260,10 +401,13 @@ const messages = {
     loading: 'Loading...',
     signedInAs: 'Signed in as',
     cookieUnavailable: 'Cookie session unavailable. Allow site cookies or use a same-origin reverse proxy.',
-    apiUnavailable: 'Unable to reach the API server'
+    apiUnavailable: 'Unable to reach the API server',
+    navPersonal: 'Personal',
+    navDevices: 'Devices',
+    navSharing: 'Sharing',
+    navAdmin: 'Administration'
   }
 };
-
 const state = {
   locale: localStorage.getItem(LOCALE_KEY) || 'zh-CN',
   csrfToken: '',
@@ -276,6 +420,11 @@ const state = {
   addressBookWritable: false,
   addressBookBusy: false,
   addressBookRequest: 0,
+  addressBookSearch: '',
+  addressBookTagFilter: '',
+  addressBookFormOpen: false,
+  addressBookAdvancedOpen: false,
+  peerNewTag: '',
   addressBookDraft: {
     id: '',
     peer_id: '',
@@ -283,7 +432,7 @@ const state = {
     hostname: '',
     alias: '',
     platform: '',
-    tags: '',
+    tags: [],
     force_always_relay: false
   },
   tagDraft: { name: '', color: '' },
@@ -295,6 +444,7 @@ const state = {
   oauthLoginProviders: [],
   oauthRedirectConfigured: false,
   oauthDraft: null,
+  oauthTab: 'identity',
   devices: [],
   registeredDevices: [],
   registryUsers: [],
@@ -309,14 +459,18 @@ const state = {
   deviceGroupDraft: '',
   deviceGroupsRequest: 0,
   devicesRequest: 0,
+  deviceSearch: '',
+  deviceBindDrafts: {},
   ldap: null,
   ldapDraft: null,
+  ldapTab: 'connection',
   busy: false,
   notice: null
 };
 
 const app = document.querySelector('#app');
 const t = key => messages[state.locale][key] || key;
+const format = (key, values = {}) => t(key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 
 function setNotice(type, text) {
   state.notice = text ? { type, text } : null;
@@ -403,16 +557,22 @@ function workspace() {
   sidebar.append(identity);
 
   const nav = element('nav', 'nav-list');
-  nav.append(navButton('profile', t('profile')));
-  nav.append(navButton('addressBook', t('addressBook')));
-  nav.append(navButton('devices', t('devices')));
-  nav.append(navButton('groups', t('groups')));
-  nav.append(navButton('deviceGroups', t('deviceGroups')));
+  nav.append(navSection(t('navPersonal'), [
+    ['profile', t('profile')],
+    ['addressBook', t('addressBook')]
+  ]));
+  nav.append(navSection(t('navDevices'), [
+    ['devices', t('devices')],
+    ['deviceGroups', t('deviceGroups')]
+  ]));
+  nav.append(navSection(t('navSharing'), [['groups', t('groups')]]));
   if (state.user.is_admin) {
-    nav.append(navButton('users', t('users')));
-    nav.append(navButton('sessions', t('sessions')));
-    nav.append(navButton('oauth', t('oauth')));
-    nav.append(navButton('ldap', t('ldap')));
+    nav.append(navSection(t('navAdmin'), [
+      ['users', t('users')],
+      ['sessions', t('sessions')],
+      ['oauth', t('oauth')],
+      ['ldap', t('ldap')]
+    ]));
   }
   sidebar.append(nav);
   main.append(sidebar);
@@ -432,7 +592,8 @@ function workspace() {
 }
 
 function profileView() {
-  const view = viewHeader(t('profile'));
+  const view = element('div', 'view');
+  view.append(pageHeader(t('profile'), ''));
   const grid = element('dl', 'detail-grid');
   detail(grid, t('account'), state.user.name || state.user.username || '');
   detail(grid, t('email'), state.user.email || '—');
@@ -444,365 +605,772 @@ function profileView() {
     detail(grid, t('relayServer'), state.serverConfig.relay_server || '—');
     detail(grid, t('publicKey'), state.serverConfig.key || '—');
   }
-  view.append(grid);
+  view.append(card({ body: grid }));
   return view;
 }
 
-function addressBookView() {
-  const view = viewHeader(t('addressBook'), [
-    button('refresh-address-book', t('refresh'), 'secondary'),
-    button('save-address-book', state.busy ? t('saving') : t('save'), 'primary')
-  ]);
-  view.querySelector('#refresh-address-book').disabled = state.addressBookBusy;
-  view.querySelector('#save-address-book').disabled = state.addressBookBusy || !state.addressBookWritable;
-  view.append(peerEditor());
-  const tableWrap = element('div', 'table-wrap');
-  const table = document.createElement('table');
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  [t('peerId'), t('alias'), t('hostname'), t('platform'), t('tags'), t('actions')]
-    .forEach(label => headRow.append(element('th', '', label)));
-  head.append(headRow);
-  table.append(head);
-  const body = document.createElement('tbody');
-  if (!(state.addressBookSnapshot?.entries || []).length) {
-    const row = document.createElement('tr');
-    const cell = element('td', 'empty-cell', t('noPeers'));
-    cell.colSpan = 6;
-    row.append(cell);
-    body.append(row);
-  } else {
-    (state.addressBookSnapshot?.entries || []).forEach(peer => {
-      const row = document.createElement('tr');
-      row.append(element('td', 'strong-cell', peer.peerId || peer.id || '—'));
-      row.append(element('td', '', peer.alias || '—'));
-      row.append(element('td', '', peer.hostname || '—'));
-      row.append(element('td', '', peer.platform || '—'));
-      const tags = Array.isArray(peer.tags) ? peer.tags.join(', ') : '—';
-      row.append(element('td', '', tags));
-      const actions = element('div', 'button-group');
-      const edit = button('', t('updatePeer'), 'secondary');
-      edit.dataset.editPeer = peer.id || peer.peerId || '';
-      edit.disabled = state.addressBookBusy || !state.addressBookWritable;
-      actions.append(edit);
-      const remove = button('', t('delete'), 'secondary');
-      remove.dataset.deletePeer = peer.id || peer.peerId || '';
-      remove.disabled = state.addressBookBusy || !state.addressBookWritable;
-      actions.append(remove);
-      const cell = document.createElement('td');
-      cell.append(actions);
-      row.append(cell);
-      body.append(row);
-    });
-  }
-  table.append(body);
-  tableWrap.append(table);
-  view.append(tableWrap);
+function emptyPeerDraft() {
+  return {
+    id: '',
+    peer_id: '',
+    username: '',
+    hostname: '',
+    alias: '',
+    platform: '',
+    tags: [],
+    force_always_relay: false
+  };
+}
 
+function addressBookEntries() {
+  return state.addressBookSnapshot?.entries || [];
+}
+
+function tagColor(name) {
+  return (state.addressBookSnapshot?.tags || []).find(tag => tag.name === name)?.color || '';
+}
+
+function tagChips(names) {
+  const values = Array.isArray(names) ? names : [];
+  if (!values.length) return '—';
+  const wrap = element('div', 'tag-chip-list');
+  values.forEach(name => wrap.append(tagChip(name, tagColor(name))));
+  return wrap;
+}
+
+function filteredAddressBookEntries() {
+  const query = state.addressBookSearch.trim().toLowerCase();
+  return addressBookEntries().filter(peer => {
+    if (state.addressBookTagFilter && !(peer.tags || []).includes(state.addressBookTagFilter)) return false;
+    if (!query) return true;
+    return [peer.peerId, peer.id, peer.alias, peer.username, peer.hostname, peer.platform, ...(peer.tags || [])]
+      .filter(Boolean).join(' ').toLowerCase().includes(query);
+  });
+}
+
+function updateAddressBookCount() {
+  const node = document.querySelector('#address-book-count');
+  if (!node) return;
+  const total = addressBookEntries().length;
+  const shown = filteredAddressBookEntries().length;
+  node.textContent = shown === total ? format('deviceCount', { count: total }) : format('deviceCountFiltered', { shown, total });
+}
+
+function addressBookRow(peer) {
+  const row = document.createElement('tr');
+  row.dataset.peerEntry = peer.id || peer.peerId || '';
+  row.append(cell(t('peerId'), peer.peerId || peer.id || '—', 'strong-cell mono'));
+  const alias = element('div', 'stacked-cell');
+  alias.append(element('span', '', peer.alias || '—'));
+  if (peer.username) alias.append(element('small', 'muted', peer.username));
+  row.append(cell(t('alias'), alias));
+  row.append(cell(t('hostname'), peer.hostname || '—'));
+  row.append(cell(t('platform'), peer.platform || '—'));
+  row.append(cell(t('tags'), tagChips(peer.tags)));
+  const actions = element('div', 'button-group row-actions');
+  const edit = button('', t('updatePeer'), 'secondary');
+  edit.dataset.editPeer = peer.id || peer.peerId || '';
+  edit.disabled = state.addressBookBusy || !state.addressBookWritable;
+  actions.append(edit);
+  const remove = button('', t('delete'), 'secondary');
+  remove.dataset.deletePeer = peer.id || peer.peerId || '';
+  remove.disabled = state.addressBookBusy || !state.addressBookWritable;
+  actions.append(remove);
+  row.append(cell(t('actions'), actions, 'actions-cell'));
+  return row;
+}
+
+function fillAddressBookRows(tbody) {
+  const entries = filteredAddressBookEntries();
+  tbody.replaceChildren();
+  if (!entries.length) {
+    const emptyText = addressBookEntries().length ? t('noMatchingDevices') : t('noPeers');
+    tbody.append(emptyRow(6, emptyText));
+    return;
+  }
+  entries.forEach(peer => tbody.append(addressBookRow(peer)));
+}
+
+function renderAddressBookRows() {
+  const tbody = document.querySelector('#address-book-tbody');
+  if (tbody) fillAddressBookRows(tbody);
+  updateAddressBookCount();
+  updateAddressBookFilterButtons();
+}
+
+function updateAddressBookFilterButtons() {
+  document.querySelectorAll('[data-tag-filter]').forEach(node => {
+    const active = (node.dataset.tagFilter || '') === state.addressBookTagFilter;
+    node.classList.toggle('active', active);
+    node.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function addressBookListCard() {
+  const search = document.createElement('input');
+  search.id = 'address-book-search';
+  search.type = 'search';
+  search.className = 'search-input';
+  search.placeholder = t('searchDevices');
+  search.value = state.addressBookSearch;
+  const count = element('span', 'toolbar-count');
+  count.id = 'address-book-count';
+  const total = addressBookEntries().length;
+  const shown = filteredAddressBookEntries().length;
+  count.textContent = shown === total ? format('deviceCount', { count: total }) : format('deviceCountFiltered', { shown, total });
+  const add = button('add-peer', t('addDeviceTitle'), 'primary');
+  add.disabled = state.addressBookBusy || !state.addressBookWritable;
+  const toolbar = element('div', 'toolbar');
+  toolbar.append(search, count, add);
+
+  const filter = element('div', 'tag-filter');
+  filter.id = 'address-book-tag-filter';
+  const all = button('', t('allTags'), 'tag-filter-button');
+  all.dataset.tagFilter = '';
+  all.classList.toggle('active', !state.addressBookTagFilter);
+  all.setAttribute('aria-pressed', String(!state.addressBookTagFilter));
+  filter.append(all);
+  (state.addressBookSnapshot?.tags || []).forEach(tag => {
+    const node = button('', tag.name, 'tag-filter-button');
+    node.dataset.tagFilter = tag.name;
+    node.classList.toggle('active', state.addressBookTagFilter === tag.name);
+    node.setAttribute('aria-pressed', String(state.addressBookTagFilter === tag.name));
+    if (tag.color) {
+      const swatch = element('span', 'tag-swatch');
+      swatch.style.backgroundColor = tag.color;
+      node.prepend(swatch);
+    }
+    filter.append(node);
+  });
+
+  const headers = [t('peerId'), t('alias'), t('hostname'), t('platform'), t('tags'), t('actions')];
+  const table = tableShell(headers, [], { bodyId: 'address-book-tbody' });
+  fillAddressBookRows(table.tbody);
+  const node = card({ id: 'address-book-list', title: t('addressBookDevices'), subtitle: t('addressBookDevicesHint'), body: [toolbar, filter, table.wrap] });
+  updateAddressBookFilterButtons();
+  updateAddressBookCount();
+  return node;
+}
+
+function addressBookView() {
+  const view = element('div', 'view');
+  const refresh = button('refresh-address-book', t('refresh'), 'secondary');
+  refresh.disabled = state.addressBookBusy;
+  const save = button('save-address-book', state.busy ? t('saving') : t('save'), 'primary');
+  save.disabled = state.addressBookBusy || !state.addressBookWritable;
+  view.append(pageHeader(t('addressBook'), t('addressBookSubtitle'), [refresh, save]));
+  const status = element('div', 'draft-status');
+  status.id = 'address-book-draft-status';
+  view.append(status);
+  view.append(peerEditor());
+  view.append(addressBookListCard());
+  view.append(tagsPanel());
+  view.append(advancedJsonPanel());
+  return view;
+}
+
+function peerEditor() {
+  const draft = state.addressBookDraft;
+  const disabled = state.addressBookBusy || !state.addressBookWritable;
+  const details = document.createElement('details');
+  details.id = 'peer-editor';
+  details.className = 'card collapsible';
+  details.open = state.addressBookFormOpen;
+  const summary = element('summary', 'card-header collapsible-summary');
+  const heading = element('div', 'card-heading');
+  heading.append(element('h2', '', draft.id ? t('editDeviceTitle') : t('addDeviceTitle')));
+  heading.append(element('p', 'card-subtitle', t('peerEditorHint')));
+  summary.append(heading, element('span', 'chevron'));
+  details.append(summary);
+
+  const form = document.createElement('form');
+  form.id = 'peer-form';
+  form.className = 'form-stack';
+  form.append(formSection(t('basicInfo'), '', [
+    configField('peer-id', t('peerId'), draft.peer_id, 'text', { required: true, maxLength: 128, disabled }),
+    configField('peer-alias', t('alias'), draft.alias, 'text', { maxLength: 256, disabled })
+  ]));
+  form.append(formSection(t('deviceInfo'), '', [
+    configField('peer-username', t('username'), draft.username, 'text', { maxLength: 256, disabled }),
+    configField('peer-hostname', t('hostname'), draft.hostname, 'text', { maxLength: 256, disabled }),
+    configField('peer-platform', t('platform'), draft.platform, 'text', { maxLength: 128, disabled })
+  ]));
+  form.append(formSection(t('tags'), t('tagsHint'), [tagPicker(disabled)]));
+  form.append(formSection(t('advancedOptions'), '', [
+    checkboxField('peer-relay', t('forceRelay'), draft.force_always_relay, { disabled })
+  ]));
+  const actions = element('div', 'form-actions');
+  const save = button('save-peer', state.busy ? t('saving') : (draft.id ? t('updatePeer') : t('addPeer')), 'primary');
+  save.type = 'submit';
+  save.disabled = disabled;
+  actions.append(save);
+  const clear = button('clear-peer', t('cancel'), 'secondary');
+  clear.disabled = disabled;
+  actions.append(clear);
+  form.append(actions);
+  const body = element('div', 'card-body');
+  body.append(form);
+  details.append(body);
+  return details;
+}
+
+function tagPicker(disabled) {
+  const wrap = element('div', 'tag-picker span-2');
+  const existing = state.addressBookSnapshot?.tags || [];
+  const toggles = element('div', 'tag-toggle-list');
+  if (!existing.length) toggles.append(element('small', 'muted', t('noTags')));
+  existing.forEach(tag => {
+    const node = button('', tag.name, 'tag-toggle');
+    node.dataset.tagToggle = tag.name;
+    node.disabled = disabled;
+    const selectedTag = (state.addressBookDraft.tags || []).includes(tag.name);
+    node.classList.toggle('active', selectedTag);
+    node.setAttribute('aria-pressed', String(selectedTag));
+    if (tag.color) {
+      const swatch = element('span', 'tag-swatch');
+      swatch.style.backgroundColor = tag.color;
+      node.prepend(swatch);
+    }
+    toggles.append(node);
+  });
+  wrap.append(toggles);
+  const selected = element('div', 'tag-chip-list');
+  selected.id = 'peer-selected-tags';
+  const selectedTags = state.addressBookDraft.tags || [];
+  if (!selectedTags.length) selected.append(element('small', 'muted', t('noSelectedTags')));
+  selectedTags.forEach(name => selected.append(selectedTagChip(name)));
+  wrap.append(selected);
+  const custom = element('div', 'inline-form compact');
+  const input = document.createElement('input');
+  input.id = 'peer-new-tag';
+  input.name = 'peer-new-tag';
+  input.placeholder = t('newTagPlaceholder');
+  input.maxLength = 64;
+  input.value = state.peerNewTag || '';
+  input.disabled = disabled;
+  const add = button('add-peer-tag', t('addTag'), 'secondary');
+  add.disabled = disabled;
+  custom.append(input, add);
+  wrap.append(custom);
+  return wrap;
+}
+
+function selectedTagChip(name) {
+  const chip = tagChip(name, tagColor(name));
+  const remove = element('button', 'tag-remove', '×');
+  remove.type = 'button';
+  remove.dataset.removePeerTag = name;
+  remove.disabled = state.addressBookBusy || !state.addressBookWritable;
+  remove.setAttribute('aria-label', `${t('removeTag')}: ${name}`);
+  chip.append(remove);
+  return chip;
+}
+
+function renderSelectedPeerTags() {
+  const wrap = document.querySelector('#peer-selected-tags');
+  if (!wrap) return;
+  wrap.replaceChildren();
+  const tags = state.addressBookDraft.tags || [];
+  if (!tags.length) wrap.append(element('small', 'muted', t('noSelectedTags')));
+  tags.forEach(name => wrap.append(selectedTagChip(name)));
+}
+
+function syncPeerTagToggles() {
+  document.querySelectorAll('[data-tag-toggle]').forEach(node => {
+    const active = (state.addressBookDraft.tags || []).includes(node.dataset.tagToggle);
+    node.classList.toggle('active', active);
+    node.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function togglePeerTag(name) {
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const tags = state.addressBookDraft.tags || (state.addressBookDraft.tags = []);
+  const index = tags.indexOf(name);
+  if (index >= 0) tags.splice(index, 1);
+  else tags.push(name);
+  renderSelectedPeerTags();
+  syncPeerTagToggles();
+}
+
+function addPeerTag() {
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const input = document.querySelector('#peer-new-tag');
+  const name = String(input?.value || '').trim();
+  if (!name) return;
+  if (name.length > 64) { setNotice('error', t('tagTooLong')); render(); return; }
+  const tags = state.addressBookDraft.tags || (state.addressBookDraft.tags = []);
+  if (!tags.includes(name)) tags.push(name);
+  state.peerNewTag = '';
+  if (input) input.value = '';
+  renderSelectedPeerTags();
+  syncPeerTagToggles();
+}
+
+function removePeerTag(name) {
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  const tags = state.addressBookDraft.tags || [];
+  const index = tags.indexOf(name);
+  if (index >= 0) tags.splice(index, 1);
+  renderSelectedPeerTags();
+  syncPeerTagToggles();
+}
+
+function openPeerEditor(draft = null) {
+  if (state.addressBookBusy || !state.addressBookWritable) return;
+  state.addressBookDraft = draft || emptyPeerDraft();
+  state.peerNewTag = '';
+  state.addressBookFormOpen = true;
+  render();
+  requestAnimationFrame(() => document.querySelector('#peer-id')?.focus());
+}
+
+function tagsPanel() {
+  const disabled = state.addressBookBusy || !state.addressBookWritable;
+  const form = document.createElement('form');
+  form.id = 'tag-form';
+  form.className = 'inline-form compact';
+  const name = document.createElement('input');
+  name.name = 'name';
+  name.placeholder = t('tagName');
+  name.maxLength = 64;
+  name.required = true;
+  name.value = state.tagDraft.name || '';
+  name.disabled = disabled;
+  const color = document.createElement('input');
+  color.name = 'color';
+  color.placeholder = t('tagColor');
+  color.maxLength = 9;
+  color.value = state.tagDraft.color || '';
+  color.disabled = disabled;
+  form.append(name, color);
+  const save = button('save-tag', t('save'), 'primary');
+  save.type = 'submit';
+  save.disabled = disabled;
+  form.append(save);
+
+  const list = element('div', 'tag-list');
+  const tags = state.addressBookSnapshot?.tags || [];
+  if (!tags.length) list.append(element('p', 'empty-state', t('noTags')));
+  tags.forEach(tag => {
+    const row = element('div', 'tag-row');
+    row.append(tagChip(tag.name, tag.color));
+    const edit = button('', t('editTag'), 'secondary');
+    edit.dataset.editTag = tag.name || '';
+    edit.disabled = disabled;
+    row.append(edit);
+    const remove = button('', t('delete'), 'secondary');
+    remove.dataset.deleteTag = tag.name || '';
+    remove.disabled = disabled;
+    row.append(remove);
+    list.append(row);
+  });
+  return card({ id: 'tags-panel', title: t('tags'), body: [form, list] });
+}
+
+function advancedJsonPanel() {
+  const details = document.createElement('details');
+  details.id = 'address-book-advanced';
+  details.className = 'card collapsible advanced-json';
+  details.open = state.addressBookAdvancedOpen;
+  const summary = element('summary', 'card-header collapsible-summary');
+  const heading = element('div', 'card-heading');
+  heading.append(element('h2', '', t('advancedJson')));
+  heading.append(element('p', 'card-subtitle', t('advancedJsonHint')));
+  const dirty = element('span', 'badge warning');
+  dirty.id = 'address-book-advanced-badge';
+  dirty.textContent = t('jsonDraftBadge');
+  dirty.hidden = true;
+  summary.append(heading, dirty, element('span', 'chevron'));
+  details.append(summary);
+  const body = element('div', 'card-body');
   const editor = document.createElement('textarea');
   editor.id = 'address-book-editor';
   editor.className = 'json-editor';
   editor.spellcheck = false;
   editor.value = state.addressBookJsonDraft.text;
   editor.disabled = state.addressBookBusy;
-  view.append(editor);
-  const status = element('div', '');
-  status.id = 'address-book-draft-status';
-  view.append(status);
-  view.append(tagsPanel());
-  return view;
-}
-
-function peerEditor() {
-  const panel = element('section', 'panel-form');
-  const form = document.createElement('form');
-  form.id = 'peer-form';
-  const draft = state.addressBookDraft;
-  form.append(configField('peer-id', t('peerId'), draft.peer_id));
-  form.append(configField('peer-username', t('username'), draft.username));
-  form.append(configField('peer-hostname', t('hostname'), draft.hostname));
-  form.append(configField('peer-alias', t('alias'), draft.alias));
-  form.append(configField('peer-platform', t('platform'), draft.platform));
-  form.append(configField('peer-tags', t('tags'), draft.tags));
-  form.append(checkboxField('peer-relay', t('forceRelay'), draft.force_always_relay));
-  const actions = element('div', 'button-group');
-  const submit = button('save-peer', state.busy
-    ? t('saving')
-    : (draft.id ? t('updatePeer') : t('addPeer')), 'primary');
-  submit.type = 'submit';
-  submit.disabled = state.addressBookBusy || !state.addressBookWritable;
-  actions.append(submit);
-  if (draft.id) {
-    const clear = button('clear-peer', t('cancel'), 'secondary');
-    clear.type = 'button';
-    clear.disabled = state.addressBookBusy || !state.addressBookWritable;
-    actions.append(clear);
-  }
-  form.append(actions);
-  form.querySelectorAll('input').forEach(input => { input.disabled = state.addressBookBusy || !state.addressBookWritable; });
-  panel.append(form);
-  return panel;
-}
-
-function tagsPanel() {
-  const panel = element('section', 'tags-panel');
-  panel.append(element('h2', '', t('tags')));
-  const form = element('form', 'inline-form');
-  form.id = 'tag-form';
-  const name = document.createElement('input');
-  name.name = 'name';
-  name.placeholder = t('tagName');
-  name.maxLength = 64;
-  name.required = true;
-  name.value = state.tagDraft.name;
-  name.disabled = state.addressBookBusy || !state.addressBookWritable;
-  const color = document.createElement('input');
-  color.name = 'color';
-  color.placeholder = t('tagColor');
-  color.maxLength = 9;
-  color.value = state.tagDraft.color;
-  color.disabled = state.addressBookBusy || !state.addressBookWritable;
-  form.append(name, color);
-  const submit = button('save-tag', t('save'), 'primary');
-  submit.type = 'submit';
-  submit.disabled = state.addressBookBusy || !state.addressBookWritable;
-  form.append(submit);
-  panel.append(form);
-  const list = element('div', 'tag-list');
-  if (!(state.addressBookSnapshot?.tags || []).length) list.append(element('p', 'empty-state', t('noTags')));
-  (state.addressBookSnapshot?.tags || []).forEach(tag => {
-    const row = element('div', 'tag-row');
-    row.append(element('span', '', tag.name || '—'));
-    if (tag.color) {
-      const swatch = element('span', 'tag-swatch');
-      swatch.style.backgroundColor = tag.color;
-      swatch.title = tag.color;
-      row.append(swatch);
-    }
-    const edit = button('', t('editTag'), 'secondary');
-    edit.dataset.editTag = tag.name || '';
-    edit.disabled = state.addressBookBusy || !state.addressBookWritable;
-    row.append(edit);
-    const remove = button('', t('delete'), 'secondary');
-    remove.dataset.deleteTag = tag.name || '';
-    remove.disabled = state.addressBookBusy || !state.addressBookWritable;
-    row.append(remove);
-    list.append(row);
-  });
-  panel.append(list);
-  return panel;
+  body.append(editor);
+  details.append(body);
+  return details;
 }
 
 function usersView() {
-  const view = viewHeader(t('users'), [button('refresh-users', t('refresh'), 'secondary')]);
-  const form = element('form', 'inline-form');
+  const view = element('div', 'view');
+  const refresh = button('refresh-users', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  view.append(pageHeader(t('users'), '', [refresh]));
+
+  const form = document.createElement('form');
   form.id = 'admin-user-form';
-  form.append(configField('admin-user-name', t('username'), state.userDraft.username));
-  form.append(configField('admin-user-email', t('email'), state.userDraft.email, 'email'));
-  form.append(configField('admin-user-password', t('password'), state.userDraft.password, 'password'));
+  form.className = 'form-stack';
+  const grid = formGrid([
+    configField('admin-user-name', t('username'), state.userDraft.username, 'text', { disabled: state.busy }),
+    configField('admin-user-email', t('email'), state.userDraft.email, 'email', { disabled: state.busy }),
+    configField('admin-user-password', t('password'), state.userDraft.password, 'password', { disabled: state.busy })
+  ]);
+  const actions = element('div', 'form-actions');
   const submit = button('create-admin-user', state.busy ? t('creatingUser') : t('createUser'), 'primary');
   submit.type = 'submit';
   submit.disabled = state.busy;
-  form.append(submit);
-  view.append(form);
-  const tableWrap = element('div', 'table-wrap');
-  const table = document.createElement('table');
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  [t('account'), t('email'), t('role'), t('status'), t('createdAt'), t('actions')].forEach(label => {
-    headRow.append(element('th', '', label));
-  });
-  head.append(headRow);
-  table.append(head);
-  const body = document.createElement('tbody');
-  if (!state.users.length) {
+  actions.append(submit);
+  form.append(grid, actions);
+  view.append(card({ title: t('createUser'), body: form }));
+
+  const rows = state.users.map(user => {
     const row = document.createElement('tr');
-    const cell = element('td', 'empty-cell', t('noUsers'));
-    cell.colSpan = 6;
-    row.append(cell);
-    body.append(row);
-  } else {
-    state.users.forEach(user => {
-      const row = document.createElement('tr');
-      row.append(element('td', 'strong-cell', user.name || user.username || ''));
-      row.append(element('td', '', user.email || '—'));
-      row.append(element('td', '', user.is_admin ? t('administrator') : t('member')));
-      row.append(element('td', '', Number(user.status) === 1 ? t('enabled') : t('disabled')));
-      row.append(element('td', '', user.created_at || user.createdAt || '—'));
-      const actions = element('div', 'button-group');
-      const toggle = button('', Number(user.status) === 1 ? t('disable') : t('enable'), 'secondary');
-      toggle.dataset.toggleUser = user.id;
-      toggle.dataset.userStatus = Number(user.status) === 1 ? '0' : '1';
-      toggle.disabled = state.busy;
-      actions.append(toggle);
-      const remove = button('', t('remove'), 'secondary');
-      remove.dataset.deleteUser = user.id;
-      remove.disabled = state.busy;
-      actions.append(remove);
-      const cell = document.createElement('td');
-      cell.append(actions);
-      row.append(cell);
-      body.append(row);
-    });
-  }
-  table.append(body);
-  tableWrap.append(table);
-  view.append(tableWrap);
+    row.append(cell(t('account'), user.name || user.username || '', 'strong-cell'));
+    row.append(cell(t('email'), user.email || '—'));
+    row.append(cell(t('role'), badge(user.is_admin ? t('administrator') : t('member'), user.is_admin ? 'info' : 'neutral')));
+    row.append(cell(t('status'), badge(Number(user.status) === 1 ? t('enabled') : t('disabled'), Number(user.status) === 1 ? 'success' : 'warning')));
+    row.append(cell(t('createdAt'), user.created_at || user.createdAt || '—'));
+    const actionsCell = element('div', 'button-group row-actions');
+    const toggle = button('', Number(user.status) === 1 ? t('disable') : t('enable'), 'secondary');
+    toggle.dataset.toggleUser = user.id;
+    toggle.dataset.userStatus = Number(user.status) === 1 ? '0' : '1';
+    toggle.disabled = state.busy;
+    actionsCell.append(toggle);
+    const remove = button('', t('remove'), 'secondary');
+    remove.dataset.deleteUser = user.id;
+    remove.disabled = state.busy;
+    actionsCell.append(remove);
+    row.append(cell(t('actions'), actionsCell, 'actions-cell'));
+    return row;
+  });
+  if (!rows.length) rows.push(emptyRow(6, t('noUsers')));
+  const table = tableShell([t('account'), t('email'), t('role'), t('status'), t('createdAt'), t('actions')], rows);
+  view.append(card({ body: table.wrap }));
   return view;
 }
 
 function sessionsView() {
-  const view = viewHeader(t('sessions'), [button('refresh-sessions', t('refresh'), 'secondary')]);
-  const tableWrap = element('div', 'table-wrap');
-  const table = document.createElement('table');
-  const head = document.createElement('thead');
-  const row = document.createElement('tr');
-  [t('sessionId'), t('account'), t('platform'), t('status')].forEach(label => row.append(element('th', '', label)));
-  head.append(row);
-  table.append(head);
-  const body = document.createElement('tbody');
-  state.sessions.forEach(session => {
-    const item = document.createElement('tr');
-    item.append(element('td', 'strong-cell', session.id || '—'));
-    item.append(element('td', '', session.username || session.user_id || '—'));
-    item.append(element('td', '', [session.device_os, session.device_type].filter(Boolean).join(' / ') || '—'));
+  const view = element('div', 'view');
+  const refresh = button('refresh-sessions', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  view.append(pageHeader(t('sessions'), '', [refresh]));
+  const rows = state.sessions.map(session => {
+    const row = document.createElement('tr');
+    row.append(cell(t('sessionId'), session.id || '—', 'strong-cell mono'));
+    row.append(cell(t('account'), session.username || session.user_id || '—'));
+    row.append(cell(t('platform'), [session.device_os, session.device_type].filter(Boolean).join(' / ') || '—'));
     const revoke = button('', t('logout'), 'secondary');
     revoke.dataset.revokeSession = session.id;
     revoke.disabled = Boolean(session.revoked_at) || state.busy;
-    const actionCell = document.createElement('td');
-    actionCell.append(revoke);
-    item.append(actionCell);
-    body.append(item);
+    row.append(cell(t('actions'), revoke, 'actions-cell'));
+    return row;
   });
-  if (!state.sessions.length) {
-    const emptyRow = document.createElement('tr');
-    const emptyCell = element('td', 'empty-cell', t('noSessions'));
-    emptyCell.colSpan = 4;
-    emptyRow.append(emptyCell);
-    body.append(emptyRow);
-  }
-  table.append(body);
-  tableWrap.append(table);
-  view.append(tableWrap);
+  if (!rows.length) rows.push(emptyRow(4, t('noSessions')));
+  const table = tableShell([t('sessionId'), t('account'), t('platform'), t('actions')], rows);
+  view.append(card({ body: table.wrap }));
   return view;
 }
 
-function oauthView() {
-  const editing = state.oauthDraft?.id;
-  const view = viewHeader(t('oauth'), [button('refresh-oauth', t('refresh'), 'secondary')]);
-  view.append(element('p', 'empty-state', `${t('redirectConfigured')}: ${state.oauthRedirectConfigured ? t('enabled') : t('disabled')}`));
-  const form = element('form', 'panel-form oauth-provider-form');
-  form.id = 'oauth-provider-form';
+function oauthTabItems() {
+  return [
+    { id: 'identity', label: t('oauthTabIdentity') },
+    { id: 'client', label: t('oauthTabClient') },
+    { id: 'endpoints', label: t('oauthTabEndpoints') },
+    { id: 'scope', label: t('oauthTabScope') }
+  ];
+}
+
+function oauthForm() {
   const draft = state.oauthDraft || {};
-  const kindLabel = element('label', 'field');
-  kindLabel.append(element('span', '', 'OAuth / OIDC'));
-  const kind = document.createElement('select'); kind.id = 'oauth-kind'; kind.name = 'kind';
-  for (const value of ['oauth2', 'oidc']) { const option = document.createElement('option'); option.value = value; option.textContent = value === 'oidc' ? 'OIDC' : 'OAuth2'; kind.append(option); }
-  kind.value = draft.kind || 'oidc';
-  kind.disabled = Boolean(editing); kindLabel.append(kind); form.append(kindLabel);
-  [['name', t('providerName'), 'text'], ['client_id', t('clientId'), 'text'], ['client_secret', t('clientSecret'), 'password'], ['authorization_url', t('authorizationEndpoint'), 'url'], ['token_url', t('tokenEndpoint'), 'url'], ['userinfo_url', t('userInfoEndpoint'), 'url'], ['issuer_url', t('issuerEndpoint'), 'url'], ['jwks_url', t('jwksEndpoint'), 'url'], ['scopes', t('scopes'), 'text']].forEach(([key, label, type]) => {
-    const input = field(`oauth-${key}`, label, type, 'off', key === 'name' || key === 'client_id' || key === 'authorization_url' || key === 'token_url' || key === 'userinfo_url');
-    input.querySelector('input').name = key;
-    input.querySelector('input').value = draft[key] || '';
-    input.querySelector('input').readOnly = Boolean(editing) && !['client_secret', 'scopes'].includes(key);
-    if (key === 'client_secret') input.querySelector('input').required = !editing;
-    form.append(input);
+  const editing = Boolean(draft.id);
+  const form = document.createElement('form');
+  form.id = 'oauth-provider-form';
+  form.className = 'form-stack';
+  form.noValidate = true;
+  const tabNode = tabs('oauth-tabs', oauthTabItems(), state.oauthTab);
+  form.append(tabNode);
+
+  const panels = {};
+  const makePanel = (id, children) => {
+    const panel = element('div', 'tab-panel');
+    panel.id = `oauth-tabs-${id}-panel`;
+    panel.dataset.oauthPanel = id;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', `oauth-tabs-${id}`);
+    panel.hidden = state.oauthTab !== id;
+    panel.append(formGrid(children));
+    panels[id] = panel;
+    return panel;
+  };
+
+  form.append(makePanel('identity', [
+    selectField('oauth-kind', 'OAuth / OIDC', [
+      { value: 'oauth2', label: 'OAuth2' },
+      { value: 'oidc', label: 'OIDC' }
+    ], draft.kind || 'oidc', { name: 'kind', disabled: editing }),
+    configField('oauth-name', t('providerName'), draft.name || '', 'text', { name: 'name', readOnly: editing, disabled: state.busy }),
+    checkboxField('oauth-enabled', t('enabled'), draft.enabled !== false, { name: 'enabled', disabled: state.busy })
+  ]));
+  form.append(makePanel('client', [
+    configField('oauth-client_id', t('clientId'), draft.client_id || '', 'text', { name: 'client_id', readOnly: editing, disabled: state.busy }),
+    configField('oauth-client_secret', t('clientSecret'), draft.client_secret || '', 'password', { name: 'client_secret', disabled: state.busy })
+  ]));
+  form.append(makePanel('endpoints', [
+    configField('oauth-authorization_url', t('authorizationEndpoint'), draft.authorization_url || '', 'url', { name: 'authorization_url', readOnly: editing, disabled: state.busy, className: 'span-2' }),
+    configField('oauth-token_url', t('tokenEndpoint'), draft.token_url || '', 'url', { name: 'token_url', readOnly: editing, disabled: state.busy, className: 'span-2' }),
+    configField('oauth-userinfo_url', t('userInfoEndpoint'), draft.userinfo_url || '', 'url', { name: 'userinfo_url', readOnly: editing, disabled: state.busy, className: 'span-2' }),
+    configField('oauth-issuer_url', t('issuerEndpoint'), draft.issuer_url || '', 'url', { name: 'issuer_url', readOnly: editing, disabled: state.busy, className: 'span-2' }),
+    configField('oauth-jwks_url', t('jwksEndpoint'), draft.jwks_url || '', 'url', { name: 'jwks_url', readOnly: editing, disabled: state.busy, className: 'span-2' })
+  ]));
+  form.append(makePanel('scope', [
+    configField('oauth-scopes', t('scopes'), draft.scopes || '', 'text', { name: 'scopes', disabled: state.busy, className: 'span-2' })
+  ]));
+
+  const actions = element('div', 'form-actions');
+  const save = button('save-oauth-provider', editing ? t('saveProvider') : t('addProvider'), 'primary');
+  save.type = 'submit';
+  save.disabled = state.busy;
+  actions.append(save);
+  if (editing) {
+    const cancel = button('cancel-oauth-provider', t('cancel'), 'secondary');
+    cancel.disabled = state.busy;
+    actions.append(cancel);
+  }
+  form.append(actions);
+
+  return card({
+    title: editing ? `${t('editProvider')}: ${draft.name || ''}` : t('addProvider'),
+    subtitle: editing ? t('oauthFormHint') : '',
+    body: form
   });
-  const enabled = element('label', 'checkbox-field');
-  const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.name = 'enabled'; checkbox.checked = draft.enabled !== false;
-  enabled.append(checkbox, element('span', '', t('enabled'))); form.append(enabled);
-  const actions = element('div', 'button-group');
-  const saveButton = button('save-oauth-provider', editing ? t('editProvider') : t('addProvider'), 'primary'); saveButton.type = 'submit'; actions.append(saveButton);
-  if (editing) actions.append(button('cancel-oauth-provider', t('cancel'), 'secondary'));
-  form.append(actions); view.append(form);
-  const tableWrap = element('div', 'table-wrap'); const table = document.createElement('table');
-  const head = document.createElement('thead'); const row = document.createElement('tr');
-  [t('provider'), t('authorizationEndpoint'), t('userInfoEndpoint'), t('status'), t('actions')].forEach(label => row.append(element('th', '', label))); head.append(row); table.append(head);
-  const body = document.createElement('tbody');
-  state.oauthProviders.forEach(provider => {
-    const item = document.createElement('tr'); item.append(element('td', 'strong-cell', provider.name || '—')); item.append(element('td', '', provider.authorization_url || '—')); item.append(element('td', '', provider.userinfo_url || '—')); item.append(element('td', '', provider.read_only ? t('providerReadOnly') : (provider.enabled === false ? t('providerDisabled') : t('providerEnabled'))));
-    const cell = document.createElement('td'); const edit = button('', t('editProvider'), 'secondary'); edit.dataset.editOauth = provider.id || provider.name; edit.disabled = Boolean(provider.read_only); cell.append(edit); const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary'); toggle.dataset.toggleOauth = provider.id || provider.name; toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true'; toggle.disabled = Boolean(provider.read_only); cell.append(toggle); const remove = button('', t('delete'), 'secondary'); remove.dataset.deleteOauth = provider.id || provider.name; remove.disabled = Boolean(provider.read_only); cell.append(remove); item.append(cell); body.append(item);
+}
+
+function oauthProvidersCard() {
+  const rows = state.oauthProviders.map(provider => {
+    const row = document.createElement('tr');
+    row.append(cell(t('provider'), provider.name || '—', 'strong-cell'));
+    row.append(cell('OAuth / OIDC', provider.kind === 'oauth2' ? 'OAuth2' : (provider.kind === 'oidc' ? 'OIDC' : '—')));
+    row.append(cell(t('authorizationEndpoint'), provider.authorization_url || '—', 'mono muted-cell'));
+    const status = provider.read_only ? badge(t('providerReadOnly'), 'neutral') : badge(provider.enabled === false ? t('providerDisabled') : t('providerEnabled'), provider.enabled === false ? 'warning' : 'success');
+    row.append(cell(t('status'), status));
+    const actions = element('div', 'button-group row-actions');
+    const edit = button('', t('editProvider'), 'secondary');
+    edit.dataset.editOauth = provider.id || provider.name;
+    edit.disabled = Boolean(provider.read_only) || state.busy;
+    actions.append(edit);
+    const toggle = button('', provider.enabled === false ? t('enable') : t('disable'), 'secondary');
+    toggle.dataset.toggleOauth = provider.id || provider.name;
+    toggle.dataset.oauthEnabled = provider.enabled === false ? 'false' : 'true';
+    toggle.disabled = Boolean(provider.read_only) || state.busy;
+    actions.append(toggle);
+    const remove = button('', t('delete'), 'secondary');
+    remove.dataset.deleteOauth = provider.id || provider.name;
+    remove.disabled = Boolean(provider.read_only) || state.busy;
+    actions.append(remove);
+    row.append(cell(t('actions'), actions, 'actions-cell'));
+    return row;
   });
-  if (!state.oauthProviders.length) { const empty = document.createElement('tr'); const cell = element('td', 'empty-cell', t('noProviders')); cell.colSpan = 5; empty.append(cell); body.append(empty); }
-  table.append(body); tableWrap.append(table); view.append(tableWrap); return view;
+  if (!rows.length) rows.push(emptyRow(5, t('noProviders')));
+  const table = tableShell([t('provider'), 'OAuth / OIDC', t('authorizationEndpoint'), t('status'), t('actions')], rows);
+  return card({ title: t('providerList'), body: table.wrap });
+}
+
+function oauthView() {
+  const view = element('div', 'view');
+  const refresh = button('refresh-oauth', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  view.append(pageHeader(t('oauth'), t('oauthSubtitle'), [refresh]));
+  const status = element('div', 'status-banner');
+  status.append(badge(state.oauthRedirectConfigured ? t('enabled') : t('disabled'), state.oauthRedirectConfigured ? 'success' : 'warning'));
+  status.append(element('span', '', state.oauthRedirectConfigured ? t('redirectConfigured') : t('redirectNotConfigured')));
+  view.append(status);
+  view.append(oauthForm());
+  view.append(oauthProvidersCard());
+  return view;
+}
+
+function deviceAccountName(device) {
+  const user = state.registryUsers.find(item => item.id === device.user_id);
+  if (user) return user.name || user.username || user.id;
+  if (state.user && state.user.id === device.user_id) return state.user.name || state.user.username || state.user.id;
+  return device.user_id || '—';
+}
+
+function filteredDevices() {
+  const query = state.deviceSearch.trim().toLowerCase();
+  if (!query) return state.devices;
+  return state.devices.filter(device => [device.uuid, device.peer_id, device.name, device.os, device.device_type, deviceAccountName(device)]
+    .filter(Boolean).join(' ').toLowerCase().includes(query));
+}
+
+function deviceStatusCell(device) {
+  const wrap = element('div', 'status-badges');
+  wrap.append(badge(device.online ? t('online') : t('offline'), device.online ? 'success' : 'neutral'));
+  wrap.append(badge(Number(device.status) === 1 ? t('enabled') : t('disabled'), Number(device.status) === 1 ? 'success' : 'warning'));
+  wrap.append(badge(device.verified ? t('verifiedBinding') : t('pendingBinding'), device.verified ? 'info' : 'warning'));
+  return wrap;
+}
+
+function deviceRow(device) {
+  const row = document.createElement('tr');
+  const uuid = element('div', 'stacked-cell');
+  uuid.append(element('code', 'mono', device.uuid || '—'));
+  if (device.name) uuid.append(element('small', 'muted', device.name));
+  row.append(cell(t('deviceUuid'), uuid));
+  row.append(cell(t('account'), deviceAccountName(device)));
+  row.append(cell(t('rustdeskId'), device.peer_id || '—', 'mono'));
+  row.append(cell(t('platform'), [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
+  row.append(cell(t('status'), deviceStatusCell(device)));
+  if (state.user.is_admin) {
+    const remove = button('', t('deleteDevice'), 'secondary');
+    remove.dataset.deleteDevice = device.id;
+    remove.disabled = state.busy;
+    row.append(cell(t('actions'), remove, 'actions-cell'));
+  }
+  return row;
+}
+
+function fillDeviceRows(tbody) {
+  const devices = filteredDevices();
+  tbody.replaceChildren();
+  if (!devices.length) {
+    tbody.append(emptyRow(state.user.is_admin ? 6 : 5, state.devices.length ? t('noMatchingDevices') : t('noDevices')));
+    return;
+  }
+  devices.forEach(device => tbody.append(deviceRow(device)));
+}
+
+function renderDeviceRows() {
+  const tbody = document.querySelector('#device-tbody');
+  if (tbody) fillDeviceRows(tbody);
+  const count = document.querySelector('#device-count');
+  if (count) {
+    const total = state.devices.length;
+    const shown = filteredDevices().length;
+    count.textContent = shown === total ? format('deviceCount', { count: total }) : format('deviceCountFiltered', { shown, total });
+  }
+}
+
+function devicesListCard() {
+  const search = document.createElement('input');
+  search.id = 'device-search';
+  search.type = 'search';
+  search.className = 'search-input';
+  search.placeholder = t('deviceSearchPlaceholder');
+  search.value = state.deviceSearch;
+  const count = element('span', 'toolbar-count');
+  count.id = 'device-count';
+  const total = state.devices.length;
+  const shown = filteredDevices().length;
+  count.textContent = shown === total ? format('deviceCount', { count: total }) : format('deviceCountFiltered', { shown, total });
+  const toolbar = element('div', 'toolbar');
+  toolbar.append(search, count);
+  const headers = [t('deviceUuid'), t('account'), t('rustdeskId'), t('platform'), t('status')];
+  if (state.user.is_admin) headers.push(t('actions'));
+  const table = tableShell(headers, [], { bodyId: 'device-tbody' });
+  fillDeviceRows(table.tbody);
+  const node = card({ title: t('boundDevices'), subtitle: t('boundDevicesHint'), body: [toolbar, table.wrap] });
+  renderDeviceRows();
+  return node;
+}
+
+function formatTimestamp(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  return new Date(ms).toLocaleString(state.locale);
+}
+
+function registryCard(peer) {
+  const draft = state.deviceBindDrafts[peer.peer_id] || {};
+  const users = state.registryUsers;
+  const node = element('section', 'registry-card');
+  node.dataset.registryPeer = peer.peer_id;
+  const header = element('div', 'registry-header');
+  const title = element('div', 'registry-title');
+  title.append(element('strong', 'mono', peer.peer_id));
+  title.append(badge(peer.online ? t('online') : t('offline'), peer.online ? 'success' : 'neutral'));
+  title.append(badge(peer.verified ? t('verifiedBinding') : t('pendingBinding'), peer.verified ? 'info' : 'warning'));
+  header.append(title);
+  header.append(element('span', 'muted', `${t('registeredAt')}: ${formatTimestamp(peer.registered_at_ms)}`));
+  node.append(header);
+
+  const facts = element('dl', 'registry-facts');
+  const uuidFact = element('div', 'fact');
+  uuidFact.append(element('dt', '', t('deviceUuid')));
+  uuidFact.append(element('dd', '', peer.uuid || '—'));
+  facts.append(uuidFact);
+  const report = peer.untrusted_sysinfo || {};
+  const reportFact = element('div', 'fact');
+  reportFact.append(element('dt', '', t('untrustedReport')));
+  reportFact.append(element('dd', '', [report.hostname || report.device_name, report.username, report.os].filter(Boolean).join(' / ') || '—'));
+  facts.append(reportFact);
+  node.append(facts);
+
+  const form = document.createElement('form');
+  form.className = 'bind-form';
+  form.dataset.bindPeer = peer.peer_id;
+  const ownerOptions = users.length
+    ? [{ value: '', label: t('selectAccount') }, ...users.map(user => ({ value: user.id, label: user.name || user.username || user.id }))]
+    : [{ value: '', label: t('noAvailableAccounts') }];
+  form.append(configField(`bind-owner-${peer.peer_id}`, t('bindAccount'), draft.user_id ?? peer.owner_id ?? '', 'select', {
+    name: 'user_id', options: ownerOptions, required: true, disabled: state.busy || !users.length
+  }));
+  form.append(configField(`bind-fingerprint-${peer.peer_id}`, t('fingerprint'), draft.pk_fingerprint || '', 'textarea', {
+    name: 'pk_fingerprint', rows: 2, placeholder: t('fingerprintPlaceholder'), help: t('fingerprintHelp'), title: t('fingerprintExample'),
+    className: 'span-2', spellcheck: false, disabled: state.busy
+  }));
+  const status = element('p', 'fingerprint-status');
+  status.dataset.fingerprintStatus = '';
+  status.textContent = draft.pk_fingerprint ? '' : t('fingerprintStatusEmpty');
+  form.append(status);
+  const submit = button('', t('bindDevice'), 'primary');
+  submit.type = 'submit';
+  submit.disabled = state.busy || !users.length || !String(draft.pk_fingerprint || '').trim();
+  form.append(submit);
+  node.append(form);
+
+  if (peer.verified && peer.device_id) {
+    const bound = element('div', 'registry-actions');
+    const owner = state.registryUsers.find(user => user.id === peer.owner_id);
+    bound.append(element('span', 'muted', `${t('boundTo')}: ${owner?.name || owner?.username || peer.owner_id || '—'}`));
+    const unbind = button('', t('unbindDevice'), 'secondary');
+    unbind.dataset.unbindDevice = peer.device_id;
+    unbind.disabled = state.busy;
+    bound.append(unbind);
+    node.append(bound);
+  }
+  return node;
+}
+
+function deviceRegistryView() {
+  const search = document.createElement('form');
+  search.id = 'registry-search';
+  search.className = 'toolbar';
+  const query = document.createElement('input');
+  query.name = 'peer_id';
+  query.className = 'search-input';
+  query.placeholder = t('deviceRegistryHint');
+  query.value = state.registrySearch;
+  const submit = button('', t('search'), 'secondary');
+  submit.type = 'submit';
+  search.append(query, submit);
+  const list = element('div', 'registry-list');
+  if (!state.registeredDevices.length) list.append(emptyState(t('deviceRegistryEmpty')));
+  state.registeredDevices.forEach(peer => list.append(registryCard(peer)));
+  return card({ title: t('deviceRegistry'), subtitle: t('deviceRegistrySubtitle'), body: [search, list] });
 }
 
 function devicesView() {
+  const view = element('div', 'view');
   const refresh = button('refresh-devices', t('refresh'), 'secondary');
   refresh.disabled = state.busy;
-  const view = viewHeader(t('devices'), [refresh]);
-  const tableWrap = element('div', 'table-wrap');
-  const table = document.createElement('table');
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  const columns = [t('account'), t('uuid'), t('platform'), t('status')];
-  if (state.user.is_admin) columns.push(t('actions'));
-  columns.forEach(label => headRow.append(element('th', '', label)));
-  head.append(headRow);
-  table.append(head);
-  const body = document.createElement('tbody');
-  if (!state.devices.length) {
-    const row = document.createElement('tr');
-    const cell = element('td', 'empty-cell', t('noDevices'));
-    cell.colSpan = columns.length;
-    row.append(cell);
-    body.append(row);
-  } else {
-    state.devices.forEach(device => {
-      const row = document.createElement('tr');
-      row.append(element('td', 'strong-cell', device.name || device.peer_id || device.id || '—'));
-      row.append(element('td', '', device.uuid || '—'));
-      row.append(element('td', '', [device.os, device.device_type].filter(Boolean).join(' / ') || '—'));
-      row.append(element('td', '', `${Number(device.status) === 1 ? t('enabled') : t('disabled')} / ${device.verified ? t('verifiedBinding') : t('pendingBinding')}`));
-      if (state.user.is_admin) {
-        const remove = button('', t('deleteDevice'), 'secondary');
-        remove.dataset.deleteDevice = device.id;
-        remove.disabled = state.busy;
-        const cell = document.createElement('td');
-        cell.append(remove);
-        row.append(cell);
-      }
-      body.append(row);
-    });
-  }
-  table.append(body);
-  tableWrap.append(table);
-  view.append(tableWrap);
+  view.append(pageHeader(t('devices'), t('devicesSubtitle'), [refresh]));
+  view.append(devicesListCard());
   if (state.user.is_admin) view.append(deviceRegistryView());
   return view;
 }
 
-function deviceRegistryView() {
-  const section = element('section', 'tags-panel');
-  section.append(element('h2', '', t('deviceRegistry')));
-  const search = element('form', 'inline-form'); search.id = 'registry-search';
-  const query = document.createElement('input'); query.name = 'peer_id'; query.placeholder = t('peerId'); query.value = state.registrySearch;
-  const searchButton = button('', t('refresh'), 'secondary'); searchButton.type = 'submit'; search.append(query, searchButton); section.append(search);
-  for (const peer of state.registeredDevices) {
-    const panel = element('section', 'panel-form'); panel.dataset.registryPeer = peer.peer_id;
-    panel.append(element('strong', '', `${peer.peer_id} / ${peer.online ? t('online') : t('offline')}`));
-    panel.append(element('p', '', `UUID: ${peer.uuid}`));
-    panel.append(element('code', '', peer.pk_fingerprint));
-    panel.append(element('p', '', `${t('untrustedReport')}: ${peer.untrusted_sysinfo?.hostname || peer.untrusted_sysinfo?.device_name || '—'}`));
-    panel.append(element('p', '', peer.verified ? t('verifiedBinding') : t('pendingBinding')));
-    const form = element('form', 'inline-form'); form.dataset.bindPeer = peer.peer_id;
-    const owner = document.createElement('select'); owner.name = 'user_id'; owner.required = true;
-    const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = t('account'); owner.append(placeholder);
-    for (const user of state.registryUsers) { const option = document.createElement('option'); option.value = user.id; option.textContent = user.name || user.id; owner.append(option); }
-    owner.value = peer.owner_id || '';
-    const fingerprint = document.createElement('input'); fingerprint.name = 'pk_fingerprint'; fingerprint.required = true; fingerprint.placeholder = t('fingerprint');
-    const submit = button('', t('bindDevice'), 'primary'); submit.type = 'submit'; submit.disabled = state.busy;
-    form.append(owner, fingerprint, submit); panel.append(form);
-    if (peer.device_id && peer.verified) { const unbind = button('', t('unbindDevice'), 'secondary'); unbind.dataset.unbindDevice = peer.device_id; panel.append(unbind); }
-    section.append(panel);
-  }
-  return section;
-}
-
 function groupsView() {
-  const view = viewHeader(t('groups'), [button('refresh-groups', t('refresh'), 'secondary')]);
-  const form = element('form', 'inline-form');
+  const view = element('div', 'view');
+  const refresh = button('refresh-groups', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  view.append(pageHeader(t('groups'), '', [refresh]));
+  const form = document.createElement('form');
   form.id = 'group-form';
+  form.className = 'inline-form';
   const input = document.createElement('input');
   input.name = 'name';
   input.placeholder = t('groupName');
@@ -810,17 +1378,16 @@ function groupsView() {
   input.required = true;
   input.value = state.groupDraft;
   input.disabled = state.busy;
-  form.append(input);
   const submit = button('create-group', t('create'), 'primary');
   submit.type = 'submit';
   submit.disabled = state.busy;
-  form.append(submit);
-  view.append(form);
+  form.append(input, submit);
+  view.append(card({ body: form }));
 
   const list = element('div', 'group-list');
-  if (!state.groups.length) list.append(element('p', 'empty-state', t('noGroups')));
+  if (!state.groups.length) list.append(emptyState(t('noGroups')));
   state.groups.forEach(group => {
-    const item = element('section', 'device-group-card');
+    const item = element('section', 'group-card');
     const heading = element('div', 'group-row');
     heading.append(element('strong', '', group.name || '—'));
     const remove = button('', t('delete'), 'secondary');
@@ -828,10 +1395,9 @@ function groupsView() {
     remove.disabled = state.busy;
     heading.append(remove);
     item.append(heading);
-
     const members = state.groupMemberships.filter(member => member.group_id === group.id);
     const memberList = element('div', 'membership-list');
-    if (!members.length) memberList.append(element('small', 'empty-state', t('noGroupMembers')));
+    if (!members.length) memberList.append(element('small', 'muted', t('noGroupMembers')));
     members.forEach(member => {
       const user = state.groupUsers.find(value => value.id === member.user_id);
       const row = element('div', 'membership-row');
@@ -844,10 +1410,9 @@ function groupsView() {
       memberList.append(row);
     });
     item.append(memberList);
-
     const available = state.groupUsers.filter(user => !members.some(member => member.user_id === user.id));
     if (available.length) {
-      const assign = element('div', 'inline-form');
+      const assign = element('div', 'inline-form compact');
       const select = document.createElement('select');
       select.id = `group-select-${group.id}`;
       available.forEach(user => {
@@ -857,25 +1422,26 @@ function groupsView() {
         select.append(option);
       });
       select.disabled = state.busy;
-      assign.append(select);
       const add = button('', t('addMember'), 'primary');
       add.dataset.addGroup = group.id;
       add.disabled = state.busy;
-      assign.append(add);
+      assign.append(select, add);
       item.append(assign);
     }
     list.append(item);
   });
-  view.append(list);
+  view.append(card({ body: list }));
   return view;
 }
 
 function deviceGroupsView() {
+  const view = element('div', 'view');
   const refresh = button('refresh-device-groups', t('refresh'), 'secondary');
   refresh.disabled = state.busy;
-  const view = viewHeader(t('deviceGroups'), [refresh]);
-  const form = element('form', 'inline-form');
+  view.append(pageHeader(t('deviceGroups'), '', [refresh]));
+  const form = document.createElement('form');
   form.id = 'device-group-form';
+  form.className = 'inline-form';
   const input = document.createElement('input');
   input.id = 'device-group-name';
   input.name = 'name';
@@ -884,16 +1450,15 @@ function deviceGroupsView() {
   input.maxLength = 128;
   input.required = true;
   input.disabled = state.busy;
-  form.append(input);
   const submit = button('create-device-group', t('create'), 'primary');
   submit.type = 'submit';
   submit.disabled = state.busy;
-  form.append(submit);
-  view.append(form);
+  form.append(input, submit);
+  view.append(card({ body: form }));
   const list = element('div', 'group-list');
-  if (!state.deviceGroups.length) list.append(element('p', 'empty-state', t('noDeviceGroups')));
+  if (!state.deviceGroups.length) list.append(emptyState(t('noDeviceGroups')));
   state.deviceGroups.forEach(group => {
-    const item = element('div', 'device-group-card');
+    const item = element('div', 'group-card');
     const heading = element('div', 'group-row');
     heading.append(element('strong', '', group.name || '—'));
     const remove = button('', t('delete'), 'secondary');
@@ -903,7 +1468,7 @@ function deviceGroupsView() {
     item.append(heading);
     const members = state.deviceGroupMemberships.filter(member => member.group_id === group.id);
     const assigned = element('div', 'membership-list');
-    if (!members.length) assigned.append(element('small', 'empty-state', t('noAssignedDevices')));
+    if (!members.length) assigned.append(element('small', 'muted', t('noAssignedDevices')));
     members.forEach(member => {
       const device = state.deviceGroupDevices.find(value => value.id === member.device_id);
       const row = element('div', 'membership-row');
@@ -918,7 +1483,7 @@ function deviceGroupsView() {
     item.append(assigned);
     const available = state.deviceGroupDevices.filter(device => !members.some(member => member.device_id === device.id));
     if (available.length) {
-      const assign = element('div', 'inline-form');
+      const assign = element('div', 'inline-form compact');
       const select = document.createElement('select');
       select.id = `device-group-select-${group.id}`;
       available.forEach(device => {
@@ -928,17 +1493,24 @@ function deviceGroupsView() {
         select.append(option);
       });
       select.disabled = state.busy;
-      assign.append(select);
       const add = button('', t('addDevice'), 'primary');
       add.dataset.addDeviceGroup = group.id;
       add.disabled = state.busy;
-      assign.append(add);
+      assign.append(select, add);
       item.append(assign);
     }
     list.append(item);
   });
-  view.append(list);
+  view.append(card({ body: list }));
   return view;
+}
+
+function ldapTabItems() {
+  return [
+    { id: 'connection', label: t('ldapTabConnection') },
+    { id: 'bind', label: t('ldapTabBind') },
+    { id: 'search', label: t('ldapTabSearch') }
+  ];
 }
 
 function ldapView() {
@@ -953,109 +1525,86 @@ function ldapView() {
     use_tls: false,
     timeout_seconds: 5
   };
-  const view = viewHeader(t('ldap'), [button('refresh-ldap', t('refresh'), 'secondary')]);
-  const form = element('form', 'panel-form');
+  const view = element('div', 'view');
+  const refresh = button('refresh-ldap', t('refresh'), 'secondary');
+  refresh.disabled = state.busy;
+  view.append(pageHeader(t('ldap'), t('ldapSubtitle'), [refresh]));
+  const status = element('div', 'status-banner');
+  status.append(badge(config.enabled ? t('enabled') : t('disabled'), config.enabled ? 'success' : 'neutral'));
+  status.append(element('span', '', config.configured ? t('ldapConfigured') : t('ldapNotConfigured')));
+  view.append(status);
+
+  const form = document.createElement('form');
   form.id = 'ldap-form';
-  form.append(checkboxField('ldap-enabled', t('enabled'), config.enabled));
-  form.append(configField('ldap-url', t('ldapUrl'), config.url));
-  form.append(configField('ldap-bind-dn', t('bindDn'), config.bind_dn));
-  form.append(configField('ldap-bind-password', t('bindPassword'), config.bind_password || '', 'password'));
-  form.append(configField('ldap-user-base-dn', t('userBaseDn'), config.user_base_dn));
-  form.append(configField('ldap-user-filter', t('userFilter'), config.user_filter));
-  form.append(configField('ldap-username-attribute', t('usernameAttribute'), config.username_attribute));
-  form.append(configField('ldap-email-attribute', t('emailAttribute'), config.email_attribute));
-  form.append(checkboxField('ldap-use-tls', t('useTls'), config.use_tls));
-  form.append(configField('ldap-timeout', t('timeoutSeconds'), String(config.timeout_seconds), 'number'));
-  form.append(element('p', 'empty-state', t('runtimeOnly')));
+  form.className = 'form-stack';
+  form.append(element('p', 'notice-inline', t('runtimeOnly')));
+  form.append(tabs('ldap-tabs', ldapTabItems(), state.ldapTab));
+  const disabled = state.busy;
+  const makePanel = (id, children) => {
+    const panel = element('div', 'tab-panel');
+    panel.id = `ldap-tabs-${id}-panel`;
+    panel.dataset.ldapPanel = id;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', `ldap-tabs-${id}`);
+    panel.hidden = state.ldapTab !== id;
+    panel.append(formGrid(children));
+    return panel;
+  };
+  const connectionToggles = element('div', 'checkbox-row span-2');
+  connectionToggles.append(
+    checkboxField('ldap-enabled', t('enabled'), config.enabled, { disabled }),
+    checkboxField('ldap-use-tls', t('useTls'), config.use_tls, { disabled })
+  );
+  form.append(makePanel('connection', [
+    connectionToggles,
+    configField('ldap-url', t('ldapUrl'), config.url || '', 'text', { disabled, className: 'span-2' }),
+    configField('ldap-timeout', t('timeoutSeconds'), String(config.timeout_seconds ?? 5), 'number', { min: 1, max: 60, disabled })
+  ]));
+  form.append(makePanel('bind', [
+    configField('ldap-bind-dn', t('bindDn'), config.bind_dn || '', 'text', { disabled }),
+    configField('ldap-bind-password', t('bindPassword'), config.bind_password || '', 'password', { disabled })
+  ]));
+  form.append(makePanel('search', [
+    configField('ldap-user-base-dn', t('userBaseDn'), config.user_base_dn || '', 'text', { disabled }),
+    configField('ldap-user-filter', t('userFilter'), config.user_filter || '', 'text', { disabled }),
+    configField('ldap-username-attribute', t('usernameAttribute'), config.username_attribute || '', 'text', { disabled }),
+    configField('ldap-email-attribute', t('emailAttribute'), config.email_attribute || '', 'text', { disabled })
+  ]));
+  const actions = element('div', 'form-actions');
   const submit = button('save-ldap', state.busy ? t('saving') : t('save'), 'primary');
   submit.type = 'submit';
   submit.disabled = state.busy;
-  form.append(submit);
-  view.append(form);
+  actions.append(submit);
+  form.append(actions);
+  view.append(card({ title: t('ldapSettings'), body: form }));
   return view;
 }
 
-function configField(id, label, value, type = 'text') {
-  const wrapper = element('label', 'field');
-  wrapper.htmlFor = id;
-  wrapper.append(element('span', '', label));
-  const input = document.createElement('input');
-  input.id = id;
-  input.name = id;
-  input.type = type;
-  input.value = value || '';
-  input.disabled = state.busy;
-  if (type === 'number') {
-    input.min = '1';
-    input.max = '60';
-  }
-  wrapper.append(input);
-  return wrapper;
+function setOauthTab(tab) {
+  state.oauthTab = tab;
+  document.querySelectorAll('#oauth-tabs [data-tab]').forEach(node => {
+    const active = node.dataset.tab === tab;
+    node.classList.toggle('active', active);
+    node.setAttribute('aria-selected', String(active));
+    node.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('[data-oauth-panel]').forEach(panel => { panel.hidden = panel.dataset.oauthPanel !== tab; });
 }
 
-function checkboxField(id, label, checked) {
-  const wrapper = element('label', 'field checkbox-field');
-  const input = document.createElement('input');
-  input.id = id;
-  input.name = id;
-  input.type = 'checkbox';
-  input.checked = Boolean(checked);
-  input.disabled = state.busy;
-  wrapper.append(input);
-  wrapper.append(element('span', '', label));
-  return wrapper;
-}
-
-function viewHeader(title, actions = []) {
-  const view = element('div', 'view');
-  const heading = element('div', 'view-heading');
-  heading.append(element('h1', '', title));
-  const group = element('div', 'button-group');
-  actions.forEach(action => group.append(action));
-  heading.append(group);
-  view.append(heading);
-  return view;
+function setLdapTab(tab) {
+  state.ldapTab = tab;
+  document.querySelectorAll('#ldap-tabs [data-tab]').forEach(node => {
+    const active = node.dataset.tab === tab;
+    node.classList.toggle('active', active);
+    node.setAttribute('aria-selected', String(active));
+    node.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('[data-ldap-panel]').forEach(panel => { panel.hidden = panel.dataset.ldapPanel !== tab; });
 }
 
 function notice() {
   const node = element('div', `notice ${state.notice.type}`, state.notice.text);
   node.setAttribute('role', 'status');
-  return node;
-}
-
-function field(id, label, type, autocomplete, required) {
-  const wrapper = element('label', 'field');
-  wrapper.htmlFor = id;
-  wrapper.append(element('span', '', label));
-  const input = document.createElement('input');
-  input.id = id;
-  input.name = id;
-  input.type = type;
-  input.autocomplete = autocomplete;
-  input.required = required;
-  input.maxLength = id === 'password' ? 72 : 254;
-  wrapper.append(input);
-  return wrapper;
-}
-
-function detail(list, label, value) {
-  const item = element('div', 'detail-item');
-  item.append(element('dt', '', label));
-  item.append(element('dd', '', value));
-  list.append(item);
-}
-
-function element(tag, className = '', text = '') {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== '') node.textContent = text;
-  return node;
-}
-
-function button(id, label, variant) {
-  const node = element('button', `button ${variant}`, label);
-  node.id = id;
-  node.type = 'button';
   return node;
 }
 
@@ -1069,6 +1618,80 @@ function navButton(view, label) {
   const node = button(`nav-${view}`, label, state.activeView === view ? 'nav-active' : 'nav');
   node.dataset.view = view;
   return node;
+}
+
+function navSection(label, views) {
+  const section = element('div', 'nav-section');
+  section.append(element('span', 'nav-section-label', label));
+  const list = element('div', 'nav-section-items');
+  views.forEach(([view, text]) => list.append(navButton(view, text)));
+  section.append(list);
+  return section;
+}
+
+async function updateFingerprintStatus(form, peer, value) {
+  const status = form.querySelector('[data-fingerprint-status]');
+  const submit = form.querySelector('[type="submit"]');
+  if (!status) return;
+  const token = String(Number(form.dataset.fingerprintToken || 0) + 1);
+  form.dataset.fingerprintToken = token;
+  if (!String(value || '').trim()) {
+    status.textContent = t('fingerprintStatusEmpty');
+    status.className = 'fingerprint-status';
+    if (submit) submit.disabled = true;
+    return;
+  }
+  const result = await fingerprintCandidates(value);
+  if (form.dataset.fingerprintToken !== token) return;
+  if (!result.valid) {
+    status.textContent = t('fingerprintStatusInvalid');
+    status.className = 'fingerprint-status error';
+    if (submit) submit.disabled = true;
+    return;
+  }
+  const match = matchingFingerprint(result.candidates, peer?.pk_fingerprint);
+  if (match) {
+    status.textContent = t('fingerprintStatusMatch');
+    status.className = 'fingerprint-status success';
+  } else if (peer?.pk_fingerprint) {
+    status.textContent = t('fingerprintStatusMismatch');
+    status.className = 'fingerprint-status warning';
+  } else {
+    status.textContent = t('fingerprintStatusReady');
+    status.className = 'fingerprint-status';
+  }
+  if (submit) submit.disabled = state.busy || !state.registryUsers.length;
+}
+
+function preserveBindDraft(form, target = null) {
+  const peerId = form.dataset.bindPeer;
+  if (!peerId) return;
+  const data = new FormData(form);
+  state.deviceBindDrafts[peerId] = {
+    user_id: String(data.get('user_id') || ''),
+    pk_fingerprint: String(data.get('pk_fingerprint') || '')
+  };
+  if (target?.name === 'pk_fingerprint') {
+    const peer = state.registeredDevices.find(item => item.peer_id === peerId);
+    if (peer) {
+      clearTimeout(form._fingerprintTimer);
+      form._fingerprintTimer = setTimeout(() => updateFingerprintStatus(form, peer, target.value), 120);
+    }
+  }
+}
+
+function refreshFingerprintStatuses() {
+  document.querySelectorAll('[data-bind-peer]').forEach(form => {
+    const peer = state.registeredDevices.find(item => item.peer_id === form.dataset.bindPeer);
+    const input = form.querySelector('[name="pk_fingerprint"]');
+    const submit = form.querySelector('[type="submit"]');
+    if (!peer || !input) return;
+    if (!input.value.trim()) {
+      if (submit) submit.disabled = true;
+      return;
+    }
+    updateFingerprintStatus(form, peer, input.value);
+  });
 }
 
 function bindEvents() {
@@ -1107,9 +1730,7 @@ function bindEvents() {
     state.activeView = nextView;
     setNotice(null, null);
     render();
-    if (state.activeView === 'addressBook') {
-      await loadAddressBook();
-    }
+    if (state.activeView === 'addressBook') await loadAddressBook();
     if (state.activeView === 'devices') await loadDevices();
     if (state.activeView === 'groups') await loadGroups();
     if (state.activeView === 'deviceGroups') await loadDeviceGroups();
@@ -1118,21 +1739,45 @@ function bindEvents() {
     if (state.activeView === 'oauth') await loadOauthProviders();
     if (state.activeView === 'ldap' && !state.ldap) await loadLdap();
   }));
+
   document.querySelector('#refresh-address-book')?.addEventListener('click', loadAddressBook);
   document.querySelector('#save-address-book')?.addEventListener('click', saveAddressBook);
-  document.querySelector('#address-book-editor')?.addEventListener('input', event => {
-    state.addressBookJsonDraft.text = event.currentTarget.value;
-    updateAddressBookDraftStatus();
+  document.querySelector('#add-peer')?.addEventListener('click', () => openPeerEditor());
+  const peerEditorNode = document.querySelector('#peer-editor');
+  peerEditorNode?.addEventListener('toggle', () => { state.addressBookFormOpen = peerEditorNode.open; });
+  const advancedNode = document.querySelector('#address-book-advanced');
+  advancedNode?.addEventListener('toggle', () => { state.addressBookAdvancedOpen = advancedNode.open; });
+  document.querySelector('#address-book-search')?.addEventListener('input', event => {
+    state.addressBookSearch = event.currentTarget.value;
+    renderAddressBookRows();
+  });
+  document.querySelectorAll('[data-tag-filter]').forEach(node => node.addEventListener('click', () => {
+    state.addressBookTagFilter = node.dataset.tagFilter || '';
+    updateAddressBookFilterButtons();
+    renderAddressBookRows();
+  }));
+  document.querySelector('#add-peer-tag')?.addEventListener('click', addPeerTag);
+  document.querySelector('#peer-new-tag')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); addPeerTag(); }
+  });
+  document.querySelector('#peer-new-tag')?.addEventListener('input', event => { state.peerNewTag = event.currentTarget.value; });
+  document.querySelector('#peer-selected-tags')?.addEventListener('click', event => {
+    const node = event.target.closest('[data-remove-peer-tag]');
+    if (node) removePeerTag(node.dataset.removePeerTag);
   });
   document.querySelector('#peer-form')?.addEventListener('submit', savePeer);
   document.querySelector('#peer-form')?.addEventListener('input', preservePeerDraft);
   document.querySelector('#peer-form')?.addEventListener('change', preservePeerDraft);
-  document.querySelector('#clear-peer')?.addEventListener('click', clearPeerDraft);
+  document.querySelector('#clear-peer')?.addEventListener('click', () => { clearPeerDraft(); render(); });
   document.querySelectorAll('[data-edit-peer]').forEach(node => {
     node.addEventListener('click', () => editPeer(node.dataset.editPeer));
   });
   document.querySelectorAll('[data-delete-peer]').forEach(node => {
     node.addEventListener('click', () => deletePeer(node.dataset.deletePeer));
+  });
+  document.querySelector('#address-book-editor')?.addEventListener('input', event => {
+    state.addressBookJsonDraft.text = event.currentTarget.value;
+    updateAddressBookDraftStatus();
   });
   const tagForm = document.querySelector('#tag-form');
   tagForm?.addEventListener('submit', saveTag);
@@ -1148,13 +1793,14 @@ function bindEvents() {
   document.querySelectorAll('[data-edit-tag]').forEach(node => {
     node.addEventListener('click', () => {
       if (state.addressBookBusy || !state.addressBookWritable) return;
-      const tag = (state.addressBookSnapshot?.tags || []).find(tag => tag.name === node.dataset.editTag);
+      const tag = (state.addressBookSnapshot?.tags || []).find(item => item.name === node.dataset.editTag);
       if (tag) { state.tagDraft = { old_name: tag.name, name: tag.name, color: tag.color || '', revision: state.addressBookSnapshot?.revision }; render(); }
     });
   });
   document.querySelectorAll('[data-delete-tag]').forEach(node => {
     node.addEventListener('click', () => deleteTag(node.dataset.deleteTag));
   });
+
   document.querySelector('#refresh-users')?.addEventListener('click', loadUsers);
   document.querySelector('#admin-user-form')?.addEventListener('submit', createAdminUser);
   document.querySelector('#admin-user-form')?.addEventListener('input', preserveUserDraft);
@@ -1165,22 +1811,44 @@ function bindEvents() {
     node.addEventListener('click', () => deleteAdminUser(node.dataset.deleteUser));
   });
   document.querySelector('#refresh-sessions')?.addEventListener('click', loadSessions);
-  document.querySelector('#refresh-oauth')?.addEventListener('click', loadOauthProviders);
-  document.querySelector('#oauth-provider-form')?.addEventListener('submit', saveOauthProvider);
-  document.querySelector('#cancel-oauth-provider')?.addEventListener('click', () => { state.oauthDraft = null; render(); });
-  document.querySelectorAll('[data-edit-oauth]').forEach(node => node.addEventListener('click', () => editOauthProvider(node.dataset.editOauth)));
-  document.querySelectorAll('[data-toggle-oauth]').forEach(node => node.addEventListener('click', () => toggleOauthProvider(node.dataset.toggleOauth, node.dataset.oauthEnabled === 'true')));
-  document.querySelectorAll('[data-delete-oauth]').forEach(node => node.addEventListener('click', () => deleteOauthProvider(node.dataset.deleteOauth)));
   document.querySelectorAll('[data-revoke-session]').forEach(node => {
     node.addEventListener('click', () => revokeSession(node.dataset.revokeSession));
   });
+
+  document.querySelector('#refresh-oauth')?.addEventListener('click', loadOauthProviders);
+  const oauthFormNode = document.querySelector('#oauth-provider-form');
+  oauthFormNode?.addEventListener('submit', saveOauthProvider);
+  oauthFormNode?.addEventListener('input', preserveOauthDraft);
+  oauthFormNode?.addEventListener('change', preserveOauthDraft);
+  document.querySelector('#cancel-oauth-provider')?.addEventListener('click', () => { state.oauthDraft = null; state.oauthTab = 'identity'; render(); });
+  document.querySelectorAll('[data-tab]').forEach(node => {
+    if (node.closest('#oauth-tabs')) node.addEventListener('click', () => setOauthTab(node.dataset.tab));
+    if (node.closest('#ldap-tabs')) node.addEventListener('click', () => setLdapTab(node.dataset.tab));
+  });
+  document.querySelectorAll('[data-edit-oauth]').forEach(node => node.addEventListener('click', () => editOauthProvider(node.dataset.editOauth)));
+  document.querySelectorAll('[data-toggle-oauth]').forEach(node => node.addEventListener('click', () => toggleOauthProvider(node.dataset.toggleOauth, node.dataset.oauthEnabled === 'true')));
+  document.querySelectorAll('[data-delete-oauth]').forEach(node => node.addEventListener('click', () => deleteOauthProvider(node.dataset.deleteOauth)));
+
   document.querySelector('#refresh-devices')?.addEventListener('click', loadDevices);
-  document.querySelector('#registry-search')?.addEventListener('submit', event => { event.preventDefault(); state.registrySearch = new FormData(event.currentTarget).get('peer_id') || ''; loadDevices(); });
-  document.querySelectorAll('[data-bind-peer]').forEach(form => form.addEventListener('submit', bindRegisteredDevice));
+  document.querySelector('#device-search')?.addEventListener('input', event => {
+    state.deviceSearch = event.currentTarget.value;
+    renderDeviceRows();
+  });
+  document.querySelector('#registry-search')?.addEventListener('submit', event => {
+    event.preventDefault();
+    state.registrySearch = new FormData(event.currentTarget).get('peer_id') || '';
+    loadDevices();
+  });
+  document.querySelectorAll('[data-bind-peer]').forEach(form => {
+    form.addEventListener('submit', bindRegisteredDevice);
+    form.addEventListener('input', event => preserveBindDraft(event.currentTarget, event.target));
+    form.addEventListener('change', event => preserveBindDraft(event.currentTarget, event.target));
+  });
   document.querySelectorAll('[data-unbind-device]').forEach(node => node.addEventListener('click', () => unbindRegisteredDevice(node.dataset.unbindDevice)));
   document.querySelectorAll('[data-delete-device]').forEach(node => {
     node.addEventListener('click', () => deleteDevice(node.dataset.deleteDevice));
   });
+
   document.querySelector('#refresh-groups')?.addEventListener('click', loadGroups);
   document.querySelector('#group-form')?.addEventListener('submit', createGroup);
   document.querySelector('#group-form')?.addEventListener('input', event => {
@@ -1193,10 +1861,7 @@ function bindEvents() {
     node.addEventListener('click', () => addGroupMember(node.dataset.addGroup));
   });
   document.querySelectorAll('[data-remove-group]').forEach(node => {
-    node.addEventListener('click', () => removeGroupMember(
-      node.dataset.removeGroup,
-      node.dataset.userId
-    ));
+    node.addEventListener('click', () => removeGroupMember(node.dataset.removeGroup, node.dataset.userId));
   });
   document.querySelector('#refresh-device-groups')?.addEventListener('click', loadDeviceGroups);
   const deviceGroupForm = document.querySelector('#device-group-form');
@@ -1211,16 +1876,16 @@ function bindEvents() {
     node.addEventListener('click', () => addDeviceGroupMember(node.dataset.addDeviceGroup));
   });
   document.querySelectorAll('[data-remove-device-group]').forEach(node => {
-    node.addEventListener('click', () => removeDeviceGroupMember(
-      node.dataset.removeDeviceGroup,
-      node.dataset.deviceId
-    ));
+    node.addEventListener('click', () => removeDeviceGroupMember(node.dataset.removeDeviceGroup, node.dataset.deviceId));
   });
+
   document.querySelector('#refresh-ldap')?.addEventListener('click', () => loadLdap(true));
-  const ldapForm = document.querySelector('#ldap-form');
-  ldapForm?.addEventListener('submit', saveLdap);
-  ldapForm?.addEventListener('input', preserveLdapDraft);
-  ldapForm?.addEventListener('change', preserveLdapDraft);
+  const ldapFormNode = document.querySelector('#ldap-form');
+  ldapFormNode?.addEventListener('submit', saveLdap);
+  ldapFormNode?.addEventListener('input', preserveLdapDraft);
+  ldapFormNode?.addEventListener('change', preserveLdapDraft);
+
+  refreshFingerprintStatuses();
 }
 
 async function submitAuth(event) {
@@ -1299,10 +1964,13 @@ function jsonDraftChanged() {
 
 function updateAddressBookDraftStatus() {
   const status = document.querySelector('#address-book-draft-status');
+  const badgeNode = document.querySelector('#address-book-advanced-badge');
   if (!status) return;
   status.replaceChildren();
   const stale = state.addressBookSnapshot && state.addressBookJsonDraft.baseRevision !== state.addressBookSnapshot.revision;
-  if (!jsonDraftChanged() && !stale) return;
+  const changed = jsonDraftChanged() || stale;
+  if (badgeNode) badgeNode.hidden = !changed;
+  if (!changed) return;
   status.append(element('p', 'empty-state', t(stale ? 'jsonDraftStale' : 'jsonDraftChanged')));
   const discard = button('discard-address-book-draft', t('discardJsonDraft'), 'secondary');
   discard.disabled = state.addressBookBusy;
@@ -1407,6 +2075,7 @@ async function savePeer(event) {
   event.preventDefault();
   if (state.addressBookBusy || !state.addressBookWritable) return;
   const data = new FormData(event.currentTarget);
+  const tags = Array.isArray(state.addressBookDraft.tags) ? [...state.addressBookDraft.tags] : [];
   const payload = {
     id: state.addressBookDraft.id || undefined,
     revision: state.addressBookDraft.revision ?? state.addressBookSnapshot.revision,
@@ -1415,14 +2084,11 @@ async function savePeer(event) {
     hostname: String(data.get('peer-hostname') || '').trim(),
     alias: String(data.get('peer-alias') || '').trim(),
     platform: String(data.get('peer-platform') || '').trim(),
-    tags: String(data.get('peer-tags') || '')
-      .split(',')
-      .map(tag => tag.trim())
-      .filter(Boolean),
+    tags,
     force_always_relay: event.currentTarget.querySelector('[name="peer-relay"]')?.checked || false
   };
-  if (!payload.peer_id) return;
-  state.addressBookDraft = { ...state.addressBookDraft, ...payload, tags: payload.tags.join(', ') };
+  if (!payload.peer_id) { setNotice('error', t('invalidPeerId')); render(); return; }
+  state.addressBookDraft = { ...state.addressBookDraft, ...payload };
   await addressBookOperation(() => api('/api/web/ab/entries', {
     method: 'POST', body: JSON.stringify(payload)
   }), clearPeerDraft);
@@ -1438,7 +2104,7 @@ function preservePeerDraft(event) {
     hostname: String(data.get('peer-hostname') || ''),
     alias: String(data.get('peer-alias') || ''),
     platform: String(data.get('peer-platform') || ''),
-    tags: String(data.get('peer-tags') || ''),
+    tags: Array.isArray(state.addressBookDraft.tags) ? state.addressBookDraft.tags : [],
     force_always_relay: event.currentTarget.querySelector('[name="peer-relay"]')?.checked || false
   };
 }
@@ -1447,7 +2113,7 @@ function editPeer(id) {
   if (state.addressBookBusy || !state.addressBookWritable) return;
   const peer = (state.addressBookSnapshot?.entries || []).find(value => value.id === id || value.peerId === id);
   if (!peer) return;
-  state.addressBookDraft = {
+  openPeerEditor({
     id: peer.id || '',
     revision: state.addressBookSnapshot?.revision,
     peer_id: peer.peerId || peer.id || '',
@@ -1455,23 +2121,15 @@ function editPeer(id) {
     hostname: peer.hostname || '',
     alias: peer.alias || '',
     platform: peer.platform || '',
-    tags: Array.isArray(peer.tags) ? peer.tags.join(', ') : '',
+    tags: Array.isArray(peer.tags) ? [...peer.tags] : [],
     force_always_relay: Boolean(peer.forceAlwaysRelay)
-  };
-  render();
+  });
 }
 
 function clearPeerDraft() {
-  state.addressBookDraft = {
-    id: '',
-    peer_id: '',
-    username: '',
-    hostname: '',
-    alias: '',
-    platform: '',
-    tags: '',
-    force_always_relay: false
-  };
+  state.addressBookDraft = emptyPeerDraft();
+  state.peerNewTag = '';
+  state.addressBookFormOpen = false;
 }
 
 async function deletePeer(id) {
@@ -1534,13 +2192,38 @@ async function loadDevices() {
 
 async function bindRegisteredDevice(event) {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget)); data.peer_id = event.currentTarget.dataset.bindPeer;
-  state.busy = true; render();
-  try { await api('/api/admin/device/bind', { method: 'POST', body: JSON.stringify(data) }); await loadDevices(); }
-  catch (error) { state.busy = false; setNotice('error', error.message); render(); }
+  const form = event.currentTarget;
+  const peerId = form.dataset.bindPeer;
+  const data = Object.fromEntries(new FormData(form));
+  const peer = state.registeredDevices.find(item => item.peer_id === peerId);
+  const result = await fingerprintCandidates(data.pk_fingerprint);
+  if (!result.valid) {
+    state.deviceBindDrafts[peerId] = { user_id: String(data.user_id || ''), pk_fingerprint: String(data.pk_fingerprint || '') };
+    setNotice('error', t('fingerprintStatusInvalid'));
+    render();
+    return;
+  }
+  const pkFingerprint = chooseFingerprint(result.candidates, result.primary, peer?.pk_fingerprint);
+  state.deviceBindDrafts[peerId] = { user_id: String(data.user_id || ''), pk_fingerprint: String(data.pk_fingerprint || '') };
+  state.busy = true;
+  render();
+  try {
+    await api('/api/admin/device/bind', {
+      method: 'POST',
+      body: JSON.stringify({ peer_id: peerId, user_id: data.user_id, pk_fingerprint: pkFingerprint })
+    });
+    delete state.deviceBindDrafts[peerId];
+    await loadDevices();
+  } catch (error) {
+    state.busy = false;
+    setNotice('error', error.message);
+    render();
+  }
 }
 
 async function unbindRegisteredDevice(id) {
+  const peer = state.registeredDevices.find(item => item.device_id === id);
+  if (peer) delete state.deviceBindDrafts[peer.peer_id];
   state.busy = true; render();
   try { await api('/api/admin/device/unbind', { method: 'POST', body: JSON.stringify({ id }) }); await loadDevices(); }
   catch (error) { state.busy = false; setNotice('error', error.message); render(); }
@@ -1548,6 +2231,8 @@ async function unbindRegisteredDevice(id) {
 
 async function deleteDevice(id) {
   if (!id) return;
+  const device = state.devices.find(item => item.id === id);
+  if (device?.peer_id) delete state.deviceBindDrafts[device.peer_id];
   state.busy = true;
   render();
   try {
@@ -1783,17 +2468,78 @@ async function loadOauthProviders() {
   }
 }
 
+function preserveOauthDraft(event) {
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  if (event.target?.removeAttribute) event.target.removeAttribute('aria-invalid');
+  state.oauthDraft = {
+    ...(state.oauthDraft || {}),
+    kind: form.elements.kind?.value || state.oauthDraft?.kind || 'oidc',
+    name: String(data.get('name') || ''),
+    client_id: String(data.get('client_id') || ''),
+    client_secret: String(data.get('client_secret') || ''),
+    authorization_url: String(data.get('authorization_url') || ''),
+    token_url: String(data.get('token_url') || ''),
+    userinfo_url: String(data.get('userinfo_url') || ''),
+    issuer_url: String(data.get('issuer_url') || ''),
+    jwks_url: String(data.get('jwks_url') || ''),
+    scopes: String(data.get('scopes') || ''),
+    enabled: Boolean(form.elements.enabled?.checked)
+  };
+}
+
 async function saveOauthProvider(event) {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(event.currentTarget)); data.enabled = event.currentTarget.elements.enabled.checked; data.kind = event.currentTarget.elements.kind.value;
-  state.busy = true; render();
-  const editing = state.oauthDraft?.id; if (editing) data.id = editing;
-  try { await api(editing ? '/api/admin/oauth/providers/update' : '/api/admin/oauth/providers', { method: 'POST', body: JSON.stringify(data) }); state.oauthDraft = null; setNotice('success', t('providerSaved')); await loadOauthProviders(); } catch (error) { setNotice('error', error.message); state.busy = false; render(); }
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
+  const editing = state.oauthDraft?.id;
+  const required = [
+    ['name', 'identity'],
+    ['client_id', 'client'],
+    ['authorization_url', 'endpoints'],
+    ['token_url', 'endpoints'],
+    ['userinfo_url', 'endpoints']
+  ];
+  if (!editing) required.push(['client_secret', 'client']);
+  const missing = required.find(([key]) => !String(data[key] || '').trim());
+  if (missing) {
+    state.oauthTab = missing[1];
+    setNotice('error', t('requiredField'));
+    render();
+    requestAnimationFrame(() => {
+      const input = document.querySelector(`#oauth-${missing[0]}`);
+      input?.focus();
+      input?.setAttribute('aria-invalid', 'true');
+    });
+    return;
+  }
+  data.enabled = Boolean(form.elements.enabled?.checked);
+  data.kind = form.elements.kind?.value || 'oidc';
+  if (editing) data.id = editing;
+  state.busy = true;
+  render();
+  try {
+    await api(editing ? '/api/admin/oauth/providers/update' : '/api/admin/oauth/providers', {
+      method: 'POST', body: JSON.stringify(data)
+    });
+    state.oauthDraft = null;
+    state.oauthTab = 'identity';
+    setNotice('success', t('providerSaved'));
+    await loadOauthProviders();
+  } catch (error) {
+    setNotice('error', error.message);
+    state.busy = false;
+    render();
+  }
 }
 
 function editOauthProvider(id) {
   const provider = state.oauthProviders.find(item => String(item.id || item.name) === String(id));
-  if (provider) { state.oauthDraft = { ...provider, client_secret: '' }; render(); }
+  if (provider) {
+    state.oauthDraft = { ...provider, client_secret: '' };
+    state.oauthTab = 'identity';
+    render();
+  }
 }
 
 async function toggleOauthProvider(id, enabled) {
@@ -2047,10 +2793,14 @@ function clearSession() {
   state.sessions = [];
   state.oauthProviders = [];
   state.oauthRedirectConfigured = false;
+  state.oauthDraft = null;
+  state.oauthTab = 'identity';
   state.devices = [];
   state.registeredDevices = [];
   state.registryUsers = [];
   state.registrySearch = '';
+  state.deviceSearch = '';
+  state.deviceBindDrafts = {};
   state.groups = [];
   state.groupMemberships = [];
   state.groupUsers = [];
@@ -2060,17 +2810,13 @@ function clearSession() {
   state.addressBookWritable = false;
   state.addressBookBusy = false;
   state.addressBookRequest += 1;
+  state.addressBookSearch = '';
+  state.addressBookTagFilter = '';
+  state.addressBookFormOpen = false;
+  state.addressBookAdvancedOpen = false;
+  state.peerNewTag = '';
   state.busy = false;
-  state.addressBookDraft = {
-    id: '',
-    peer_id: '',
-    username: '',
-    hostname: '',
-    alias: '',
-    platform: '',
-    tags: '',
-    force_always_relay: false
-  };
+  state.addressBookDraft = emptyPeerDraft();
   state.tagDraft = { name: '', color: '' };
   state.deviceGroups = [];
   state.deviceGroupMemberships = [];
@@ -2080,6 +2826,7 @@ function clearSession() {
   state.devicesRequest += 1;
   state.ldap = null;
   state.ldapDraft = null;
+  state.ldapTab = 'connection';
   state.serverConfig = null;
   state.activeView = 'profile';
   sessionStorage.removeItem(TOKEN_KEY);

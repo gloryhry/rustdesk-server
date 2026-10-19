@@ -2,9 +2,17 @@ import { test, expect, signIn } from './fixtures.js';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 
+
+async function openAdvancedJson(page) {
+  const details = page.locator('#address-book-advanced');
+  if (!(await details.evaluate(node => node.open))) await details.locator('summary').click();
+  await expect(page.locator('#address-book-editor')).toBeVisible();
+}
+
 test('deleting a stable entry does not delete a peer whose ID collides with that entry', async ({ page, service }) => {
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '111111', alias: 'FIRST', password: 'keep' }, { id: '222222', alias: 'SECOND' }] }));
   await page.locator('#save-address-book').click();
   await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
@@ -18,6 +26,7 @@ test('deleting a stable entry does not delete a peer whose ID collides with that
   await expect(page.locator('.table-wrap')).toContainText('FIRST');
   await page.reload();
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
   await expect(page.locator('.table-wrap')).toContainText('FIRST');
   const saved = JSON.parse(await page.locator('#address-book-editor').inputValue());
@@ -26,6 +35,7 @@ test('deleting a stable entry does not delete a peer whose ID collides with that
 
 test('whole document editor reloads canonical identities and revisions before further edits', async ({ page, service }) => {
   await signIn(page, service); await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('#address-book-editor').fill(JSON.stringify({ peers: [{ id: '123456', alias: 'JSON import', extension: { keep: true } }], tags: ['imported'], tag_colors: { imported: 0xff112233 } }));
   await page.locator('#save-address-book').click(); await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
   await expect(page.locator('[data-edit-tag="imported"]')).toBeVisible();
@@ -41,7 +51,9 @@ test('two tabs preserve all peers and reject a stale draft even after list refre
   const owner = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
   sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify({ peers: [{ id: '123456', alias: 'First' }, { id: '654321', alias: 'Second', password: 'keep' }] }));
   await signIn(page, service); await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   const second = await context.newPage(); await second.goto(service.uiUrl); await second.locator('#nav-addressBook').click();
+  await openAdvancedJson(second);
   await second.locator('[data-edit-peer]').first().click(); await second.locator('[name="peer-alias"]').fill('Stale draft');
   await page.locator('[data-edit-peer]').first().click(); await page.locator('[name="peer-alias"]').fill('Fresh'); await page.locator('#save-peer').click();
   await expect(page.locator('.table-wrap')).toContainText('Fresh'); await expect(page.locator('[data-edit-peer]')).toHaveCount(2);
@@ -62,6 +74,7 @@ test('editing an imported address book alias keeps password, RDP and unknown fie
   sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify({ peers: [peer], tags: ['old'] }));
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('[data-edit-peer]').click();
   await page.locator('[name="peer-alias"]').fill('Edited');
   await page.locator('#save-peer').click();
@@ -71,6 +84,7 @@ test('editing an imported address book alias keeps password, RDP and unknown fie
   expect(saved.alias).toBe('Edited');
   await page.reload();
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('.table-wrap')).toContainText('Edited');
   sqlite.close();
 });
@@ -81,12 +95,14 @@ test('imported snapshot-only entry can be deleted and stays absent after reload'
   sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify({ peers: [{ id: '654321', alias: 'Imported only' }] }));
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('[data-delete-peer]')).toHaveCount(1);
   await page.locator('[data-delete-peer]').click();
   await expect(page.locator('[data-delete-peer]')).toHaveCount(0);
   expect(JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data).peers).toEqual([]);
   await page.reload();
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('[data-delete-peer]')).toHaveCount(0);
   sqlite.close();
 });
@@ -100,6 +116,7 @@ test('Peer ID edit preserves stable entry ID and duplicate targets leave data un
   for (const peer of peers) insert.run(peer.entryId, owner, peer.id, peer.alias);
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('[data-edit-peer="stable-first"]').click();
   await page.locator('[name="peer-id"]').fill('777777');
   await page.locator('#save-peer').click();
@@ -122,6 +139,7 @@ test('official false string restores an unchecked relay and Web edits round-trip
   sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify({ peers: [{ id: '123456', forceAlwaysRelay: 'false' }] }));
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('[data-edit-peer]').click();
   const relay = page.locator('[name="peer-relay"]');
   await expect(relay).not.toBeChecked();
@@ -136,7 +154,8 @@ test('official false string restores an unchecked relay and Web edits round-trip
   await relay.uncheck(); await page.locator('#save-peer').click();
   expect((await disabled).status()).toBe(200);
   await expect(page.locator('[data-edit-peer]')).toHaveCount(1);
-  await page.reload(); await page.locator('#nav-addressBook').click(); await page.locator('[data-edit-peer]').click();
+  await page.reload(); await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page); await page.locator('[data-edit-peer]').click();
   await expect(relay).not.toBeChecked();
   official = await page.evaluate(async () => JSON.parse((await (await fetch('/api/ab')).json()).data));
   expect(official.peers[0].forceAlwaysRelay).toBe('false');
@@ -151,6 +170,7 @@ test('tag color editing keeps alpha and renaming or deleting updates only relate
   sqlite.prepare('insert into api_address_book_snapshot(user_id,data) values(?,?)').run(owner, JSON.stringify(initial));
   sqlite.prepare('insert into api_address_book_entry(id,user_id,peer_id,tags) values(?,?,?,?)').run('stable-peer', owner, '123456', JSON.stringify(['old', 'keep']));
   await signIn(page, service); await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('[data-edit-tag="old"]').click();
   await expect(page.locator('#tag-form [name="color"]')).toHaveValue('#11223344');
   await page.locator('#tag-form [name="name"]').fill('renamed');
@@ -166,6 +186,7 @@ test('tag color editing keeps alpha and renaming or deleting updates only relate
   stored = JSON.parse(sqlite.prepare('select data from api_address_book_snapshot where user_id=?').get(owner).data);
   expect(stored.tag_colors).toEqual({ keep: 0xffabcdef }); expect(stored.peers[0].tags).toEqual(['keep']);
   await page.reload(); await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('[data-edit-tag="keep"]')).toBeVisible();
   sqlite.close();
 });
@@ -174,6 +195,7 @@ test('tag color editing keeps alpha and renaming or deleting updates only relate
 test('refreshing the book must refresh tag colors before assigning the new revision', async ({ page, service, context }) => {
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await page.locator('#tag-form [name="name"]').fill('work');
   await page.locator('#tag-form [name="color"]').fill('#ff0000');
   await page.locator('#save-tag').click();
@@ -182,6 +204,7 @@ test('refreshing the book must refresh tag colors before assigning the new revis
   const second = await context.newPage();
   await second.goto(service.uiUrl);
   await second.locator('#nav-addressBook').click();
+  await openAdvancedJson(second);
   await second.locator('[data-edit-tag="work"]').click();
   await second.locator('#tag-form [name="color"]').fill('#0000ff');
   const secondSaved = second.waitForResponse(r => r.url().endsWith('/api/web/ab/tags') && r.request().method() === 'POST');
@@ -205,6 +228,7 @@ test('refreshing the book must refresh tag colors before assigning the new revis
 test('saving a tag must keep the unsaved whole document draft', async ({ page, service }) => {
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   const draft = JSON.stringify({peers:[{id:'123456',alias:'unsaved-draft'}],tags:[]});
   await page.locator('#address-book-editor').fill(draft);
   await page.locator('#tag-form [name="name"]').fill('new-tag');
@@ -218,6 +242,7 @@ test('saving a tag must keep the unsaved whole document draft', async ({ page, s
 async function openAddressBook(page, service) {
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('#save-tag')).toBeEnabled();
 }
 
@@ -235,6 +260,7 @@ test('a tag draft retains its revision after refresh and rejects a concurrent ed
   const second = await context.newPage();
   await second.goto(service.uiUrl);
   await second.locator('#nav-addressBook').click();
+  await openAdvancedJson(second);
   await expect(second.locator('#save-tag')).toBeEnabled();
   await second.locator('[data-edit-tag="work"]').click();
   await second.locator('#tag-form [name="color"]').fill('#0000ff');
@@ -289,6 +315,7 @@ test('invalid JSON survives language, navigation, failed refresh and invalid sav
   await expect(page.locator('#address-book-draft-status')).toContainText('unsaved');
   await page.locator('#nav-profile').click();
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('#save-address-book')).toBeEnabled();
   await expect(page.locator('#address-book-editor')).toHaveValue(draft);
   await page.route('**/api/web/ab/tags', route => route.fulfill({ status: 503, json: { error: 'review_refresh_failure' } }));
@@ -333,6 +360,7 @@ for (const persistent of [false, true]) {
     const second = await context.newPage();
     await second.goto(service.uiUrl);
     await second.locator('#nav-addressBook').click();
+  await openAdvancedJson(second);
     await expect(second.locator('#save-tag')).toBeEnabled();
     await second.locator('[data-edit-tag="work"]').click();
     await second.locator('#tag-form [name="color"]').fill('#0000ff');
@@ -352,7 +380,7 @@ for (const persistent of [false, true]) {
       await expect(page.locator('.notice')).toContainText('address_book_revision_conflict');
       await expect(page.locator('#address-book-editor')).toHaveValue(original);
       await expect(page.locator('[data-edit-tag="work"]')).toBeDisabled();
-      await expect(page.locator('.tag-swatch')).toHaveAttribute('title', '#ff0000');
+      await expect(page.locator('#tags-panel .tag-row').filter({ hasText: 'work' }).locator('.tag-swatch')).toHaveAttribute('title', '#ff0000');
     } else {
       await expect(page.locator('#save-tag')).toBeEnabled();
       await page.locator('[data-edit-tag="work"]').click();
@@ -406,6 +434,7 @@ test('a snapshot returning after logout cannot restore private drafts', async ({
   await expect(page.locator('#address-book-editor')).toHaveCount(0);
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('#save-tag')).toBeEnabled();
   await expect(page.locator('#address-book-editor')).not.toHaveValue('{ "privateDraft": true');
 });
@@ -433,6 +462,7 @@ test('a late unauthorized snapshot cannot clear a newly authenticated session', 
   await page.locator('#auth-submit').click();
   await expect(page.locator('#nav-addressBook')).toBeVisible();
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('#save-tag')).toBeEnabled();
   const current = await page.locator('#address-book-editor').inputValue();
   release();
@@ -445,6 +475,7 @@ test('an unavailable bootstrap snapshot preserves the authenticated session', as
   await page.route('**/api/web/ab/tags', route => route.fulfill({ status: 503, json: { error: 'bootstrap_read_failure' } }));
   await signIn(page, service);
   await page.locator('#nav-addressBook').click();
+  await openAdvancedJson(page);
   await expect(page.locator('.notice')).toContainText('bootstrap_read_failure');
   await expect(page.locator('#save-tag')).toBeDisabled();
   await expect(page.locator('#logout')).toBeVisible();

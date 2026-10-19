@@ -7,17 +7,17 @@
 - 用户登录、公开注册和可用 OAuth/OIDC provider 登录。
 - HttpOnly cookie session 恢复、注销和当前用户资料。
 - 服务器公开配置展示。
-- 个人地址簿的 raw JSON snapshot 编辑。
-- 地址簿 peer 的结构化添加、编辑、删除。
+- 个人地址簿的设备列表、搜索、标签筛选和结构化添加/编辑。
 - 地址簿标签创建、颜色设置和删除。
+- 折叠的“高级：原始 JSON”编辑器，保留完整草稿、冲突和刷新失败保护。
 - 普通用户和管理员用户管理视图。
 - 用户组创建、删除、成员添加和成员移除。
-- 设备列表和状态展示。
-- 管理员设备删除。
+- 设备列表以 UUID 为主标识，展示账户、RustDesk ID、平台和状态。
+- 管理员设备登记、设备指纹绑定/解绑和设备删除。
 - 设备组创建、删除、设备分配和移除。
 - 管理员 session 列表和 session 撤销。
-- 管理员 OAuth provider 状态查看。
-- 管理员 LDAP 配置编辑，bind password 不返回给浏览器。
+- 管理员 OAuth provider 分组标签页配置、状态查看和启停。
+- 管理员 LDAP 连接/绑定/用户搜索分组标签页配置，bind password 不返回给浏览器。
 - `zh-CN` 和 `en-US` locale 切换。
 
 ## API 路由
@@ -122,7 +122,9 @@ LDAP 配置页面用于查看和更新 API 进程内的 LDAP 配置，并且不�
 web/
 ├── index.html          Vite HTML 入口
 ├── src/main.js         状态、视图、API 请求、locale 和事件处理
-├── src/style.css       页面布局和组件样式
+├── src/ui.js           DOM、卡片、表单栅格、标签页和徽标等 UI 原语
+├── src/fingerprint.js  设备指纹解析、SHA-256 计算和摘要匹配
+├── src/style.css       设计变量、页面布局和组件样式
 ├── package.json        npm scripts 和依赖
 ├── package-lock.json   锁定依赖版本
 └── dist/               npm run build 生成的静态资源
@@ -157,6 +159,6 @@ cargo check --locked --all-targets
 
 浏览器回归：构建 API 和 Web 后运行 `RUSTDESK_API_BINARY=/absolute/path/rustdesk-api npm run test:browser`。测试使用独立临时数据库、随机端口和系统 Chrome，涵盖允许/拒绝跨源、登录恢复、修改、注销及第三方 Cookie 限制。
 
-管理员设备页面分别展示未认证报告和已核验归属。先通过已有可信渠道从受控设备核对公钥，再选择账户并填写 SHA-256 指纹进行绑定；报告中的用户名或 UUID 不能作为归属证明。支持按 RustDesk ID 查询登记记录和解除绑定。历史关联保留为待核验，普通用户只看到公钥及 UUID 仍与登记记录匹配的已核验设备。
+管理员设备页面分别展示未认证报告和已核验归属。先通过已有可信渠道从受控设备取得设备指纹，再选择账户并填写设备客户端显示的 64 位十六进制指纹；浏览器会计算 SHA-256 后提交，也兼容 `sha256:<hex>` 摘要输入。页面默认只展示 UUID，不展示已登记 SHA-256。报告中的用户名或 UUID 不能作为归属证明。支持按 RustDesk ID 查询登记记录和解除绑定。历史关联保留为待核验，普通用户只看到公钥及 UUID 仍与登记记录匹配的已核验设备。
 
 设备管理按钮及设备组成员关系始终使用内部设备主键；界面可显示对应 RustDesk ID。官方 `/api/peers` 则返回真实 RustDesk ID 和对象形式的信息，不能将其 ID 直接用于管理删除。管理启停状态与 hbbs 在线状态分别记录。
