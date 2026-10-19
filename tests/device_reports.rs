@@ -483,20 +483,24 @@ async fn ownership_operations_roll_back_if_their_audit_cannot_be_saved() {
     let app = TestApp::new(CookiePolicy::default(),OAuthRuntime::new(Vec::new())).await;
     seed(&app).await; let (owner,owner_token) = owner(&app).await; let admin = admin(&app).await;
     let pool = pool(&app).await;
-    sqlx::query("create trigger deny_binding_audit before insert on api_device_binding_audit begin select raise(abort,'test audit failure'); end").execute(&pool).await.unwrap();
+    // Keep fault-injection DDL on one connection: other connections can retain
+    // a stale schema after DROP TRIGGER and reject the subsequent CREATE.
+    let mut connection = pool.acquire().await.unwrap();
+    sqlx::query("create trigger deny_binding_audit before insert on api_device_binding_audit begin select raise(abort,'test audit failure'); end").execute(&mut *connection).await.unwrap();
     let failed = authenticated(&app,"POST","/api/admin/device/bind",json!({"peer_id":"123456","user_id":owner,"pk_fingerprint":key_fingerprint(&[3;32])}),&admin).await;
     assert_eq!(failed.status(),StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device").fetch_one(&pool).await.unwrap(),0);
-    sqlx::query("drop trigger deny_binding_audit").execute(&pool).await.unwrap();
+    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device").fetch_one(&mut *connection).await.unwrap(),0);
+    sqlx::query("drop trigger deny_binding_audit").execute(&mut *connection).await.unwrap();
     let id = bind(&app,&owner,&admin).await;
-    sqlx::query("create trigger deny_binding_audit before insert on api_device_binding_audit begin select raise(abort,'test audit failure'); end").execute(&pool).await.unwrap();
+    sqlx::query("create trigger deny_binding_audit before insert on api_device_binding_audit begin select raise(abort,'test audit failure'); end").execute(&mut *connection).await.unwrap();
     for path in ["/api/admin/device/unbind","/api/admin/device/delete"] {
         assert_eq!(authenticated(&app,"POST",path,json!({"id":id}),&admin).await.status(),StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(value(authenticated(&app,"GET","/api/devices",json!({}),&owner_token).await).await["data"][0]["verified"],true);
     }
-    sqlx::query("drop trigger deny_binding_audit").execute(&pool).await.unwrap();
+    sqlx::query("drop trigger deny_binding_audit").execute(&mut *connection).await.unwrap();
     assert_eq!(authenticated(&app,"POST","/api/admin/device/delete",json!({"id":id}),&admin).await.status(),StatusCode::OK);
-    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device_binding_audit where action='delete'").fetch_one(&pool).await.unwrap(),1);
+    assert_eq!(sqlx::query_scalar::<_,i64>("select count(*) from api_device_binding_audit where action='delete'").fetch_one(&mut *connection).await.unwrap(),1);
+    drop(connection);
     pool.close().await;
 }
 
