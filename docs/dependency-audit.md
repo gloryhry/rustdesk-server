@@ -113,3 +113,24 @@ atty 平台指针公告定向基线失败；本地薄层使用 Rust 标准库 Is
 真实两服务 CLI 管道错误无 ANSI、伪终端错误带 ANSI，升级前后通过（默认 help 不启用颜色，所以回归使用实际错误路径）；根包 147 项与 locked check 通过。刷新完整审计库后 cargo audit --deny unsound 无忽略项通过，漏洞/unsound 均为 0；npm 生产依赖漏洞为 0。
 
 公告库提交：9b3a3b73a7f42606494c943e95f8196e9994df46，更新于 2026-09-30T09:15:39+02:00。仍保留 ansi_term、bincode、dlopen_derive、sodiumoxide 四条停止维护提示，属于后续维护风险，不标记为已修复漏洞。锁文件 SHA-256：42722c2c52ceeffc095a87be61d0c3d90ff29bd3968ca3547c38a0365cdf8c52；用户数据库未变。
+
+## 2026-10-19：rustls 新增安全公告修复
+
+刷新公告库后，旧锁文件中的 rustls 0.23.45 命中以下四条 2026-10-14 发布的公告，完整 `cargo audit --deny unsound` 返回 1：
+
+| 公告 | 问题 | 修复版本 |
+| --- | --- | --- |
+| [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346.html) | 客户端会话值的 Debug 输出可能泄露 TLS 密钥 | >=0.23.46 |
+| [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347.html) | ECH 被拒绝后，缓冲的应用数据可能发往外层服务器 | >=0.23.46 |
+| [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348.html) | Brotli 证书解压可能在认证前分配过多内存 | >=0.23.46 |
+| [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349.html) | 未认证的 ServerHello 可能影响后续连接的密钥交换组选择 | >=0.23.46 |
+
+定向更新 rustls 0.23.45 → 0.23.46；锁文件仅修改该包的版本与校验和，不修改根依赖清单、hbb_common 子模块或 TLS 配置。四条公告的现有定向审计脚本检查通过，完整审计返回 0，漏洞与 unsound 均为 0。此结果为依赖版本审计，不代表已在服务运行路径中复现公告的全部利用条件。
+
+本轮公告库提交为 `999ec89d5d3f10f20be14750ec8c2d8b44e0ac9b`，更新于 `2026-10-17T17:23:59+02:00`，包含 1338 条公告。仍有 ansi_term、bincode、dlopen_derive、sodiumoxide 四条停止维护提示，以及 ahash 0.7.6、crossbeam-channel 0.5.4 两条 yanked 提示，保留为后续维护项；未添加 ignore 或放宽审计规则。
+
+API compatibility 工作流中的 Rust 审计步骤前移至 Rust 工具链安装之后、Node.js 安装与测试之前，仅执行一次。保持 `cargo-audit 0.22.2` 的 locked 安装和 `cargo audit --deny unsound`，让新的安全公告尽早阻断该任务。
+
+浏览器回归同时发现设备绑定测试夹具的账户 ID 查询可能与导航后的 API 数据库操作争用 SQLite 锁；将准备查询移到浏览器请求之前，消除该竞态。两项设备绑定用例各重复五次均通过，未增加重试或放宽功能断言。
+
+本地验收：根包 171 项 Rust 测试、locked 全目标 check、全部服务二进制构建、Web 构建及 40 项浏览器测试通过；npm 生产依赖漏洞为 0。锁文件 SHA-256：`d03a2d039d6adb89dc9e7bcdd3ac1313bf48e2bea0e5db883f7382e6cf349715`。

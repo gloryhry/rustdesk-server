@@ -18,6 +18,10 @@ jobs:
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+      - name: Audit Rust dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --deny unsound
       - uses: actions/setup-node@v4
         with:
           node-version: 24.9.0
@@ -41,10 +45,6 @@ jobs:
           RUSTDESK_API_BINARY: ${{ github.workspace }}/target/debug/rustdesk-api
           PLAYWRIGHT_CHROME: /usr/bin/google-chrome
         run: npm run test:browser
-      - name: Audit Rust dependencies
-        run: |
-          cargo install cargo-audit --version 0.22.2 --locked
-          cargo audit --deny unsound
 
   multiarch:
     name: Release images (${{ matrix.platform }})

@@ -21,6 +21,7 @@ test('administrator independently checks the device fingerprint before binding o
   const pk = Buffer.alloc(32, 3);
   await addPeer(service, sqlite, pk);
   const expectedFingerprint = `sha256:${createHash('sha256').update(pk).digest('hex')}`;
+  const account = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
 
   await signIn(page, service);
   await page.locator('#nav-devices').click();
@@ -30,7 +31,6 @@ test('administrator independently checks the device fingerprint before binding o
   await expect(page.locator('.content')).not.toContainText(expectedFingerprint);
   await expect(page.locator('.content')).not.toContainText(pk.toString('hex'));
 
-  const account = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
   await peer.locator('[name="user_id"]').selectOption(account);
   await peer.locator('[name="pk_fingerprint"]').fill(groupedHex(Buffer.alloc(32, 4)));
   await expect(peer.locator('[data-fingerprint-status]')).toContainText(/不匹配|does not match/);
@@ -56,10 +56,10 @@ test('sha256-prefixed fingerprints stay compatible and invalid input disables su
   const pk = Buffer.alloc(32, 5);
   await addPeer(service, sqlite, pk);
   const expectedFingerprint = `sha256:${createHash('sha256').update(pk).digest('hex')}`;
+  const account = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
   await signIn(page, service);
   await page.locator('#nav-devices').click();
   const peer = page.locator('[data-registry-peer="123456"]');
-  const account = sqlite.prepare("select id from api_user where username='browser-admin'").get().id;
   await peer.locator('[name="user_id"]').selectOption(account);
 
   await peer.locator('[name="pk_fingerprint"]').fill('1234');
