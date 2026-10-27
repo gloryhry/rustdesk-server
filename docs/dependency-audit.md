@@ -134,3 +134,16 @@ API compatibility 工作流中的 Rust 审计步骤前移至 Rust 工具链安�
 浏览器回归同时发现设备绑定测试夹具的账户 ID 查询可能与导航后的 API 数据库操作争用 SQLite 锁；将准备查询移到浏览器请求之前，消除该竞态。两项设备绑定用例各重复五次均通过，未增加重试或放宽功能断言。
 
 本地验收：根包 171 项 Rust 测试、locked 全目标 check、全部服务二进制构建、Web 构建及 40 项浏览器测试通过；npm 生产依赖漏洞为 0。锁文件 SHA-256：`d03a2d039d6adb89dc9e7bcdd3ac1313bf48e2bea0e5db883f7382e6cf349715`。
+
+## 2026-10-27：上游同步后的安全依赖更新
+
+以公告库 `3279c99911354c400e1d41e47c7d60e39258b147`（1378 条公告）检查合并前后锁文件，均有 8 项漏洞和 9 项 unsound 公告，确认这些问题早于本轮合并。
+
+- 服务端公共库以原固定提交 `f94e3fef6c962814e71b7547848e06526b235062` 为基底，在 `gloryhry/hbb_common` 的 `codex/server-security-20261027` 分支生成 `dc77870799c1befc38bf5aa217c9d5b6e851978c`；只将 `zstd` 依赖改为 `0.14.3`，协议及配置源码保持原样。服务端固定到该提交，不引入客户端锁服策略。
+- 公共库继续作为服务端的 path 依赖，排除其工作区成员身份。服务端没有启用 WebRTC，此前工作区成员的可选及开发依赖仍进入锁文件；重新解析后移除未被服务端使用的 WebRTC、DTLS、crypto-bigint 等依赖，包记录由 548 项减至 469 项。
+- 定向更新 `zstd 0.14.3`、`zstd-safe 8.2.0`、`zstd-sys 2.1.2+zstd.1.5.7`、`tokio 1.53.3`、`rustls-webpki 0.103.16`、`webpki-root-certs 1.0.11`、`webpki-roots 0.26.11/1.0.11`。`pkg-config 0.3.34` 满足新 `zstd-sys` 的 `>=0.3.28` 要求。
+- `webpki-roots 0.26.11` 是重新导出 1.x 根证书的兼容包；其 1.x 依赖同时固定到 `1.0.11`，符合 RUSTSEC-2026-0381 的修复要求。
+
+完整 `cargo audit --deny unsound` 无 ignore 通过，漏洞与 unsound 均为 0。仍保留 ansi_term、dlopen_derive、sodiumoxide 三项停止维护提示，以及 ahash 0.7.6、crossbeam-channel 0.5.4 两项 yanked 提示。该结果是依赖审计，不代表复现了各公告的实际利用路径。
+
+本地验收：176 项 Rust 测试、locked 全目标 check、服务二进制构建、40 项真实 API 浏览器回归、14 项多架构验证脚本单元测试通过；打洞记录上限为 0 和 2 的两个独立进程检查均实际运行并通过。Web 构建和 npm 生产依赖审计通过。锁文件 SHA-256：`bb0977da964b8f35ed4448c98207ea57599e2d506a552bb77bd060e8b069cfc7`。
